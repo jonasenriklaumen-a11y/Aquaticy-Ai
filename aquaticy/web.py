@@ -1109,7 +1109,10 @@ def start_user_scheduler(account: Account) -> None:
     with _SCHEDULER_LOCK:
         if account.id in USER_SCHEDULERS:
             return
-        scheduler = Scheduler(SESSIONS.get(account).settings)
+        scheduler = Scheduler(
+            SESSIONS.get(account).settings,
+            token_limit=None if account.pro else NORMAL_TOKEN_LIMIT,
+        )
         scheduler.start()
         USER_SCHEDULERS[account.id] = scheduler
 
@@ -1745,6 +1748,7 @@ class Handler(BaseHTTPRequestHandler):
         action = str(payload.get("action", "add")).strip().lower()
 
         if action == "add":
+            image_id = ""
             try:
                 kind = str(payload.get("kind", "research")).strip().lower()
                 if kind in ("visual", "image") and not selected_vision_model(settings):
@@ -1752,7 +1756,6 @@ class Handler(BaseHTTPRequestHandler):
                         "ok": False,
                         "error": "Die Bildbeobachtung braucht ein Vision-Modell unter Modell.",
                     }
-                image_id = ""
                 if kind == "image":
                     image_id, fehler = self._job_image(payload, settings)
                     if fehler:
@@ -1769,6 +1772,11 @@ class Handler(BaseHTTPRequestHandler):
                     image_id=image_id,
                 )
             except (ValueError, TypeError) as exc:
+                if image_id:
+                    from aquaticy.media import delete_snapshot
+
+                    with contextlib.suppress(OSError, ValueError):
+                        delete_snapshot(settings.data_dir, image_id)
                 return {"ok": False, "error": str(exc)}
             return {"ok": True, "job": job.as_dict()}
 
@@ -1797,13 +1805,18 @@ class Handler(BaseHTTPRequestHandler):
             job = store.get(nummer)
             if job is None:
                 return {"ok": False, "error": "Diesen Auftrag gibt es nicht."}
+            job_token_limit = None if SESSION.pro else NORMAL_TOKEN_LIMIT
 
             def sofort() -> None:
                 # Scheitert der Lauf, muss das trotzdem am Auftrag stehen:
                 # sonst bleibt er auf "laeuft gerade" haengen und sein
                 # naechster Termin in der Vergangenheit.
                 try:
-                    state, chat = run_job(job, settings)
+                    state, chat = run_job(
+                        job,
+                        settings,
+                        token_limit=job_token_limit,
+                    )
                 except Exception as exc:
                     state, chat = (f"Fehler: {type(exc).__name__}", "")
                 store.note_run(job.id, state, chat)

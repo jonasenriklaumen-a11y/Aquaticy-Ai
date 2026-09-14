@@ -436,6 +436,34 @@ def offer_url(text: str) -> str:
     return match.group(0).rstrip(".,;:") if match else ""
 
 
+def verified_offer_url(text: str, sources: list[Any]) -> str:
+    """Gibt die Angebotsadresse nur zurueck, wenn diese Seite gelesen wurde."""
+    angebot = offer_url(text)
+    if not angebot:
+        return ""
+
+    def identity(url: str) -> tuple[str, str, str, str]:
+        try:
+            parsed = urlsplit(url)
+        except ValueError:
+            return ("", "", "", "")
+        return (
+            parsed.scheme.lower(),
+            (parsed.hostname or "").lower(),
+            parsed.path.rstrip("/") or "/",
+            parsed.query,
+        )
+
+    wanted = identity(angebot)
+    if not wanted[1]:
+        return ""
+    for source in sources:
+        url = source.get("url", "") if isinstance(source, dict) else getattr(source, "url", "")
+        if identity(str(url or "")) == wanted:
+            return angebot
+    return ""
+
+
 def describe_job_image(agent: Any, job: Job, settings: Any) -> str:
     """Laesst das Vision-Modell beschreiben, was auf dem Auftragsbild liegt.
 
@@ -457,7 +485,7 @@ def describe_job_image(agent: Any, job: Job, settings: Any) -> str:
         return ""
 
 
-def run_job(job: Job, settings: Any) -> tuple[str, str]:
+def run_job(job: Job, settings: Any, *, token_limit: int | None = None) -> tuple[str, str]:
     """Fuehrt einen Auftrag aus. Returns: (Zustand, Chat-Kennung).
 
     Der Agent ist ein eigener: das laufende Gespraech des Nutzers bleibt
@@ -469,6 +497,10 @@ def run_job(job: Job, settings: Any) -> tuple[str, str]:
     """
     from aquaticy.agent import Agent
     from aquaticy.cache import Cache
+    from aquaticy.usage import UsageLog
+
+    if token_limit is not None and UsageLog(settings.db_path).total_tokens() >= token_limit:
+        return ("Tokenlimit erreicht", "")
 
     cache = Cache(settings.db_path, settings.cache_ttl_hours)
     monitoring = job.kind in MONITORING
@@ -551,8 +583,8 @@ def run_job(job: Job, settings: Any) -> tuple[str, str]:
             # Gefunden heisst beim Bildauftrag: eine Seite gelesen UND eine
             # Adresse genannt. Ein Modell, das "ja, gibt es" schreibt, hat noch
             # nichts gefunden -- der Nutzer will den Laden, nicht die Zuversicht.
-            if job.kind == "image" and (
-                not getattr(result, "sources", []) or not offer_url(antwort)
+            if job.kind == "image" and not verified_offer_url(
+                antwort, list(getattr(result, "sources", []) or [])
             ):
                 return ("kein Angebot gefunden", "")
             if not matched:
@@ -585,9 +617,12 @@ class Scheduler:
     ohnehin gegenseitig ausbremsen.
     """
 
-    def __init__(self, settings_getter: Any, on_run: Any = None) -> None:
+    def __init__(
+        self, settings_getter: Any, on_run: Any = None, token_limit: int | None = None
+    ) -> None:
         self._settings_getter = settings_getter
         self._on_run = on_run
+        self._token_limit = token_limit
         self._stop = threading.Event()
         self._thread: threading.Thread | None = None
 
@@ -618,7 +653,10 @@ class Scheduler:
             # waere beim naechsten Takt wieder der erste, wuerde wieder
             # stolpern -- und alles, was hinter ihm steht, kaeme nie dran.
             try:
-                state, chat = run_job(job, settings)
+                if self._token_limit is None:
+                    state, chat = run_job(job, settings)
+                else:
+                    state, chat = run_job(job, settings, token_limit=self._token_limit)
             except Exception as exc:
                 state, chat = (f"Fehler: {type(exc).__name__}", "")
             store.note_run(job.id, state, chat)

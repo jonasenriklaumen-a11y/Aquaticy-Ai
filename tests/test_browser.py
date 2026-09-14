@@ -346,6 +346,24 @@ def test_a_page_without_video_does_not_wait_for_playback() -> None:
     assert wait_for_live_frame(page, timeout_ms=3_000) == "bild"
 
 
+def test_an_embedded_player_is_started_before_the_shot() -> None:
+    """Ein Bild auf der Hauptseite darf das Video im iFrame nicht verdecken."""
+    from aquaticy.browser import wait_for_live_frame
+
+    page = LivePage([{"videos": 0, "playing": 0, "images": 1, "loaded": 1}])
+    frame = LivePage([
+        {"videos": 1, "playing": 0, "images": 0, "loaded": 0},
+        {"videos": 1, "playing": 1, "images": 0, "loaded": 0},
+    ])
+    button = PlayButton()
+    frame.knoepfe = [button]
+    page.frames = [page, frame]
+
+    assert wait_for_live_frame(page, timeout_ms=3_000) == "video"
+    assert button.geklickt == 1
+    assert frame.gestartet >= 1
+
+
 def test_a_stuck_player_gets_clicked_and_then_gives_up() -> None:
     """Sperrt sich der Player, wird der Abspielknopf geklickt -- einmal."""
     from aquaticy.browser import wait_for_live_frame

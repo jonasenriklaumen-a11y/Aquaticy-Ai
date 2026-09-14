@@ -324,6 +324,29 @@ def click_play_buttons(page: Any) -> int:
     return geklickt
 
 
+def _playback_scopes(page: Any) -> list[Any]:
+    """Hauptseite und eingebettete Frames, ohne den Hauptrahmen doppelt."""
+    scopes = [page]
+    with contextlib.suppress(Exception):
+        scopes.extend(list(getattr(page, "frames", []) or [])[1:])
+    return scopes
+
+
+def _playback_state(page: Any, *, start: bool = False) -> dict[str, int]:
+    """Zaehlt Video- und Bildzustand auch in eingebetteten Playern."""
+    total = {"videos": 0, "playing": 0, "images": 0, "loaded": 0}
+    for scope in _playback_scopes(page):
+        if start:
+            with contextlib.suppress(Exception):
+                scope.evaluate(START_PLAYBACK_JS)
+        stand: Any = {}
+        with contextlib.suppress(Exception):
+            stand = scope.evaluate(PLAYBACK_STATE_JS) or {}
+        for key in total:
+            total[key] += int(stand.get(key) or 0)
+    return total
+
+
 def wait_for_live_frame(page: Any, timeout_ms: int = PLAYBACK_TIMEOUT_MS) -> str:
     """Wartet, bis wirklich ein Bild da ist -- nicht nur der Ladebildschirm.
 
@@ -340,13 +363,9 @@ def wait_for_live_frame(page: Any, timeout_ms: int = PLAYBACK_TIMEOUT_MS) -> str
 
     start = _time.monotonic()
     frist = start + max(timeout_ms, 1_000) / 1000
-    with contextlib.suppress(Exception):
-        page.evaluate(START_PLAYBACK_JS)
+    stand = _playback_state(page, start=True)
     geklickt = False
     while _time.monotonic() < frist:
-        stand: Any = {}
-        with contextlib.suppress(Exception):
-            stand = page.evaluate(PLAYBACK_STATE_JS) or {}
         videos = int(stand.get("videos") or 0)
         if videos and int(stand.get("playing") or 0):
             # Der erste Frame ist oft noch der gepufferte; eine Sekunde
@@ -363,8 +382,9 @@ def wait_for_live_frame(page: Any, timeout_ms: int = PLAYBACK_TIMEOUT_MS) -> str
                 return "bild"
         if videos and not geklickt:
             geklickt = bool(click_play_buttons(page))
-            with contextlib.suppress(Exception):
-                page.evaluate(START_PLAYBACK_JS)
+            stand = _playback_state(page, start=True)
+        else:
+            stand = _playback_state(page)
         page.wait_for_timeout(400)
     return "zeitlimit"
 

@@ -440,6 +440,33 @@ def test_a_found_offer_needs_a_read_page_and_an_address(
     assert zustand == "kein Angebot gefunden" and chat == ""
 
 
+def test_an_offer_address_must_belong_to_a_read_source(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """Eine gelesene Nachrichtenseite belegt keine erfundene Produktseite."""
+    class Agent:
+        def __init__(self, settings: Any, cache: Any = None) -> None:
+            self.session_id = "bild-falsch"
+
+        def ask(self, frage: str, **kwargs: Any) -> Any:
+            return type("R", (), {
+                "answer": "BEDINGUNG ERFÜLLT\nhttps://laden.example/nie-gelesen",
+                "sources": [{"url": "https://news.example/bericht"}],
+                "visuals": [], "products": [],
+            })()
+
+        def close(self) -> None: ...
+
+    monkeypatch.setattr("aquaticy.agent.Agent", Agent)
+    job = Job(
+        id=1, question="Handy gesucht", rhythm="hourly", hour=8, minute=0, weekday=0,
+        enabled=True, structured=False, created_at=0.0, next_run=0.0, last_run=0.0,
+        last_state="", last_chat="", kind="image", image_id="abc.jpg",
+        image_note="Ein schwarzes Smartphone",
+    )
+    assert auftraege.run_job(job, _bild_settings(tmp_path)) == ("kein Angebot gefunden", "")
+
+
 def test_a_real_offer_creates_the_chat(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
@@ -484,10 +511,34 @@ def test_a_real_offer_creates_the_chat(
 
 
 def test_the_offer_address_is_read_from_the_answer() -> None:
-    from aquaticy.jobs import offer_url
+    from aquaticy.jobs import offer_url, verified_offer_url
 
     assert offer_url("Bei https://laden.example/x für 9 €.") == "https://laden.example/x"
     assert offer_url("Kein Angebot gefunden.") == ""
+    assert verified_offer_url(
+        "Bei https://laden.example/x/ für 9 €.", [{"url": "https://laden.example/x"}]
+    ) == "https://laden.example/x/"
+
+
+def test_a_job_stops_before_starting_an_agent_at_the_token_limit(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    from aquaticy.usage import UsageLog
+
+    settings = _bild_settings(tmp_path)
+    UsageLog(settings.db_path).record("modell", 100, 0)
+
+    class Agent:
+        def __init__(self, *args: Any, **kwargs: Any) -> None:
+            raise AssertionError("Am Tokenlimit darf kein Modell gestartet werden")
+
+    monkeypatch.setattr("aquaticy.agent.Agent", Agent)
+    job = Job(
+        id=1, question="Was ist neu?", rhythm="hourly", hour=8, minute=0, weekday=0,
+        enabled=True, structured=True, created_at=0.0, next_run=0.0, last_run=0.0,
+        last_state="", last_chat="",
+    )
+    assert auftraege.run_job(job, settings, token_limit=100) == ("Tokenlimit erreicht", "")
 
 
 def test_a_broken_job_does_not_block_the_others(

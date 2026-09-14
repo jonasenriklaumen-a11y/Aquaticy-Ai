@@ -3792,6 +3792,31 @@ def test_an_image_job_without_a_picture_is_refused(
     assert "fehlt das Bild" in payload["error"]
 
 
+def test_a_rejected_image_job_removes_its_permanent_snapshot(
+    client, session: web.ChatSession, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Ist die Auftragsliste voll, darf das schon gespeicherte Bild nicht liegen bleiben."""
+    session.settings().vision_model = "ollama_chat/gemma4:12b"
+    deleted: list[str] = []
+    monkeypatch.setattr(
+        "aquaticy.jobs.JobStore.add",
+        lambda *args, **kwargs: (_ for _ in ()).throw(ValueError("Liste voll")),
+    )
+    monkeypatch.setattr(
+        "aquaticy.media.delete_snapshot",
+        lambda data_dir, media_id: deleted.append(media_id),
+    )
+
+    _, body = client("POST", "/api/jobs", {
+        "action": "add", "kind": "image", "question": "Handy gesucht",
+        "rhythm": "hourly", "image_data": base64.b64encode(b"bild").decode(),
+        "image_type": "image/png",
+    })
+    payload = json.loads(body)
+    assert payload["ok"] is False
+    assert len(deleted) == 1 and deleted[0].endswith("-fest.png")
+
+
 def test_an_image_job_needs_a_vision_model(client) -> None:
     """Ein Textmodell wuerde das Foto nicht sehen, sondern raten."""
     _, body = client("POST", "/api/jobs", {
