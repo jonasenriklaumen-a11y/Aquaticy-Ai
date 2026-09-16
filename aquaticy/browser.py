@@ -302,10 +302,7 @@ def click_play_buttons(page: Any) -> int:
     und ist von aussen nicht erreichbar.
     """
     geklickt = 0
-    scopes = [page]
-    with contextlib.suppress(Exception):
-        scopes.extend(list(getattr(page, "frames", []) or [])[1:])
-    for scope in scopes:
+    for scope in _playback_scopes(page):
         # Je Bereich hoechstens ein Klick: ein eingebetteter Player liegt in
         # seinem eigenen Rahmen und braucht seinen eigenen. Weiterklicken
         # wuerde nur noch die Seite bedienen.
@@ -566,6 +563,47 @@ def _bewerte(vorher: list[dict[str, Any]], nachher: dict[int, dict[str, Any]],
     return bester
 
 
+def _image_candidates(page: Any) -> tuple[list[dict[str, Any]], dict[int, tuple[Any, int]]]:
+    """Sammelt Kandidaten mit eindeutigen Kennungen ueber alle Frames hinweg."""
+    candidates: list[dict[str, Any]] = []
+    origins: dict[int, tuple[Any, int]] = {}
+    for scope in _playback_scopes(page):
+        found: Any = []
+        with contextlib.suppress(Exception):
+            found = scope.evaluate(MARK_CANDIDATES_JS) or []
+        if not isinstance(found, list):
+            continue
+        for item in found:
+            if not isinstance(item, dict):
+                continue
+            local_index = int(item.get("index", -1))
+            if local_index < 0:
+                continue
+            index = len(candidates)
+            origins[index] = (scope, local_index)
+            candidates.append({**item, "index": index})
+    return candidates, origins
+
+
+def _rescan_images(origins: dict[int, tuple[Any, int]]) -> dict[int, dict[str, Any]]:
+    """Liest jeden Frame einmal und ordnet seine lokalen Kennungen wieder zu."""
+    scans: dict[int, dict[int, dict[str, Any]]] = {}
+    result: dict[int, dict[str, Any]] = {}
+    for index, (scope, local_index) in origins.items():
+        key = id(scope)
+        if key not in scans:
+            found: Any = []
+            with contextlib.suppress(Exception):
+                found = scope.evaluate(RESCAN_CANDIDATES_JS) or []
+            scans[key] = {
+                int(item.get("index", -1)): item
+                for item in (found if isinstance(found, list) else [])
+                if isinstance(item, dict)
+            }
+        result[index] = scans[key].get(local_index, {})
+    return result
+
+
 def _shot(page: Any) -> bytes:
     """Fotografiert das Live-Element -- oder, wenn es keines gibt, die Seite.
 
@@ -573,20 +611,11 @@ def _shot(page: Any) -> bytes:
     zeigt zusaetzlich Kopfzeile, Werbung und Bedienleiste, und genau die
     verwirren ein Bildmodell.
     """
-    vorher: Any = []
-    with contextlib.suppress(Exception):
-        vorher = page.evaluate(MARK_CANDIDATES_JS) or []
-    if isinstance(vorher, list) and vorher:
+    vorher, origins = _image_candidates(page)
+    if vorher:
         with contextlib.suppress(Exception):
             page.wait_for_timeout(RESCAN_WAIT_MS)
-        spaeter: Any = []
-        with contextlib.suppress(Exception):
-            spaeter = page.evaluate(RESCAN_CANDIDATES_JS) or []
-        nachher = {
-            int(item.get("index", -1)): item
-            for item in (spaeter if isinstance(spaeter, list) else [])
-            if isinstance(item, dict)
-        }
+        nachher = _rescan_images(origins)
         gleiche: dict[str, int] = {}
         for eintrag in vorher:
             if isinstance(eintrag, dict):
@@ -596,17 +625,17 @@ def _shot(page: Any) -> bytes:
             [item for item in vorher if isinstance(item, dict)], nachher, gleiche
         )
         if gewaehlt >= 0:
+            scope, local_index = origins[gewaehlt]
             anteil = 0.0
             with contextlib.suppress(Exception):
-                anteil = float(page.evaluate(PICK_CANDIDATE_JS, gewaehlt) or 0.0)
+                anteil = float(scope.evaluate(PICK_CANDIDATE_JS, local_index) or 0.0)
             # Nach dem Scrollen steht das Element mittig im Fenster. Ist es
             # trotzdem winzig, ist die ganze Ansicht die ehrlichere Auskunft.
             if anteil >= 0.08:
                 with contextlib.suppress(Exception):
-                    element = page.query_selector("[data-aquaticy-live='1']")
+                    element = scope.query_selector(f'[data-aquaticy-cand="{local_index}"]')
                     if element is not None:
                         return bytes(element.screenshot(type="jpeg", quality=80))
     with contextlib.suppress(Exception):
         return bytes(page.screenshot(type="jpeg", quality=78, full_page=False))
     return b""
-

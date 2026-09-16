@@ -5,6 +5,7 @@ from __future__ import annotations
 import base64
 import json
 import re
+import sqlite3
 import threading
 import time
 from http.client import HTTPConnection
@@ -3824,6 +3825,36 @@ def test_an_image_job_needs_a_vision_model(client) -> None:
     })
     payload = json.loads(body)
     assert payload["ok"] is False and "Vision-Modell" in payload["error"]
+
+
+@pytest.mark.parametrize("error", [sqlite3.OperationalError, sqlite3.IntegrityError])
+def test_database_failure_removes_uploaded_job_image(
+    client, session: web.ChatSession, monkeypatch: pytest.MonkeyPatch, error: Any
+) -> None:
+    from aquaticy import media
+
+    settings = session.settings()
+    settings.vision_model = "ollama_chat/gemma4:12b"
+    saved: list[str] = []
+    original = media.save_snapshot
+
+    def save(*args: Any, **kwargs: Any) -> str:
+        media_id = original(*args, **kwargs)
+        saved.append(media_id)
+        return media_id
+
+    def fail(*args: Any, **kwargs: Any) -> None:
+        raise error("database is locked")
+
+    monkeypatch.setattr(media, "save_snapshot", save)
+    monkeypatch.setattr("aquaticy.jobs.JobStore.add", fail)
+    status, body = client("POST", "/api/jobs", {
+        "kind": "image", "question": "Handy gesucht",
+        "image_data": base64.b64encode(b"bild").decode(), "image_type": "image/png",
+    })
+    assert status == 200 and json.loads(body)["ok"] is False
+    assert len(saved) == 1
+    assert media.snapshot_path(settings.data_dir, saved[0]) is None
 
 
 def test_an_unsupported_picture_format_is_refused(

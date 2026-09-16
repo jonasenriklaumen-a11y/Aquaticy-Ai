@@ -18,6 +18,7 @@ import os
 import queue
 import secrets
 import socket
+import sqlite3
 import threading
 import time
 import webbrowser
@@ -1749,6 +1750,7 @@ class Handler(BaseHTTPRequestHandler):
 
         if action == "add":
             image_id = ""
+            saved = False
             try:
                 kind = str(payload.get("kind", "research")).strip().lower()
                 if kind in ("visual", "image") and not selected_vision_model(settings):
@@ -1771,13 +1773,18 @@ class Handler(BaseHTTPRequestHandler):
                     source_url=str(payload.get("source_url", "")),
                     image_id=image_id,
                 )
+                saved = True
             except (ValueError, TypeError) as exc:
-                if image_id:
+                return {"ok": False, "error": str(exc)}
+            except sqlite3.Error:
+                return {"ok": False, "error": "Der Auftrag konnte nicht gespeichert werden. "
+                        "Bitte versuche es erneut."}
+            finally:
+                if image_id and not saved:
                     from aquaticy.media import delete_snapshot
 
                     with contextlib.suppress(OSError, ValueError):
                         delete_snapshot(settings.data_dir, image_id)
-                return {"ok": False, "error": str(exc)}
             return {"ok": True, "job": job.as_dict()}
 
         try:

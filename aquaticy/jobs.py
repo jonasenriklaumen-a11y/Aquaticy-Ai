@@ -436,30 +436,36 @@ def offer_url(text: str) -> str:
     return match.group(0).rstrip(".,;:") if match else ""
 
 
-def verified_offer_url(text: str, sources: list[Any]) -> str:
-    """Gibt die Angebotsadresse nur zurueck, wenn diese Seite gelesen wurde."""
-    angebot = offer_url(text)
-    if not angebot:
-        return ""
-
-    def identity(url: str) -> tuple[str, str, str, str]:
-        try:
-            parsed = urlsplit(url)
-        except ValueError:
-            return ("", "", "", "")
+def _offer_identity(url: str) -> tuple[str, str, int, str, str] | None:
+    """Vergleicht Webadressen inklusive Port; Fragmente sind keine andere Seite."""
+    try:
+        parsed = urlsplit(url)
+        scheme = parsed.scheme.lower()
+        if scheme not in ("http", "https") or not parsed.hostname:
+            return None
+        if parsed.username is not None or parsed.password is not None:
+            return None
+        port = parsed.port
         return (
-            parsed.scheme.lower(),
-            (parsed.hostname or "").lower(),
-            parsed.path.rstrip("/") or "/",
-            parsed.query,
+            scheme, parsed.hostname.lower(),
+            port if port is not None else (443 if scheme == "https" else 80),
+            parsed.path.rstrip("/") or "/", parsed.query,
         )
+    except ValueError:
+        return None
 
-    wanted = identity(angebot)
-    if not wanted[1]:
-        return ""
+
+def verified_offer_url(text: str, sources: list[Any]) -> str:
+    """Prueft alle genannten Adressen gegen die tatsaechlich gelesenen Quellen."""
+    read = set()
     for source in sources:
         url = source.get("url", "") if isinstance(source, dict) else getattr(source, "url", "")
-        if identity(str(url or "")) == wanted:
+        identity = _offer_identity(str(url or ""))
+        if identity is not None:
+            read.add(identity)
+    for match in OFFER_URL_RE.finditer(text or ""):
+        angebot = match.group(0).rstrip(".,;:")
+        if _offer_identity(angebot) in read:
             return angebot
     return ""
 

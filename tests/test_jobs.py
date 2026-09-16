@@ -520,6 +520,28 @@ def test_the_offer_address_is_read_from_the_answer() -> None:
     ) == "https://laden.example/x/"
 
 
+@pytest.mark.parametrize("answer,source,accepted", [
+    ("https://shop.example:8443/product", "https://shop.example/product", False),
+    ("https://shop.example:443/product", "https://shop.example/product", True),
+    ("http://shop.example:80/product", "http://shop.example/product", True),
+    ("https://shop.example:bad/product", "https://shop.example/product", False),
+    ("https://shop.example/product", "https://shop.example:bad/product", False),
+    ("https://shop.example/product?id=2", "https://shop.example/product?id=1", False),
+    ("https://shop.example/product#details", "https://shop.example/product", True),
+    ("https://shop.example/product", "http://shop.example/product", False),
+])
+def test_offer_source_identity_includes_port_and_query(
+    answer: str, source: str, accepted: bool
+) -> None:
+    assert bool(auftraege.verified_offer_url(answer, [{"url": source}])) is accepted
+
+
+def test_a_verified_offer_can_follow_an_unread_link() -> None:
+    offer = "https://shop.example/product"
+    answer = "https://news.example/article\nHier das Angebot: " + offer
+    assert auftraege.verified_offer_url(answer, [{"url": offer}]) == offer
+
+
 def test_a_job_stops_before_starting_an_agent_at_the_token_limit(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:

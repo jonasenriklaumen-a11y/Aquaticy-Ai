@@ -481,3 +481,40 @@ def test_without_any_candidate_the_whole_view_is_taken() -> None:
     from aquaticy.browser import _shot
 
     assert _shot(ShotPage([])) == b"ganze-seite"
+
+
+def test_embedded_live_video_beats_main_page_preview() -> None:
+    from aquaticy.browser import _shot
+
+    page = ShotPage([_kandidat(0, area=900_000)])
+    frame = ShotPage([_kandidat(0, tag="VIDEO", playing=True)])
+    page.frames = [page, frame]
+    assert _shot(page) == b"ausschnitt"
+    assert frame.gewaehlt == 0
+    assert page.gewaehlt is None
+
+
+def test_refreshing_image_in_nested_frame_is_selected() -> None:
+    from aquaticy.browser import _shot
+
+    page = ShotPage([_kandidat(0, area=900_000)])
+    parent = ShotPage([])
+    child = ShotPage([_kandidat(0)], spaeter=[
+        {"index": 0, "src": "https://cam.example/new.jpg", "playing": False},
+    ])
+    page.frames = [page, parent, child]
+    assert _shot(page) == b"ausschnitt"
+    assert child.gewaehlt == 0
+    assert page.gewaehlt is None
+
+
+def test_detached_frame_does_not_break_main_page_capture() -> None:
+    from aquaticy.browser import _shot
+
+    class Detached:
+        def evaluate(self, *args: Any) -> Any:
+            raise RuntimeError("Frame detached")
+
+    page = ShotPage([_kandidat(0)])
+    page.frames = [page, Detached()]
+    assert _shot(page) == b"ausschnitt"
