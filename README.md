@@ -137,7 +137,7 @@ aquaticy "welche Bahnstrecken in NRW sind gerade gesperrt?"
 $ aquaticy --location "Mönchengladbach" --lang de
 
 ╭──────────────────────────────────────────────────────╮
-│ Aquaticy AI 9.5.2                                      │
+│ Aquaticy AI 9.5.3                                      │
 │ Modell mistral/mistral-large-latest · Suche duckduckgo │
 │ Frag einfach los. /help zeigt die Befehle.           │
 ╰──────────────────────────────────────────────────────╯
@@ -801,6 +801,12 @@ laufen live mit, die Antwort wird Wort für Wort gestreamt.
   nackter Domain, Herkunftsparameter (`utm_…`, `gclid`) und Groß- und
   Kleinschreibung im Pfad gelten dabei als dieselbe Seite; `?id=1` und `?id=2`
   bleiben zwei verschiedene.
+  Bei einer **Preisbeobachtung** wird ein einzelnes Trennzeichen nach der
+  Gruppengröße gelesen: `1.500` sind eintausendfünfhundert, `2.99` sind zwei
+  neunundneunzig — genau drei Ziffern dahinter sind eine Tausendergruppe, denn
+  Preise haben nie drei Nachkommastellen. Das gilt für die Grenze im Auftrag
+  wie für den Preis auf der Seite, und in beiden Schreibweisen (`1.299,00` und
+  `1,299.00`).
   Das hochgeladene Foto ist die Frage selbst und wird deshalb vom Aufräumen des
   Bildspeichers ausgenommen — es verschwindet erst, wenn du den Auftrag löschst.
   Beobachtungen laufen durchgehend, jede Minute, alle 5, 15 oder 30 Minuten sowie
@@ -846,7 +852,7 @@ er erreichbar ist — im heimischen Netz und über Tailscale:
 
 ```
 ╭───────────────────────────────────────────────────────────────────╮
-│ Aquaticy AI 9.5.2                                                   │
+│ Aquaticy AI 9.5.3                                                   │
 │ Diese Adresse im Browser oeffnen:                                 │
 │   http://192.168.1.44:8765/    im heimischen Netz                 │
 │   http://100.81.120.100:8765/  ueber Tailscale                    │
@@ -1445,7 +1451,10 @@ einem Link) werden zusätzlich abgewertet — aber nur innerhalb **eines**
 Dokuments: über iFrames hinweg ist dieselbe Größe normal, weil es derselbe
 Einbau mehrfach ist, und drei eingebettete Kameras sind keine Vorschaureihe.
 Ein Bild in einem fremden Rahmen, das nie fertig lädt (Werbung, Zählpixel),
-hält die Aufnahme höchstens drei Sekunden auf statt bis zum Zeitlimit. Und: gesucht wird auf der **ganzen Seite**,
+hält die Aufnahme höchstens drei Sekunden auf statt bis zum Zeitlimit; ein
+Video, das nicht anspringt, höchstens sechs — auch ein Werbevideo in einem
+fremden Rahmen zählt als Video, und ohne diese Grenze wartete eine gewöhnliche
+Bild-Webcam nur deswegen bis zum Schluss. Und: gesucht wird auf der **ganzen Seite**,
 nicht nur im sichtbaren Fensterausschnitt — genau daran scheiterte es vorher, wenn das
 Livebild unter den Vorschauen lag.
 Bei Seiten mit Player — Webcams liegen fast immer hinter einem — nimmt Aquaticy das

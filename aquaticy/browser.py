@@ -43,6 +43,13 @@ PLAYBACK_SETTLE_MS = 1_200
 #: Ende -- das ganze Zeitlimit dafuer abzuwarten bringt kein besseres Bild.
 PICTURE_GRACE_SECONDS = 3.0
 
+#: Und ab wann ein Video, das nicht anspringt, den Bildweg freigibt. Auch
+#: ein Werbevideo in einem fremden Rahmen zaehlt als Video; ohne diese
+#: Grenze wartete eine gewoehnliche Bild-Webcam deshalb das ganze Zeitlimit
+#: ab, nur weil irgendwo eine Anzeige lag. Grosszuegiger als bei Bildern:
+#: ein echter Player braucht nach dem Klick ein paar Sekunden.
+VIDEO_GRACE_SECONDS = 6.0
+
 #: Chromium-Argumente fuer den Betrieb im Container. Dort steht der eigene
 #: Sandbox-Mechanismus des Browsers meist nicht zur Verfuegung -- was
 #: vertretbar ist, weil der ganze Prozess bereits im Container isoliert
@@ -420,13 +427,18 @@ def wait_for_live_frame(page: Any, timeout_ms: int = PLAYBACK_TIMEOUT_MS) -> str
     stände = _playback_states(page, start=True)
     geklickt = False
     while _time.monotonic() < frist:
+        verstrichen = _time.monotonic() - start
         videos = sum(stand["videos"] for stand in stände)
         if videos and sum(stand["playing"] for stand in stände):
             # Der erste Frame ist oft noch der gepufferte; eine Sekunde
             # Wiedergabe spaeter steht das aktuelle Bild.
             page.wait_for_timeout(PLAYBACK_SETTLE_MS)
             return "video"
-        if not videos and pictures_ready(stände, _time.monotonic() - start):
+        # Ein Video bekommt Vorrang -- aber nicht unbegrenzt. Springt es
+        # auch nach der Frist nicht an, zaehlt wieder, was an Bildern da
+        # ist: sonst haelt ein Werbevideo die Kamera daneben endlos auf.
+        wartet_auf_video = bool(videos) and verstrichen <= VIDEO_GRACE_SECONDS
+        if not wartet_auf_video and pictures_ready(stände, verstrichen):
             return "bild"
         # Erst warten, dann messen -- andersherum entscheidet die naechste
         # Runde auf einem Stand, der schon vierhundert Millisekunden alt ist.

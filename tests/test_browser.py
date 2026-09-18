@@ -583,3 +583,32 @@ def test_a_real_thumbnail_row_in_one_document_still_loses() -> None:
     ])
     assert _shot(seite) == b"ausschnitt"
     assert seite.gewaehlt == 3
+
+
+def test_an_advert_video_in_a_frame_does_not_block_the_picture() -> None:
+    """Ein Video irgendwo sperrte den ganzen Bildweg ab.
+
+    Eine gewoehnliche Bild-Webcam wartete deshalb das volle Zeitlimit ab,
+    nur weil in einem fremden Rahmen eine Anzeige lag, die nicht anspringt.
+    """
+    from aquaticy.browser import VIDEO_GRACE_SECONDS, wait_for_live_frame
+
+    haupt = LivePage([{"videos": 0, "playing": 0, "images": 1, "loaded": 1}])
+    werbung = LivePage([{"videos": 1, "playing": 0, "images": 0, "loaded": 0}])
+    haupt.frames = [haupt, werbung]
+
+    begonnen = time.monotonic()
+    assert wait_for_live_frame(haupt, timeout_ms=20_000) == "bild"
+    gebraucht = time.monotonic() - begonnen
+    assert gebraucht < VIDEO_GRACE_SECONDS + 3.0, f"{gebraucht:.1f}s ist zu lang"
+
+
+def test_a_video_still_gets_its_time_before_the_picture_wins() -> None:
+    """Die Frist darf nicht so kurz sein, dass ein echter Player verliert."""
+    from aquaticy.browser import wait_for_live_frame
+
+    spaet = LivePage([
+        {"videos": 1, "playing": 0, "images": 1, "loaded": 1},
+        {"videos": 1, "playing": 1, "images": 1, "loaded": 1},
+    ])
+    assert wait_for_live_frame(spaet, timeout_ms=20_000) == "video"

@@ -511,13 +511,15 @@ def test_a_real_offer_creates_the_chat(
 
 
 def test_the_offer_address_is_read_from_the_answer() -> None:
-    from aquaticy.jobs import offer_url, verified_offer_url
+    """Nur noch eine Lesart: die gepruefte. Es gab daneben ein `offer_url`,
+    das die ERSTE Adresse nahm -- benutzt wurde es nirgends mehr, und wer es
+    wieder aufgriffe, bekaeme stillschweigend die andere Regel."""
+    from aquaticy.jobs import verified_offer_url
 
-    assert offer_url("Bei https://laden.example/x für 9 €.") == "https://laden.example/x"
-    assert offer_url("Kein Angebot gefunden.") == ""
     assert verified_offer_url(
         "Bei https://laden.example/x/ für 9 €.", [{"url": "https://laden.example/x"}]
     ) == "https://laden.example/x/"
+    assert verified_offer_url("Kein Angebot gefunden.", []) == ""
 
 
 @pytest.mark.parametrize("answer,source,accepted", [
@@ -641,3 +643,58 @@ def test_an_answer_without_any_address_is_never_an_offer() -> None:
     assert auftraege.verified_offer_url("Nichts gefunden.", [{"url": "https://a.example/x"}]) == ""
     assert auftraege.verified_offer_url("", []) == ""
     assert auftraege.verified_offer_url("https://a.example/x", []) == ""
+
+
+# ---------------------------------------------------------------------------
+# Preisgrenzen und Preise: ein Trennzeichen, zwei Bedeutungen
+# ---------------------------------------------------------------------------
+@pytest.mark.parametrize("roh,erwartet", [
+    # Genau drei Ziffern hinter einem einzelnen Trenner sind eine
+    # Tausendergruppe. Preise haben nie drei Nachkommastellen.
+    ("1.500", 1500.0),
+    ("1.299", 1299.0),
+    ("12.345", 12345.0),
+    ("1,299", 1299.0),
+    # Alles andere sind Nachkommastellen.
+    ("2.99", 2.99),
+    ("1.5", 1.5),
+    ("0,99", 0.99),
+    # Eine allein stehende fuehrende Null faengt keine Tausendergruppe an.
+    ("0.500", 0.5),
+    # Beide Zeichen: das hintere trennt die Nachkommastellen.
+    ("1.299,00", 1299.0),
+    ("1,299.00", 1299.0),
+    ("1.234.567,89", 1234567.89),
+    ("1299", 1299.0),
+    ("", None),
+])
+def test_a_single_separator_is_read_by_its_group_size(roh: str, erwartet: float | None) -> None:
+    assert auftraege._number(roh) == erwartet
+
+
+def test_a_german_price_limit_is_not_off_by_a_thousand() -> None:
+    """`unter 1.500 Euro` ist eintausendfuenfhundert, nicht eins Komma fuenf.
+
+    Gelesen als 1,50 lag kein realer Preis je darunter: der Auftrag meldete
+    sich nie, und es sah aus, als waere der Preis nie gefallen.
+    """
+    frage = "Sag Bescheid, wenn das Notebook unter 1.500 Euro kostet"
+
+    def teil(preis: str) -> Product:
+        return Product(name="N", url="https://shop.example/p", price=preis)
+
+    assert price_condition_met(frage, [teil("1.299,00")]) is True
+    assert price_condition_met(frage, [teil("1299")]) is True
+    assert price_condition_met(frage, [teil("1799")]) is False
+
+
+def test_a_thousands_price_is_no_bargain() -> None:
+    """Und andersherum: 1.299 darf kein Treffer unter 500 sein.
+
+    Das war der gefaehrlichere Fall -- der Auftrag galt als erfuellt,
+    schaltete sich ab und meldete ein teures Geraet als Schnaeppchen.
+    """
+    frage = "Sag Bescheid, wenn es unter 500 Euro kostet"
+    for preis in ("1.299", "1,299.00", "1.299,00"):
+        teil = Product(name="N", url="https://shop.example/p", price=preis)
+        assert price_condition_met(frage, [teil]) is False, preis

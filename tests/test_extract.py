@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import pytest
 from selectolax.parser import HTMLParser
 
 from aquaticy.extract import (
@@ -109,3 +110,23 @@ def test_spec_table_ignores_rows_with_more_than_two_cells() -> None:
 
 def test_empty_html_yields_no_product() -> None:
     assert extract_product("", "https://x.de/") is None
+
+
+@pytest.mark.parametrize("roh,erwartet", [
+    # Das Komma als Tausendertrenner gehoerte nicht in die Zahl: die Suche
+    # brach nach der ersten Ziffer ab und machte aus 1299 Dollar ein Euro
+    # neunundzwanzig -- ein Preisauftrag meldete das als Schnaeppchen.
+    ("$1,299.00", "1,299.00"),
+    ("1.099,00 €", "1.099,00"),
+    ("EUR 1.499,00", "1.499,00"),
+    ("1 299,00 €", "1 299,00"),
+    ("1.234.567,89", "1.234.567,89"),
+    # Und die einfachen Formen bleiben, wie sie waren.
+    ("249.99", "249.99"),
+    ("USD 19.90", "19.90"),
+    ("1299", "1299"),
+    ("1.500", "1.500"),
+    ("0,99 €", "0,99"),
+])
+def test_a_thousands_separator_stays_part_of_the_price(roh: str, erwartet: str) -> None:
+    assert parse_price(roh)[0] == erwartet

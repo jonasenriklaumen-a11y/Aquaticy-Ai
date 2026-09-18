@@ -45,7 +45,14 @@ SPEC_KEY_BLOCKLIST = ("cookie", "newsletter", "datenschutz", "impressum", "versa
 MAX_SPECS = 40
 MAX_SPEC_VALUE_LEN = 160
 
-_PRICE_RE = re.compile(r"(\d[\d.\s]*(?:[.,]\d{1,2})?)")
+#: Eine Preiszahl mit ihren Trennzeichen. Zwei Formen, in dieser Reihenfolge:
+#: erst die gruppierte (``1.299,00``, ``1,299.00``, ``12 345``), dann die
+#: einfache (``249.99``, ``1299``). Das Komma MUSS in der Gruppe stehen --
+#: ohne es brach die Suche bei ``1,299.00`` nach der ersten Ziffer ab und
+#: lieferte ``1,29``: aus 1299 Dollar wurde ein Euro neunundzwanzig.
+_PRICE_RE = re.compile(
+    r"(\d{1,3}(?:[.,\s]\d{3})+(?:[.,]\d{1,2})?|\d+(?:[.,]\d{1,2})?)"
+)
 _CURRENCY_SYMBOLS = {"€": "EUR", "$": "USD", "£": "GBP", "chf": "CHF", "fr.": "CHF"}
 
 

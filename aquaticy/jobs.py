@@ -101,15 +101,31 @@ MONITORING = ("visual", "price", "image")
 
 
 def _number(value: str) -> float | None:
+    """Eine Zahl aus einem Preis oder einer Preisgrenze.
+
+    Der schwierige Fall ist ein einzelnes Trennzeichen: ``1.500`` heisst in
+    Deutschland eintausendfuenfhundert, in England eins Komma fuenf. Hier
+    entscheidet die Gruppengroesse -- genau drei Ziffern dahinter sind eine
+    Tausendergruppe, alles andere sind Nachkommastellen. Preise haben nie
+    drei Nachkommastellen, also ist das eindeutig genug. Eine fuehrende
+    Null (``0.500``) bleibt ein Komma: Tausendergruppen fangen nicht mit
+    einer allein stehenden Null an.
+    """
     raw = re.sub(r"[^0-9,.]", "", str(value or ""))
     if not raw:
         return None
     if "," in raw and "." in raw:
+        # Beide Zeichen da: das hintere trennt die Nachkommastellen.
         decimal = "," if raw.rfind(",") > raw.rfind(".") else "."
         thousands = "." if decimal == "," else ","
         raw = raw.replace(thousands, "").replace(decimal, ".")
-    elif "," in raw:
-        raw = raw.replace(".", "").replace(",", ".")
+    elif "," in raw or "." in raw:
+        trenner = "," if "," in raw else "."
+        teile = raw.split(trenner)
+        if len(teile[-1]) == 3 and teile[0] not in ("", "0"):
+            raw = raw.replace(trenner, "")
+        else:
+            raw = "".join(teile[:-1]) + "." + teile[-1]
     try:
         return float(raw)
     except ValueError:
@@ -428,12 +444,6 @@ class JobStore:
 #: Woran ein gefundenes Angebot erkennbar ist: eine vollstaendige Adresse.
 #: Ohne sie waere die Meldung "gefunden" ohne Nutzen -- und ohne Beleg.
 OFFER_URL_RE = re.compile(r"https?://[^\s<>\]\)\"']{6,}")
-
-
-def offer_url(text: str) -> str:
-    """Die erste vollstaendige Adresse aus einer Antwort."""
-    match = OFFER_URL_RE.search(text or "")
-    return match.group(0).rstrip(".,;:") if match else ""
 
 
 #: Parameter, die nur sagen, WOHER jemand kam -- nie, WAS die Seite zeigt.
