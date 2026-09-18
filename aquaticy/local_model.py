@@ -262,6 +262,39 @@ def pull_model(name: str, binary: str | None = None) -> Iterator[str]:
         raise LocalModelError(f"`ollama pull {name}` fehlgeschlagen: {last_line or 'kein Grund'}")
 
 
+def local_name(model_id: str) -> str:
+    """Der blanke Modellname, wenn *model_id* ein oertliches Modell ist.
+
+    Ein Wolkenmodell hat nichts zu laden; nur die oertlichen muessen erst in
+    den Speicher. Leerer String heisst also: geht uns nichts an.
+    """
+    text = str(model_id or "").strip()
+    for prefix in (f"{MODEL_PREFIX}/", "ollama/"):
+        if text.startswith(prefix):
+            return text[len(prefix):]
+    return ""
+
+
+def _ohne_latest(name: str) -> str:
+    """`gemma3` und `gemma3:latest` sind dasselbe Modell."""
+    text = str(name or "").strip()
+    return text[: -len(":latest")] if text.endswith(":latest") else text
+
+
+def model_is_loaded(model_id: str, base_url: str = DEFAULT_OLLAMA_URL) -> bool | None:
+    """Liegt das Modell schon im Speicher?
+
+    Returns:
+        `True`/`False` fuer oertliche Modelle, `None` fuer alles andere --
+        bei einem Wolkenmodell gibt es nichts zu warten.
+    """
+    name = local_name(model_id)
+    if not name:
+        return None
+    geladen = {_ohne_latest(eintrag) for eintrag in loaded_models(base_url)}
+    return _ohne_latest(name) in geladen
+
+
 def loaded_models(base_url: str = DEFAULT_OLLAMA_URL) -> list[str]:
     """Modelle, die gerade im Speicher liegen (`ollama ps`)."""
     try:

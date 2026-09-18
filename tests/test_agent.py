@@ -3914,3 +3914,111 @@ def test_a_pending_question_is_not_pushed_for_a_picture(
     assert agent._should_force_visual()
     toolbox.stats.questions = 1
     assert not agent._should_force_visual()
+
+
+# ---------------------------------------------------------------------------
+# Der erste Satz an ein Modell, das erst geladen werden muss
+# ---------------------------------------------------------------------------
+def test_the_wait_for_a_loading_model_is_announced(
+    monkeypatch: pytest.MonkeyPatch, settings: Settings, toolbox: Toolbox
+) -> None:
+    """Ollama laedt ein grosses Modell zehn bis sechzig Sekunden von der Platte.
+
+    Vorher stand in der Zeit nichts da und es sah aus, als haenge die Seite.
+    """
+    import aquaticy.local_model as lm
+
+    monkeypatch.setattr(lm, "model_is_loaded", lambda model_id, *a, **k: False)
+    monkeypatch.setattr("litellm.completion", ScriptedLLM(_message(content="Da bin ich.")))
+
+    events: list[tuple[str, dict[str, Any]]] = []
+    settings.model = "ollama_chat/gemma3:12b"
+    agent = Agent(settings, cache=None, toolbox=toolbox,
+                  on_event=lambda name, payload: events.append((name, payload)))
+    agent.ask("Hallo, was kannst du?", stream=False)
+
+    namen = [name for name, _ in events]
+    assert "model_loading" in namen, "der Hinweis fehlt"
+    assert namen.index("model_loading") < namen.index("model_ready"), "erst laden, dann bereit"
+    laedt = next(payload for name, payload in events if name == "model_loading")
+    fertig = next(payload for name, payload in events if name == "model_ready")
+    assert laedt["model"] == "ollama_chat/gemma3:12b"
+    assert fertig["seconds"] >= 0
+
+
+def test_a_loaded_model_says_nothing(
+    monkeypatch: pytest.MonkeyPatch, settings: Settings, toolbox: Toolbox
+) -> None:
+    """Liegt es schon im Speicher, gibt es keine Wartezeit zu erklaeren."""
+    import aquaticy.local_model as lm
+
+    monkeypatch.setattr(lm, "model_is_loaded", lambda model_id, *a, **k: True)
+    monkeypatch.setattr("litellm.completion", ScriptedLLM(_message(content="Da.")))
+
+    events: list[str] = []
+    settings.model = "ollama_chat/gemma3:12b"
+    Agent(settings, cache=None, toolbox=toolbox,
+          on_event=lambda name, payload: events.append(name)).ask("Hallo", stream=False)
+    assert "model_loading" not in events
+
+
+def test_a_cloud_model_never_reports_loading(
+    monkeypatch: pytest.MonkeyPatch, settings: Settings, toolbox: Toolbox
+) -> None:
+    """Und ein Wolkenmodell laedt gar nichts -- da waere der Hinweis gelogen."""
+    monkeypatch.setattr("litellm.completion", ScriptedLLM(_message(content="Da.")))
+
+    events: list[str] = []
+    settings.model = "mistral/mistral-large-latest"
+    Agent(settings, cache=None, toolbox=toolbox,
+          on_event=lambda name, payload: events.append(name)).ask("Hallo", stream=False)
+    assert "model_loading" not in events
+
+
+def test_the_notice_comes_once_per_question_not_once_per_call(
+    monkeypatch: pytest.MonkeyPatch, settings: Settings, toolbox: Toolbox
+) -> None:
+    """Sonst stuende der Hinweis nach jedem Werkzeug noch einmal da."""
+    import aquaticy.local_model as lm
+
+    monkeypatch.setattr(lm, "model_is_loaded", lambda model_id, *a, **k: False)
+    monkeypatch.setattr("litellm.completion", ScriptedLLM(
+        _message(tool_calls=[_tool_call("web_search", {"query": "cafés"})]),
+        _message(content="Fertig."),
+    ))
+
+    events: list[str] = []
+    settings.model = "ollama_chat/gemma3:12b"
+    Agent(settings, cache=None, toolbox=toolbox,
+          on_event=lambda name, payload: events.append(name)).ask("Finde ein Café", stream=False)
+    assert events.count("model_loading") == 1
+    assert events.count("model_ready") == 1
+
+
+def test_the_notice_also_covers_the_planning_call(
+    monkeypatch: pytest.MonkeyPatch, settings: Settings, toolbox: Toolbox
+) -> None:
+    """Mit Strukturieren spricht der Planer das Modell als Erster an.
+
+    Die Wartezeit faellt dann dort an. Kaeme der Hinweis erst in der
+    Hauptschleife, stuende er nach dem Warten statt davor -- und waere
+    damit genau dann nutzlos, wenn man ihn braucht.
+    """
+    import aquaticy.local_model as lm
+    import aquaticy.subagents as sub
+
+    monkeypatch.setattr(lm, "model_is_loaded", lambda model_id, *a, **k: False)
+    monkeypatch.setattr(sub, "plan_request", lambda *a, **k: (False, []))
+    monkeypatch.setattr("litellm.completion", ScriptedLLM(_message(content="Da.")))
+
+    events: list[str] = []
+    settings.model = "ollama_chat/gemma3:12b"
+    agent = Agent(settings, cache=None, toolbox=toolbox,
+                  on_event=lambda name, payload: events.append(name))
+    agent._needs_research("Was kostet ein Lastenrad?")
+
+    assert events.count("model_loading") == 1
+    assert events.count("model_ready") == 1
+    # Und zwar VOR der Planungszeile, nicht danach.
+    assert events.index("model_loading") < events.index("planning")
+    assert events.index("planning") < events.index("model_ready")

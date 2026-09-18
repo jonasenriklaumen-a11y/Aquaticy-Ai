@@ -137,7 +137,7 @@ aquaticy "welche Bahnstrecken in NRW sind gerade gesperrt?"
 $ aquaticy --location "Mönchengladbach" --lang de
 
 ╭──────────────────────────────────────────────────────╮
-│ Aquaticy AI 9.5.3                                      │
+│ Aquaticy AI 9.5.4                                      │
 │ Modell mistral/mistral-large-latest · Suche duckduckgo │
 │ Frag einfach los. /help zeigt die Befehle.           │
 ╰──────────────────────────────────────────────────────╯
@@ -786,6 +786,15 @@ laufen live mit, die Antwort wird Wort für Wort gestreamt.
   zustandslos, genau so rechnen die Anbieter auch ab) plus die Antwort und die
   Argumente der Werkzeugaufrufe. Bei normalen Konten endet das Kontingent bei insgesamt
   150.000 Token. Pro-Konten bleiben unbegrenzt. Der Zähler lässt sich nicht zurücksetzen.
+* **Der erste Satz an ein örtliches Modell** sagt, dass gewartet wird. Ollama lädt
+  ein großes Modell zehn bis sechzig Sekunden von der Platte; vorher stand in der
+  Zeit nichts da und es sah aus, als hänge die Seite. Jetzt steht als erster
+  Zwischenschritt `[Lädt] … wird in den Speicher geladen`, leise pulsierend, und
+  sobald das Modell antwortet, wird daraus `… ist bereit (8.4s)`. Danach folgen die
+  gewohnten Schritte. Ein Wolkenmodell lädt nichts und sagt deshalb auch nichts, und
+  ein Modell, das schon im Speicher liegt, ebenso wenig. Nachgesehen wird einmal je
+  Frage — zwischen zwei Fragen kann es wieder herausgeflogen sein.
+
 * **Aufträge** unter *Einstellungen → Aufträge*: Aquaticy kann regelmäßig recherchieren
   oder eine öffentliche Kamera, Satelliten-/Straßenansicht beziehungsweise Produktseite
   beobachten. Vierte Art: **ein Bild hochladen und danach suchen lassen** — du gibst
@@ -852,7 +861,7 @@ er erreichbar ist — im heimischen Netz und über Tailscale:
 
 ```
 ╭───────────────────────────────────────────────────────────────────╮
-│ Aquaticy AI 9.5.3                                                   │
+│ Aquaticy AI 9.5.4                                                   │
 │ Diese Adresse im Browser oeffnen:                                 │
 │   http://192.168.1.44:8765/    im heimischen Netz                 │
 │   http://100.81.120.100:8765/  ueber Tailscale                    │

@@ -56,6 +56,8 @@ class FakeAgent:
         self.ask_handler: Any = None
         self.gesehen: list[dict[str, Any]] = []
         self.abgebrochen = False
+        #: Liegt das gestellte Modell schon im Speicher? Beim ersten Satz nicht.
+        self.modell_geladen = False
         self.stats = self
 
     # -- was der Server vom Agenten erwartet -------------------------------
@@ -95,6 +97,14 @@ class FakeAgent:
             }
         )
         text = message.lower()
+
+        # Beim allerersten Satz liegt das oertliche Modell noch auf der
+        # Platte. Genau wie beim echten Agenten wird das einmal gesagt --
+        # und danach nie wieder, weil es dann im Speicher liegt.
+        if not self.modell_geladen:
+            self.modell_geladen = True
+            self.on_event("model_loading", {"model": "ollama_chat/gemma3:12b"})
+            self.on_event("model_ready", {"model": "ollama_chat/gemma3:12b", "seconds": 8.4})
 
         if mode in ("code", "pro"):
             self.on_event("code_model", {"model": "mistral/mistral-large-latest"})
@@ -365,6 +375,13 @@ def rundgang(pg: Any, log: Protokoll, agent: FakeAgent, bilder: Path | None,
         log.pruefe(pg.locator(".msg.user").count() == 1, "die Frage steht dabei")
         schritte = pg.inner_text(".steps >> nth=-1")
         log.pruefe("[Suche]" in schritte, f"Zwischenschritte sichtbar: {schritte[:40]!r}")
+        # Der erste Satz an ein Modell, das erst in den Speicher muss.
+        log.pruefe("[Lädt]" in schritte, "der Ladehinweis steht beim ersten Satz da")
+        log.pruefe("ist bereit (8.4s)" in schritte, "und wird danach zu einer Fertigmeldung")
+        log.pruefe(
+            pg.locator(".step.load").count() == 0,
+            "das Pulsieren hoert auf, wenn das Modell bereit ist",
+        )
         log.pruefe(
             agent.gesehen[-1]["struktur"] is False,
             f"Standard ist das Gespräch, nicht die Recherche ({agent.gesehen[-1]})",

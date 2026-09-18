@@ -1039,6 +1039,12 @@ class Agent:
         #: zwischen zwei Schritten -- einen laufenden Seitenabruf reisst
         #: niemand mitten entzwei, aber danach ist Schluss.
         self._stop = threading.Event()
+        #: Wurde in diesem Zug schon nachgesehen, ob das Modell erst laedt?
+        #: Hoechstens einmal je Frage -- danach liegt es im Speicher, und die
+        #: Nachfrage bei Ollama kostet bei jedem Aufruf eine Verbindung.
+        self._loading_told = False
+        #: Seit wann gewartet wird. `None` heisst: es wird nicht gewartet.
+        self._loading_since: float | None = None
         #: Arbeitsweise dieses Turns: "normal" schreibt aus, "code" schreibt Code.
         self.mode = "normal"
         #: Zerlegt Aquaticy die Frage vor der Recherche in Teilfragen und
@@ -1192,6 +1198,10 @@ class Agent:
 
         # Sichtbar machen, dass gerade etwas passiert -- der Aufruf kann ein
         # paar Sekunden dauern, und eine stumme CLI wirkt haengen.
+        # Der Planer ist der erste, der das Modell anspricht -- wenn es erst
+        # geladen werden muss, faellt die Wartezeit hier an und nicht erst
+        # in der Hauptschleife.
+        self._tell_if_loading()
         self._emit("planning", question=question)
         started = time.monotonic()
         needs, tasks = plan_request(
@@ -1200,6 +1210,7 @@ class Agent:
             context=self._planner_context(),
             limit=max(1, self.agent_limit),
         )
+        self._model_ready()
         elapsed = round(time.monotonic() - started, 2)
         if not needs:
             self._emit("triage", decision="chat", source="modell", seconds=elapsed)
@@ -1259,11 +1270,13 @@ class Agent:
             # zweiter Planungsaufruf waere reine Wartezeit.
             self._planned_tasks = None
         else:
+            self._tell_if_loading()
             self._emit("planning", question=question)
             try:
                 tasks = plan_subtasks(
                     question, self.settings, context=self._planner_context(), limit=limit
                 )
+                self._model_ready()
             except Exception as exc:
                 # Scheitert die Planung, macht der Hauptagent es eben selbst.
                 self._emit("error", message=f"Planung fehlgeschlagen: {exc}")
@@ -1852,6 +1865,42 @@ class Agent:
             self.on_event(event, payload)
 
     # -- LLM --------------------------------------------------------------
+    def _model_ready(self) -> None:
+        """Schliesst die Ladezeile ab -- hoechstens einmal je Frage."""
+        if self._loading_since is None:
+            return
+        self._emit(
+            "model_ready",
+            model=self.active_model,
+            seconds=round(time.monotonic() - self._loading_since, 1),
+        )
+        self._loading_since = None
+
+    def _tell_if_loading(self) -> None:
+        """Sagt Bescheid, wenn das Modell erst in den Speicher muss.
+
+        Der erste Satz an ein oertliches Modell dauert zehn, zwanzig, bei
+        grossen Modellen auch sechzig Sekunden -- Ollama laedt es dabei von
+        der Platte. Vorher stand in der Zeit nichts da, und es sah aus, als
+        haenge die Seite. Jetzt steht da, worauf gewartet wird.
+
+        Bei einem Wolkenmodell gibt es nichts zu laden, und ein Modell, das
+        schon im Speicher liegt, antwortet sofort -- dann bleibt es still.
+        """
+        if self._loading_told:
+            return
+        self._loading_told = True
+        try:
+            from aquaticy.local_model import model_is_loaded
+
+            geladen = model_is_loaded(self.active_model)
+        except Exception:
+            return
+        if geladen is not False:
+            return
+        self._emit("model_loading", model=self.active_model)
+        self._loading_since = time.monotonic()
+
     def _completion_with_retry(
         self, messages: list[dict[str, Any]], *, stream: bool
     ) -> dict[str, Any]:
@@ -1868,10 +1917,11 @@ class Agent:
         # LiteLLM jeden weiteren Aufruf ablehnen. Vor dem Senden reparieren,
         # damit auch Altbestand keine Sitzung mehr vergiften kann.
         sanitize_history(messages)
+        self._tell_if_loading()
 
         for attempt in range(attempts):
             try:
-                return self._completion(messages, stream=stream)
+                antwort = self._completion(messages, stream=stream)
             except Exception as exc:
                 last_error = exc
                 detail = f"{type(exc).__name__}: {exc}"
@@ -1893,6 +1943,9 @@ class Agent:
                 else:
                     break  # echter Fehler -- Wiederholen hilft nicht
                 time.sleep(min(2**attempt, 8))
+            else:
+                self._model_ready()
+                return antwort
 
         raise last_error if last_error else RuntimeError("LLM-Aufruf fehlgeschlagen")
 
@@ -2066,6 +2119,9 @@ class Agent:
                 text="/max gibt es nur im Pro-Modus -- die Frage laeuft normal.",
             )
         self._stop.clear()
+        # Je Frage einmal nachsehen: zwischen zwei Fragen kann das Modell
+        # wieder aus dem Speicher geflogen sein (Zeitablauf, Speichermangel).
+        self._loading_told = False
         self.toolbox.stats.reset()
         result = AgentResult(answer="")
         if not question:

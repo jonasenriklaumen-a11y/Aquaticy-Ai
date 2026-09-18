@@ -619,3 +619,32 @@ def test_without_memory_info_no_warning(monkeypatch: pytest.MonkeyPatch) -> None
     """Laesst sich der Speicher nicht ermitteln, wird nicht gewarnt."""
     monkeypatch.setattr(lm, "usable_memory_gb", lambda: None)
     assert lm.too_big("gemma4:26b") == ""
+
+
+# ---------------------------------------------------------------------------
+# Liegt das Modell schon im Speicher?
+# ---------------------------------------------------------------------------
+def test_only_local_models_have_something_to_load() -> None:
+    """Ein Wolkenmodell laedt nichts -- dafuer gibt es auch keine Wartezeit."""
+    from aquaticy.local_model import local_name
+
+    assert local_name("ollama_chat/gemma3:12b") == "gemma3:12b"
+    assert local_name("ollama/llava") == "llava"
+    assert local_name("mistral/mistral-large-latest") == ""
+    assert local_name("nvidia_nim/meta/llama-3.1-70b") == ""
+    assert local_name("") == ""
+    assert local_name(None) == ""  # type: ignore[arg-type]
+
+
+def test_the_latest_tag_is_the_same_model(monkeypatch: pytest.MonkeyPatch) -> None:
+    """`ollama ps` meldet `gemma3:latest`, eingestellt ist `gemma3`."""
+    import aquaticy.local_model as lm
+
+    monkeypatch.setattr(
+        lm, "loaded_models", lambda base_url=lm.DEFAULT_OLLAMA_URL: ["gemma3:latest"]
+    )
+    assert lm.model_is_loaded("ollama_chat/gemma3") is True
+    assert lm.model_is_loaded("ollama_chat/gemma3:latest") is True
+    assert lm.model_is_loaded("ollama_chat/llava:7b") is False
+    # Und fuer ein Wolkenmodell gibt es nichts zu melden.
+    assert lm.model_is_loaded("mistral/mistral-large-latest") is None

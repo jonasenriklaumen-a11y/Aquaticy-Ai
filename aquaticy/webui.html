@@ -413,6 +413,12 @@ body:not(.start) .hint{display:none}
 .step .tag{color:var(--accent);flex:0 0 auto;font:600 11.5px/1.55 var(--mono);
   min-width:62px;letter-spacing:.02em}
 .step.warn .tag{color:var(--warn)} .step.err .tag{color:var(--err)}
+/* Solange geladen wird, pulsiert die Zeile leise -- sie ist der einzige
+   Hinweis darauf, dass gerade wirklich etwas passiert. Wer weniger
+   Bewegung eingestellt hat, bekommt sie ruhig. */
+.step.load .txt{animation:ladenPuls 1.6s ease-in-out infinite}
+@keyframes ladenPuls{0%,100%{opacity:1}50%{opacity:.55}}
+@media (prefers-reduced-motion:reduce){.step.load .txt{animation:none}}
 .step .txt{overflow:hidden;text-overflow:ellipsis}
 .step .sub{padding-left:71px;opacity:.8;font-size:12.5px}
 /* Mitlesen. Die Zeilen entstehen immer, sichtbar sind sie nur mit dem Haken --
@@ -1736,7 +1742,7 @@ input:focus,select:focus{border-color:var(--accent)}
 const $ = (s) => document.querySelector(s);
 const thread = $("#thread"), main = $("#main"), input = $("#input"), send = $("#send");
 let busy = false;
-const aquaticyVersion = window.__AQUATICY_VERSION__ || "9.5.3";
+const aquaticyVersion = window.__AQUATICY_VERSION__ || "9.5.4";
 $("#version").textContent = "v" + aquaticyVersion;
 document.title = `Aquaticy AI ${aquaticyVersion}`;
 
@@ -2575,6 +2581,10 @@ async function verfolge(hole, steps, bubble, text){
   // bewusst keinen Schalternamen: eine gleichnamige lokale Variable verdeckte
   // hier einmal den Schalter, der dann als `null` beim Server ankam.
   let answer = "", reading = null, readCount = 0, planning = null, thoughtLine = null;
+  // Die Zeile, die sagt, dass das Modell erst in den Speicher muss. Sie wird
+  // spaeter nicht entfernt, sondern umgeschrieben: dass gewartet wurde,
+  // gehoert zum Protokoll dieser Anfrage.
+  let laden = null;
 
   try {
     const res = await hole();
@@ -2638,6 +2648,19 @@ async function verfolge(hole, steps, bubble, text){
   function handle(ev){
     if (ev.type !== "thought") thoughtLine = null;
     switch (ev.type){
+      case "model_loading":
+        laden = step(steps, "[Lädt]",
+          `${ev.model} wird in den Speicher geladen — der erste Satz dauert `
+          + "deshalb länger …", "load");
+        break;
+      case "model_ready":
+        if (laden){
+          laden.classList.remove("load");
+          laden.querySelector(".txt").textContent =
+            `${ev.model} ist bereit` + (ev.seconds ? ` (${ev.seconds}s)` : "");
+          laden = null;
+        }
+        break;
       case "planning":
         planning = step(steps, "[Plane]", "sichte die Anfrage …"); break;
       case "triage":
