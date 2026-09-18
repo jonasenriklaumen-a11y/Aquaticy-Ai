@@ -594,3 +594,50 @@ def test_a_broken_job_does_not_block_the_others(
     assert notiert["Stolpert"].next_run > time.time()
     # Und im naechsten Takt ist nichts mehr faellig.
     assert takt.tick() == 0
+
+
+# ---------------------------------------------------------------------------
+# Die Angebotsadresse: die richtige, und nicht zu streng geprueft
+# ---------------------------------------------------------------------------
+def test_a_read_news_page_cannot_stand_in_for_the_shop() -> None:
+    """Geprueft wird die Angebotsadresse -- nicht irgendeine gelesene.
+
+    Nahm man die erste passende, genuegte eine nebenbei zitierte und
+    tatsaechlich gelesene Nachrichtenseite, um einen Fund vorzutaeuschen:
+    der Auftrag galt als erfuellt und schickte einen Artikel statt eines
+    Ladens.
+    """
+    antwort = (
+        "BEDINGUNG ERFÜLLT\nLaut https://news.example/bericht gibt es das Handy "
+        "bei https://laden.example/angebot für 499 €."
+    )
+    assert auftraege.verified_offer_url(antwort, [{"url": "https://news.example/bericht"}]) == ""
+    assert auftraege.verified_offer_url(
+        antwort, [{"url": "https://laden.example/angebot"}]
+    ) == "https://laden.example/angebot"
+
+
+@pytest.mark.parametrize("answer,source,accepted", [
+    # Shops leiten staendig zwischen www und nackter Domain um, und gespeichert
+    # wird die Adresse NACH der Umleitung.
+    ("https://shop.example/p", "https://www.shop.example/p", True),
+    ("https://www.shop.example/p", "https://shop.example/p", True),
+    # Herkunftsparameter sagen nichts darueber, was die Seite zeigt.
+    ("https://shop.example/p", "https://shop.example/p?utm_source=google", True),
+    ("https://shop.example/p?gclid=abc", "https://shop.example/p", True),
+    ("https://shop.example/p?a=1&b=2", "https://shop.example/p?b=2&a=1", True),
+    ("https://shop.example/Produkt", "https://shop.example/produkt", True),
+    # Echte Parameter bleiben ein Unterschied: zwei Produkte, nicht zwei Wege.
+    ("https://shop.example/p?id=2", "https://shop.example/p?id=1", False),
+    ("https://shop.example/p", "https://shop.example/q", False),
+])
+def test_the_same_page_is_recognised_through_redirects_and_tracking(
+    answer: str, source: str, accepted: bool
+) -> None:
+    assert bool(auftraege.verified_offer_url(answer, [{"url": source}])) is accepted
+
+
+def test_an_answer_without_any_address_is_never_an_offer() -> None:
+    assert auftraege.verified_offer_url("Nichts gefunden.", [{"url": "https://a.example/x"}]) == ""
+    assert auftraege.verified_offer_url("", []) == ""
+    assert auftraege.verified_offer_url("https://a.example/x", []) == ""

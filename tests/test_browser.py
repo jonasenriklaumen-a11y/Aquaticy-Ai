@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import time
 from typing import Any, ClassVar
 
 import pytest
@@ -518,3 +519,67 @@ def test_detached_frame_does_not_break_main_page_capture() -> None:
     page = ShotPage([_kandidat(0)])
     page.frames = [page, Detached()]
     assert _shot(page) == b"ausschnitt"
+
+
+# ---------------------------------------------------------------------------
+# Ein fremder Rahmen darf die Aufnahme nicht aufhalten
+# ---------------------------------------------------------------------------
+def test_a_hanging_advert_frame_does_not_block_the_shot() -> None:
+    """Ein Werbebild, das nie fertig laedt, kostete das ganze Zeitlimit.
+
+    Gezaehlt wurde ueber alle Rahmen zusammen: ein einziges haengendes Bild
+    irgendwo machte die Hauptseite nie "fertig". Die Gnadenfrist griff nicht,
+    weil sie ein geladenes Bild verlangte -- und geladen war keines.
+    """
+    from aquaticy.browser import wait_for_live_frame
+
+    haupt = LivePage([{"videos": 0, "playing": 0, "images": 0, "loaded": 0}])
+    werbung = LivePage([{"videos": 0, "playing": 0, "images": 1, "loaded": 0}])
+    haupt.frames = [haupt, werbung]
+
+    begonnen = time.monotonic()
+    assert wait_for_live_frame(haupt, timeout_ms=12_000) == "bild"
+    assert time.monotonic() - begonnen < 6.0, "die Gnadenfrist muss greifen"
+
+
+def test_pictures_that_never_load_are_still_waited_for() -> None:
+    """Umgekehrt: haengt das eigentliche Bild, wird weiter gewartet."""
+    from aquaticy.browser import pictures_ready
+
+    haengt = [{"videos": 0, "playing": 0, "images": 3, "loaded": 0}]
+    assert not pictures_ready(haengt, 0.0)
+    assert not pictures_ready(haengt, 30.0), "ohne ein einziges Bild gibt es nichts zu holen"
+    fertig = [{"videos": 0, "playing": 0, "images": 3, "loaded": 3}]
+    assert pictures_ready(fertig, 0.0)
+
+
+def test_three_embedded_cameras_are_not_a_thumbnail_row() -> None:
+    """Gleiche Groesse ist nur INNERHALB eines Dokuments ein Hinweis.
+
+    Ueber Rahmen hinweg ist sie normal -- es ist derselbe Einbau, mehrfach.
+    Gezaehlt wurde vorher global; damit verloren drei echte Kameras gegen
+    ein kleineres Standbild der Gastgeberseite.
+    """
+    from aquaticy.browser import _shot
+
+    haupt = ShotPage([_kandidat(0, area=120_000, key="400x300")])
+    kameras = [ShotPage([_kandidat(0, area=200_000, key="500x400")]) for _ in range(3)]
+    haupt.frames = [haupt, *kameras]
+
+    assert _shot(haupt) == b"ausschnitt"
+    assert haupt.gewaehlt is None, "das Standbild der Gastgeberseite ist nicht gemeint"
+    assert [k.gewaehlt for k in kameras] == [0, None, None]
+
+
+def test_a_real_thumbnail_row_in_one_document_still_loses() -> None:
+    """Die Abwertung bleibt, wo sie hingehoert: unter Geschwistern."""
+    from aquaticy.browser import _shot
+
+    seite = ShotPage([
+        _kandidat(0, area=200_000, key="500x400", inLink=True),
+        _kandidat(1, area=200_000, key="500x400", inLink=True),
+        _kandidat(2, area=200_000, key="500x400", inLink=True),
+        _kandidat(3, area=120_000, key="400x300"),
+    ])
+    assert _shot(seite) == b"ausschnitt"
+    assert seite.gewaehlt == 3

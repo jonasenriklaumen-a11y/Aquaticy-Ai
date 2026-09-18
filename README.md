@@ -137,7 +137,7 @@ aquaticy "welche Bahnstrecken in NRW sind gerade gesperrt?"
 $ aquaticy --location "Mönchengladbach" --lang de
 
 ╭──────────────────────────────────────────────────────╮
-│ Aquaticy AI 9.5.1                                      │
+│ Aquaticy AI 9.5.2                                      │
 │ Modell mistral/mistral-large-latest · Suche duckduckgo │
 │ Frag einfach los. /help zeigt die Befehle.           │
 ╰──────────────────────────────────────────────────────╯
@@ -795,7 +795,12 @@ laufen live mit, die Antwort wird Wort für Wort gestreamt.
   Quelladresse ist dabei freiwillig: ohne sie sucht Aquaticy im ganzen Web, mit ihr
   bleibt es bei diesem Anbieter. Gemeldet wird erst, wenn eine Angebotsseite wirklich
   gelesen wurde und eine vollständige Adresse dazu vorliegt — „gibt es bestimmt
-  irgendwo" zählt nicht.
+  irgendwo" zählt nicht. Geprüft wird dabei die **zuletzt** genannte Adresse,
+  also die der Angebotsseite: eine nebenbei zitierte Nachrichtenseite, die
+  zufällig gelesen wurde, belegt kein Angebot. Umleitungen zwischen `www.` und
+  nackter Domain, Herkunftsparameter (`utm_…`, `gclid`) und Groß- und
+  Kleinschreibung im Pfad gelten dabei als dieselbe Seite; `?id=1` und `?id=2`
+  bleiben zwei verschiedene.
   Das hochgeladene Foto ist die Frage selbst und wird deshalb vom Aufräumen des
   Bildspeichers ausgenommen — es verschwindet erst, wenn du den Auftrag löschst.
   Beobachtungen laufen durchgehend, jede Minute, alle 5, 15 oder 30 Minuten sowie
@@ -841,7 +846,7 @@ er erreichbar ist — im heimischen Netz und über Tailscale:
 
 ```
 ╭───────────────────────────────────────────────────────────────────╮
-│ Aquaticy AI 9.5.1                                                   │
+│ Aquaticy AI 9.5.2                                                   │
 │ Diese Adresse im Browser oeffnen:                                 │
 │   http://192.168.1.44:8765/    im heimischen Netz                 │
 │   http://100.81.120.100:8765/  ueber Tailscale                    │
@@ -1436,7 +1441,11 @@ deshalb nicht nach Größe, sondern **nach Bewegung**: es merkt sich alle Bildfl
 der Seite, wartet gut anderthalb Sekunden und sieht noch einmal nach. Was seine
 Adresse gewechselt hat oder als Video läuft, ist die Live-Ansicht und gewinnt — auch
 gegen ein viel größeres Standbild. Vorschaureihen (drei gleich große Bilder, jedes in
-einem Link) werden zusätzlich abgewertet. Und: gesucht wird auf der **ganzen Seite**,
+einem Link) werden zusätzlich abgewertet — aber nur innerhalb **eines**
+Dokuments: über iFrames hinweg ist dieselbe Größe normal, weil es derselbe
+Einbau mehrfach ist, und drei eingebettete Kameras sind keine Vorschaureihe.
+Ein Bild in einem fremden Rahmen, das nie fertig lädt (Werbung, Zählpixel),
+hält die Aufnahme höchstens drei Sekunden auf statt bis zum Zeitlimit. Und: gesucht wird auf der **ganzen Seite**,
 nicht nur im sichtbaren Fensterausschnitt — genau daran scheiterte es vorher, wenn das
 Livebild unter den Vorschauen lag.
 Bei Seiten mit Player — Webcams liegen fast immer hinter einem — nimmt Aquaticy das

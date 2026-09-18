@@ -38,6 +38,11 @@ PLAYBACK_TIMEOUT_MS = 12_000
 #: aktuelle Bild.
 PLAYBACK_SETTLE_MS = 1_200
 
+#: Ab wann ein einzelnes haengendes Bild nicht mehr aufhalten darf. Ein
+#: Zaehlpixel, eine Anzeige oder ein fremder Rahmen laedt manchmal nie zu
+#: Ende -- das ganze Zeitlimit dafuer abzuwarten bringt kein besseres Bild.
+PICTURE_GRACE_SECONDS = 3.0
+
 #: Chromium-Argumente fuer den Betrieb im Container. Dort steht der eigene
 #: Sandbox-Mechanismus des Browsers meist nicht zur Verfuegung -- was
 #: vertretbar ist, weil der ganze Prozess bereits im Container isoliert
@@ -329,9 +334,28 @@ def _playback_scopes(page: Any) -> list[Any]:
     return scopes
 
 
-def _playback_state(page: Any, *, start: bool = False) -> dict[str, int]:
-    """Zaehlt Video- und Bildzustand auch in eingebetteten Playern."""
-    total = {"videos": 0, "playing": 0, "images": 0, "loaded": 0}
+def _zahl(wert: Any) -> int:
+    """Eine Zaehlung aus dem Browser. Was keine ist, zaehlt als null.
+
+    Das Skript liefert Zahlen -- aber es laeuft in einer fremden Seite, und
+    eine Seite, die `document.images` ueberschreibt, darf die Aufnahme nicht
+    mit einem Typfehler beenden.
+    """
+    try:
+        return int(wert or 0)
+    except (TypeError, ValueError):
+        return 0
+
+
+def _playback_states(page: Any, *, start: bool = False) -> list[dict[str, int]]:
+    """Der Zustand jedes Bereichs einzeln -- Hauptseite zuerst.
+
+    Einzeln und nicht aufsummiert, weil die Bereiche nichts miteinander zu
+    tun haben: ein haengendes Werbebild in einem fremden Rahmen sagt nichts
+    darueber, ob die Kamera schon da ist. Summiert man beides, blockiert das
+    eine das andere.
+    """
+    stände: list[dict[str, int]] = []
     for scope in _playback_scopes(page):
         if start:
             with contextlib.suppress(Exception):
@@ -339,9 +363,42 @@ def _playback_state(page: Any, *, start: bool = False) -> dict[str, int]:
         stand: Any = {}
         with contextlib.suppress(Exception):
             stand = scope.evaluate(PLAYBACK_STATE_JS) or {}
-        for key in total:
-            total[key] += int(stand.get(key) or 0)
-    return total
+        if not isinstance(stand, dict):
+            stand = {}
+        stände.append(
+            {feld: _zahl(stand.get(feld))
+             for feld in ("videos", "playing", "images", "loaded")}
+        )
+    return stände
+
+
+def pictures_ready(stände: list[dict[str, int]], seconds: float) -> bool:
+    """Sind die Bilder so weit, dass sich ein Schuss lohnt?
+
+    Drei Stufen, und die dritte ist die wichtige: ohne sie wartete eine
+    Webcam-Seite mit einem einzigen haengenden Bild in einem Werberahmen das
+    ganze Zeitlimit ab -- und das, obwohl auf der Hauptseite laengst alles
+    stand.
+    """
+    # Ueber `.get` und nicht ueber den Index: die Funktion ist von aussen
+    # aufrufbar, und ein Zustand ohne alle vier Felder soll sie nicht
+    # abbrechen lassen. Was fehlt, zaehlt als null.
+    def bilder(stand: dict[str, int]) -> int:
+        return int(stand.get("images") or 0)
+
+    def geladen(stand: dict[str, int]) -> int:
+        return int(stand.get("loaded") or 0)
+
+    offen = [stand for stand in stände if geladen(stand) < bilder(stand)]
+    if not offen:
+        return True
+    if seconds <= PICTURE_GRACE_SECONDS:
+        return False
+    # Nach der Gnadenfrist reicht: irgendwo steht ein Bild, oder die
+    # Hauptseite ist fuer sich fertig.
+    return any(geladen(stand) for stand in stände) or (
+        bool(stände) and geladen(stände[0]) >= bilder(stände[0])
+    )
 
 
 def wait_for_live_frame(page: Any, timeout_ms: int = PLAYBACK_TIMEOUT_MS) -> str:
@@ -360,29 +417,24 @@ def wait_for_live_frame(page: Any, timeout_ms: int = PLAYBACK_TIMEOUT_MS) -> str
 
     start = _time.monotonic()
     frist = start + max(timeout_ms, 1_000) / 1000
-    stand = _playback_state(page, start=True)
+    stände = _playback_states(page, start=True)
     geklickt = False
     while _time.monotonic() < frist:
-        videos = int(stand.get("videos") or 0)
-        if videos and int(stand.get("playing") or 0):
+        videos = sum(stand["videos"] for stand in stände)
+        if videos and sum(stand["playing"] for stand in stände):
             # Der erste Frame ist oft noch der gepufferte; eine Sekunde
             # Wiedergabe spaeter steht das aktuelle Bild.
             page.wait_for_timeout(PLAYBACK_SETTLE_MS)
             return "video"
-        if not videos:
-            bilder = int(stand.get("images") or 0)
-            geladen = int(stand.get("loaded") or 0)
-            # Auf ein einzelnes hakendes Bild -- ein Zaehlpixel, eine Anzeige --
-            # warten wir nicht das ganze Zeitlimit ab.
-            genug = geladen >= bilder or (geladen and _time.monotonic() - start > 3.0)
-            if not bilder or genug:
-                return "bild"
-        if videos and not geklickt:
+        if not videos and pictures_ready(stände, _time.monotonic() - start):
+            return "bild"
+        # Erst warten, dann messen -- andersherum entscheidet die naechste
+        # Runde auf einem Stand, der schon vierhundert Millisekunden alt ist.
+        neu_starten = bool(videos) and not geklickt
+        if neu_starten:
             geklickt = bool(click_play_buttons(page))
-            stand = _playback_state(page, start=True)
-        else:
-            stand = _playback_state(page)
         page.wait_for_timeout(400)
+        stände = _playback_states(page, start=neu_starten)
     return "zeitlimit"
 
 
@@ -522,7 +574,7 @@ def capture_visual(
 
 
 def _bewerte(vorher: list[dict[str, Any]], nachher: dict[int, dict[str, Any]],
-             gleiche: dict[str, int]) -> int:
+             gleiche: dict[tuple[int, str], int]) -> int:
     """Welcher Kandidat ist das Livebild? Returns: seine Nummer, sonst -1.
 
     Die Groesse allein reicht nicht: eine Webcam-Seite zeigt gern eine Reihe
@@ -551,7 +603,8 @@ def _bewerte(vorher: list[dict[str, Any]], nachher: dict[int, dict[str, Any]],
         )
         if eintrag.get("inLink"):
             punkte *= MALUS_IN_LINK
-        if gleiche.get(str(eintrag.get("key")), 0) >= THUMBNAIL_ROW_FROM:
+        reihe = (int(eintrag.get("frame") or 0), str(eintrag.get("key")))
+        if gleiche.get(reihe, 0) >= THUMBNAIL_ROW_FROM:
             punkte *= MALUS_THUMBNAIL_ROW
         # Bewegung schlaegt Groesse, immer und unabhaengig davon, wie gross.
         # Dass ein Bild sich erneuert, ist ein Beweis; dass es gross ist, nur
@@ -567,7 +620,7 @@ def _image_candidates(page: Any) -> tuple[list[dict[str, Any]], dict[int, tuple[
     """Sammelt Kandidaten mit eindeutigen Kennungen ueber alle Frames hinweg."""
     candidates: list[dict[str, Any]] = []
     origins: dict[int, tuple[Any, int]] = {}
-    for scope in _playback_scopes(page):
+    for rahmen, scope in enumerate(_playback_scopes(page)):
         found: Any = []
         with contextlib.suppress(Exception):
             found = scope.evaluate(MARK_CANDIDATES_JS) or []
@@ -581,7 +634,11 @@ def _image_candidates(page: Any) -> tuple[list[dict[str, Any]], dict[int, tuple[
                 continue
             index = len(candidates)
             origins[index] = (scope, local_index)
-            candidates.append({**item, "index": index})
+            # Die Rahmennummer bleibt am Kandidaten haengen: gleich grosse
+            # Bilder sind nur INNERHALB eines Dokuments ein Hinweis auf eine
+            # Vorschaureihe. Ueber Rahmen hinweg ist dieselbe Groesse normal
+            # -- es ist derselbe Einbau, nur mehrfach.
+            candidates.append({**item, "index": index, "frame": rahmen})
     return candidates, origins
 
 
@@ -616,10 +673,10 @@ def _shot(page: Any) -> bytes:
         with contextlib.suppress(Exception):
             page.wait_for_timeout(RESCAN_WAIT_MS)
         nachher = _rescan_images(origins)
-        gleiche: dict[str, int] = {}
+        gleiche: dict[tuple[int, str], int] = {}
         for eintrag in vorher:
             if isinstance(eintrag, dict):
-                schluessel = str(eintrag.get("key"))
+                schluessel = (int(eintrag.get("frame") or 0), str(eintrag.get("key")))
                 gleiche[schluessel] = gleiche.get(schluessel, 0) + 1
         gewaehlt = _bewerte(
             [item for item in vorher if isinstance(item, dict)], nachher, gleiche

@@ -29,7 +29,7 @@ from dataclasses import dataclass
 from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Any
-from urllib.parse import urlsplit
+from urllib.parse import parse_qsl, urlencode, urlsplit
 
 #: Recherchen laufen eher taeglich; eine Bild- oder Preisbeobachtung darf in
 #: kurzen Abstaenden pruefen, damit ein voruebergehender Zustand nicht entgeht.
@@ -436,8 +436,26 @@ def offer_url(text: str) -> str:
     return match.group(0).rstrip(".,;:") if match else ""
 
 
+#: Parameter, die nur sagen, WOHER jemand kam -- nie, WAS die Seite zeigt.
+#: Sie stehen mal in der gelesenen Adresse und mal in der genannten; sie
+#: deshalb fuer zwei verschiedene Seiten zu halten, verwirft echte Treffer.
+TRACKING_PARAMS = frozenset({
+    "utm_source", "utm_medium", "utm_campaign", "utm_term", "utm_content",
+    "utm_id", "gclid", "gbraid", "wbraid", "fbclid", "msclkid", "igshid",
+    "mc_cid", "mc_eid", "yclid", "dclid",
+})
+
+
 def _offer_identity(url: str) -> tuple[str, str, int, str, str] | None:
-    """Vergleicht Webadressen inklusive Port; Fragmente sind keine andere Seite."""
+    """Vergleicht Webadressen inklusive Port; Fragmente sind keine andere Seite.
+
+    Drei Dinge werden bewusst weggeraeumt, weil sie dieselbe Seite bezeichnen:
+    das fuehrende ``www.`` (Shops leiten staendig zwischen beiden Formen um,
+    und gespeichert wird die Adresse NACH der Umleitung), die Gross- und
+    Kleinschreibung im Pfad, und Parameter, die nur die Herkunft zaehlen.
+    Alles andere bleibt Unterschied: ``?id=1`` und ``?id=2`` sind zwei
+    Produkte, nicht zwei Wege zu einem.
+    """
     try:
         parsed = urlsplit(url)
         scheme = parsed.scheme.lower()
@@ -446,28 +464,42 @@ def _offer_identity(url: str) -> tuple[str, str, int, str, str] | None:
         if parsed.username is not None or parsed.password is not None:
             return None
         port = parsed.port
+        host = parsed.hostname.lower().removeprefix("www.")
+        felder = [
+            (name, wert)
+            for name, wert in parse_qsl(parsed.query, keep_blank_values=True)
+            if name.lower() not in TRACKING_PARAMS
+        ]
         return (
-            scheme, parsed.hostname.lower(),
+            scheme, host,
             port if port is not None else (443 if scheme == "https" else 80),
-            parsed.path.rstrip("/") or "/", parsed.query,
+            parsed.path.rstrip("/").lower() or "/", urlencode(sorted(felder)),
         )
     except ValueError:
         return None
 
 
 def verified_offer_url(text: str, sources: list[Any]) -> str:
-    """Prueft alle genannten Adressen gegen die tatsaechlich gelesenen Quellen."""
+    """Die genannte Angebotsadresse -- aber nur, wenn sie gelesen wurde.
+
+    Geprueft wird die LETZTE Adresse im Text, nicht irgendeine. Das Modell
+    wird angewiesen, Produktname, Haendler, Preis und dann die Adresse der
+    Seite zu nennen; das Angebot steht also am Ende. Wer stattdessen die
+    erste passende nimmt, laesst sich von einer nebenbei zitierten -- und
+    tatsaechlich gelesenen -- Nachrichtenseite einen Fund vortaeuschen und
+    schickt dem Nutzer einen Artikel statt eines Ladens.
+    """
     read = set()
     for source in sources:
         url = source.get("url", "") if isinstance(source, dict) else getattr(source, "url", "")
         identity = _offer_identity(str(url or ""))
         if identity is not None:
             read.add(identity)
-    for match in OFFER_URL_RE.finditer(text or ""):
-        angebot = match.group(0).rstrip(".,;:")
-        if _offer_identity(angebot) in read:
-            return angebot
-    return ""
+    genannt = [match.group(0).rstrip(".,;:") for match in OFFER_URL_RE.finditer(text or "")]
+    if not genannt:
+        return ""
+    angebot = genannt[-1]
+    return angebot if _offer_identity(angebot) in read else ""
 
 
 def describe_job_image(agent: Any, job: Job, settings: Any) -> str:
@@ -541,6 +573,8 @@ def run_job(job: Job, settings: Any, *, token_limit: int | None = None) -> tuple
                   "ERFÜLLT lauten. Erfüllt ist sie nur, wenn du eine konkrete Angebots- "
                   "oder Produktseite wirklich geöffnet und gelesen hast. Nenne danach "
                   "Produktname, Händler, Preis und die vollständige Adresse der Seite. "
+                  "Die Adresse der Angebotsseite steht als Letztes in deiner Antwort -- "
+                  "daran wird geprüft, ob du sie wirklich gelesen hast. "
                   "Rate nicht und erfinde keine Adresse."
             )
         if job.kind == "visual":
