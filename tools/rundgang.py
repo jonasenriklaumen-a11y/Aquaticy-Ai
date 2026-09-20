@@ -376,8 +376,12 @@ def rundgang(pg: Any, log: Protokoll, agent: FakeAgent, bilder: Path | None,
         schritte = pg.inner_text(".steps >> nth=-1")
         log.pruefe("[Suche]" in schritte, f"Zwischenschritte sichtbar: {schritte[:40]!r}")
         # Der erste Satz an ein Modell, das erst in den Speicher muss.
-        log.pruefe("[Lädt]" in schritte, "der Ladehinweis steht beim ersten Satz da")
+        log.pruefe("[Modell]" in schritte, "der Ladehinweis steht beim ersten Satz da")
         log.pruefe("ist bereit (8.4s)" in schritte, "und wird danach zu einer Fertigmeldung")
+        log.pruefe(
+            "gemma3" not in schritte,
+            "und nennt keinen Modellnamen -- der sagt niemandem etwas",
+        )
         log.pruefe(
             pg.locator(".step.load").count() == 0,
             "das Pulsieren hoert auf, wenn das Modell bereit ist",
@@ -727,7 +731,14 @@ def rundgang(pg: Any, log: Protokoll, agent: FakeAgent, bilder: Path | None,
         pg.reload()
         pg.wait_for_selector("#chips")
         vorschlag = pg.inner_text("#chips")
-        log.pruefe("Café" in vorschlag or "Netz" in vorschlag,
+        # Wie bei den Coding-Vorschlaegen: die drei gezeigten wechseln bei
+        # jedem Aufruf. Nach einem festen Wort zu suchen war ein Muenzwurf --
+        # geprueft wird, dass jeder Vorschlag aus der richtigen Liste stammt.
+        aus_liste = pg.evaluate(
+            """() => [...document.querySelectorAll("#chips .chip")]
+                     .every(c => SUGGESTIONS.normal.includes(c.textContent.trim()))"""
+        )
+        log.pruefe(aus_liste,
                    f"im Standardmodus geht es ums Suchen ({vorschlag[:40]!r})")
         log.pruefe(not pg.is_visible("#chips-code"), "die Coding-Vorschläge sind weg")
         pg.click('#modes .mode[data-mode="code"]')

@@ -137,7 +137,7 @@ aquaticy "welche Bahnstrecken in NRW sind gerade gesperrt?"
 $ aquaticy --location "Mönchengladbach" --lang de
 
 ╭──────────────────────────────────────────────────────╮
-│ Aquaticy AI 9.5.4                                      │
+│ Aquaticy AI 9.5.5                                      │
 │ Modell mistral/mistral-large-latest · Suche duckduckgo │
 │ Frag einfach los. /help zeigt die Befehle.           │
 ╰──────────────────────────────────────────────────────╯
@@ -789,8 +789,10 @@ laufen live mit, die Antwort wird Wort für Wort gestreamt.
 * **Der erste Satz an ein örtliches Modell** sagt, dass gewartet wird. Ollama lädt
   ein großes Modell zehn bis sechzig Sekunden von der Platte; vorher stand in der
   Zeit nichts da und es sah aus, als hänge die Seite. Jetzt steht als erster
-  Zwischenschritt `[Lädt] … wird in den Speicher geladen`, leise pulsierend, und
-  sobald das Modell antwortet, wird daraus `… ist bereit (8.4s)`. Danach folgen die
+  Zwischenschritt `[Modell] wird noch geladen — der erste Satz dauert deshalb
+  länger …`, leise pulsierend, und sobald das Modell antwortet, wird daraus
+  `[Modell] ist bereit (8.4s)`. Der Name des Modells steht bewusst nicht dabei: er
+  sagt niemandem etwas, der ihn nicht selbst eingestellt hat. Danach folgen die
   gewohnten Schritte. Ein Wolkenmodell lädt nichts und sagt deshalb auch nichts, und
   ein Modell, das schon im Speicher liegt, ebenso wenig. Nachgesehen wird einmal je
   Frage — zwischen zwei Fragen kann es wieder herausgeflogen sein.
@@ -861,7 +863,7 @@ er erreichbar ist — im heimischen Netz und über Tailscale:
 
 ```
 ╭───────────────────────────────────────────────────────────────────╮
-│ Aquaticy AI 9.5.4                                                   │
+│ Aquaticy AI 9.5.5                                                   │
 │ Diese Adresse im Browser oeffnen:                                 │
 │   http://192.168.1.44:8765/    im heimischen Netz                 │
 │   http://100.81.120.100:8765/  ueber Tailscale                    │
@@ -1515,6 +1517,42 @@ docker compose build aquaticy                    # nach Codeänderungen
 
 Exporte (`/export html`) landen in `./exports` und sind damit direkt auf dem Host
 lesbar. Cache und Verlauf überleben im Volume `aquaticy-data`.
+
+### Eingeschlossen starten: eine Kiste in der Kiste
+
+`./aquaticy-sandbox` startet die **Weboberfläche** in einem Container — und die
+Werkstatt läuft darin noch einmal in einer eigenen. Ein Ausbruch aus dem Code-Modus
+landet damit nicht auf dem Rechner, sondern in der äußeren Kiste, und die hat selbst
+kaum etwas.
+
+```bash
+./aquaticy-sandbox            # starten, Oberfläche auf http://127.0.0.1:8765/
+./aquaticy-sandbox --check    # von innen nachsehen, was offen steht
+./aquaticy-sandbox --stop     # anhalten
+```
+
+Offen ist nur, was gebraucht wird:
+
+| Öffnung | wofür |
+|---|---|
+| Netz nach draußen | Recherche, Modelle in der Cloud, Ollama auf dem Rechner |
+| `127.0.0.1:8765` | die Oberfläche — **nur** dieser Rechner, nicht das WLAN |
+| `/data`, `/work` | Konten und Ausgaben (`./exports`) |
+
+Alles andere bleibt zu: kein Heimverzeichnis, keine Geräte, `cap_drop: ALL`,
+`no-new-privileges`, schreibgeschütztes Wurzelverzeichnis, begrenzte Prozesszahl.
+
+**Und ausdrücklich nicht offen: der Docker-Sockel des Wirts.** Das ist der übliche
+Kurzweg, damit die Werkstatt drinnen Container starten kann — und er hebt die ganze
+äußere Wand auf: wer den Sockel erreicht, startet auf dem Wirt einen Container mit
+dessen Wurzelverzeichnis und ist damit root. Die Werkstatt bekommt stattdessen eine
+eigene, wurzellose Podman-Laufzeit im Inneren, mit dem `vfs`-Speichertreiber. Der ist
+langsamer als `fuse-overlayfs`, braucht dafür aber kein `/dev/fuse` in der Kiste.
+
+`aquaticy sandbox` sagt jederzeit, wie es gerade steht — ob eingeschlossen, ob eine
+innere Laufzeit da ist, und ob etwas offen steht, das nicht offen stehen sollte
+(erreichbarer Wirts-Sockel, root in der Kiste, beschreibbares Wurzelverzeichnis).
+Findet es ein Loch, endet der Befehl mit Rückgabewert 1.
 
 ### Zwei Varianten des Images
 

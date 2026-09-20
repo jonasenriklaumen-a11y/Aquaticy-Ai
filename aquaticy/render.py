@@ -80,6 +80,29 @@ class ChatRenderer:
         if handler is not None:
             handler(payload)
 
+    def _on_model_loading(self, payload: dict[str, Any]) -> None:
+        """Der erste Satz an ein oertliches Modell dauert -- das gehoert gesagt.
+
+        Ohne Modellnamen: der sagt niemandem etwas, der ihn nicht selbst
+        eingestellt hat, und ist bei jedem Modell ein anderer.
+        """
+        self._flush_reading()
+        self.console.print(
+            Text.assemble(
+                ("  [Modell] ", "bold cyan"),
+                ("wird noch geladen -- der erste Satz dauert deshalb laenger ...", "white"),
+            )
+        )
+
+    def _on_model_ready(self, payload: dict[str, Any]) -> None:
+        sekunden = payload.get("seconds")
+        self.console.print(
+            Text.assemble(
+                ("  [Modell] ", "bold cyan"),
+                (f"ist bereit{f' ({sekunden}s)' if sekunden else ''}", "white"),
+            )
+        )
+
     def _on_search(self, payload: dict[str, Any]) -> None:
         self._flush_reading()
         self.console.print(

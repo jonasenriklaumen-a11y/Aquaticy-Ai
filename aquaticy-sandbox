@@ -1,0 +1,55 @@
+#!/usr/bin/env bash
+# Aquaticy eingeschlossen starten: die Oberflaeche in einer Kiste, und die
+# Werkstatt darin noch einmal in einer eigenen.
+#
+#   ./aquaticy-sandbox            starten (und im Browser oeffnen)
+#   ./aquaticy-sandbox --build    Image neu bauen, dann starten
+#   ./aquaticy-sandbox --stop     anhalten
+#   ./aquaticy-sandbox --logs     mitlesen
+#   ./aquaticy-sandbox --check    nur nachsehen, was offen steht
+#
+# Offen ist nur, was gebraucht wird -- was das genau ist, steht in
+# compose.sandbox.yaml, und `--check` zeigt es aus der Kiste heraus.
+set -euo pipefail
+
+cd "$(dirname "$0")"
+mkdir -p exports
+
+COMPOSE=(docker compose -f compose.sandbox.yaml)
+PORT="${AQUATICY_PORT:-8765}"
+
+if ! command -v docker >/dev/null 2>&1; then
+    echo "Docker fehlt. Ohne eine Container-Laufzeit gibt es keine Kiste --" >&2
+    echo "und ohne Kiste startet Aquaticy hier absichtlich nicht." >&2
+    exit 1
+fi
+if ! docker info >/dev/null 2>&1; then
+    echo "Docker ist da, antwortet aber nicht. Laeuft der Dienst?" >&2
+    exit 1
+fi
+
+case "${1:-}" in
+    --stop)
+        exec "${COMPOSE[@]}" down
+        ;;
+    --logs)
+        exec "${COMPOSE[@]}" logs -f aquaticy-web
+        ;;
+    --check)
+        # Von innen nachsehen. Ein zweiter, kurzlebiger Container mit
+        # denselben Einstellungen -- er startet keine Oberflaeche.
+        exec "${COMPOSE[@]}" run --rm --no-deps --entrypoint aquaticy \
+            aquaticy-web sandbox
+        ;;
+    --build)
+        shift
+        "${COMPOSE[@]}" build aquaticy-web
+        ;;
+esac
+
+"${COMPOSE[@]}" up -d aquaticy-web
+
+echo "Aquaticy laeuft eingeschlossen."
+echo "  Oberflaeche: http://127.0.0.1:${PORT}/"
+echo "  Was offen steht: ./aquaticy-sandbox --check"
+echo "  Anhalten:        ./aquaticy-sandbox --stop"

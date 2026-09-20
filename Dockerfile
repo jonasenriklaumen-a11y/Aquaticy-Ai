@@ -67,3 +67,60 @@ USER aquaticy
 WORKDIR /work
 ENTRYPOINT ["/usr/bin/tini", "--", "aquaticy"]
 CMD []
+
+# ---------------------------------------------------------------------------
+# Die aeussere Kiste: die Weboberflaeche laeuft eingeschlossen, und DARIN
+# macht die Werkstatt noch einmal eine eigene Kiste auf.
+#
+#   docker build -t aquaticy:web --target web .
+#
+# Warum Podman drinnen und nicht der Docker-Sockel des Wirts: der Sockel
+# waere der uebliche Kurzweg -- und er hebt die ganze aeussere Wand auf.
+# Wer ihn erreicht, startet auf dem Wirt einen Container mit dessen
+# Wurzelverzeichnis und ist damit root. Die Werkstatt bekommt deshalb eine
+# eigene, wurzellose Laufzeit im Inneren.
+FROM browser AS web
+
+USER root
+
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends podman uidmap fuse-overlayfs \
+    && rm -rf /var/lib/apt/lists/*
+
+# Podman wurzellos in einem Container: ohne zusaetzliche Rechte gibt es
+# keine Kennungsbereiche (`newuidmap` braucht Datei-Faehigkeiten, die
+# `no-new-privileges` gerade verhindert). Mit dem vfs-Treiber und
+# `ignore_chown_errors` geht es trotzdem -- langsamer, aber ohne dass die
+# Kiste dafuer aufgemacht werden muesste.
+RUN mkdir -p /etc/containers \
+    && printf '%s\n' \
+        '[storage]' \
+        'driver = "vfs"' \
+        'runroot = "/tmp/containers"' \
+        'graphroot = "/home/aquaticy/.local/share/containers/storage"' \
+        '[storage.options]' \
+        'ignore_chown_errors = "true"' \
+        > /etc/containers/storage.conf \
+    && printf '%s\n' \
+        '[engine]' \
+        'cgroup_manager = "cgroupfs"' \
+        'events_logger = "file"' \
+        > /etc/containers/containers.conf \
+    && printf '%s\n' 'unqualified-search-registries = ["docker.io"]' \
+        > /etc/containers/registries.conf \
+    && echo 'aquaticy:100000:65536' > /etc/subuid \
+    && echo 'aquaticy:100000:65536' > /etc/subgid \
+    && mkdir -p /home/aquaticy/.local/share/containers \
+    && chown -R aquaticy:aquaticy /home/aquaticy
+
+ENV HOME=/home/aquaticy \
+    AQUATICY_VM_RUNTIME=podman \
+    AQUATICY_SANDBOXED=1
+
+USER aquaticy
+WORKDIR /work
+EXPOSE 8765
+# Nur an alle Schnittstellen IN der Kiste -- nach draussen bindet erst
+# Compose, und zwar auf 127.0.0.1.
+ENTRYPOINT ["/usr/bin/tini", "--", "aquaticy", "web", "--host", "0.0.0.0"]
+CMD []

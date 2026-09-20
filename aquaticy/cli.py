@@ -443,6 +443,23 @@ def version_command() -> None:
     console.print(f"aquaticy {__version__}")
 
 
+@app.command("sandbox")
+def sandbox_command() -> None:
+    """Zeigt, ob Aquaticy eingeschlossen laeuft und was daran offen steht."""
+    from aquaticy.boxed import describe, posture
+
+    stand = posture()
+    for zeile in describe(stand):
+        if zeile.startswith("LOCH:"):
+            console.print(f"  [bold red]{zeile}[/]")
+        elif zeile.startswith("offen:"):
+            console.print(f"  [dim]{zeile}[/]")
+        else:
+            console.print(f"  {zeile}")
+    if stand.holes:
+        raise typer.Exit(1)
+
+
 @app.command("list")
 def list_users_command() -> None:
     """Listet Konten mit Token- und Speicherverbrauch."""

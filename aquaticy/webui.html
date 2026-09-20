@@ -1742,7 +1742,7 @@ input:focus,select:focus{border-color:var(--accent)}
 const $ = (s) => document.querySelector(s);
 const thread = $("#thread"), main = $("#main"), input = $("#input"), send = $("#send");
 let busy = false;
-const aquaticyVersion = window.__AQUATICY_VERSION__ || "9.5.4";
+const aquaticyVersion = window.__AQUATICY_VERSION__ || "9.5.5";
 $("#version").textContent = "v" + aquaticyVersion;
 document.title = `Aquaticy AI ${aquaticyVersion}`;
 
@@ -2648,16 +2648,18 @@ async function verfolge(hole, steps, bubble, text){
   function handle(ev){
     if (ev.type !== "thought") thoughtLine = null;
     switch (ev.type){
+      // Bewusst ohne Modellnamen: der sagt niemandem etwas, der ihn nicht
+      // selbst eingestellt hat, und er ist bei jedem Modell ein anderer.
+      // Hier zaehlt nur, dass gewartet wird und warum.
       case "model_loading":
-        laden = step(steps, "[Lädt]",
-          `${ev.model} wird in den Speicher geladen — der erste Satz dauert `
-          + "deshalb länger …", "load");
+        laden = step(steps, "[Modell]",
+          "wird noch geladen — der erste Satz dauert deshalb länger …", "load");
         break;
       case "model_ready":
         if (laden){
           laden.classList.remove("load");
           laden.querySelector(".txt").textContent =
-            `${ev.model} ist bereit` + (ev.seconds ? ` (${ev.seconds}s)` : "");
+            "ist bereit" + (ev.seconds ? ` (${ev.seconds}s)` : "");
           laden = null;
         }
         break;

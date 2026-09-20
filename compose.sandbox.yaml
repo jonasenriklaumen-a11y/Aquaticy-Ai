@@ -1,0 +1,67 @@
+# Aquaticy eingeschlossen starten -- die Oberflaeche in einer Kiste, und die
+# Werkstatt darin noch einmal in einer eigenen.
+#
+#   ./aquaticy-sandbox            starten
+#   ./aquaticy-sandbox --build    Image neu bauen, dann starten
+#   ./aquaticy-sandbox --stop     anhalten
+#
+# Offen ist nur, was gebraucht wird:
+#   * Netz nach draussen        -- ohne das keine Recherche und kein Modell
+#   * 127.0.0.1:8765            -- die Oberflaeche, nur fuer diesen Rechner
+#   * /data und /work           -- Konten und Ausgaben
+# Alles andere bleibt zu: kein Heimverzeichnis, keine Geraete, keine
+# Faehigkeiten, kein beschreibbares Wurzeldateisystem -- und vor allem kein
+# Docker-Sockel des Wirts. Der waere der uebliche Kurzweg, damit die
+# Werkstatt drinnen Container starten kann, und er hebt die ganze aeussere
+# Wand auf: wer ihn erreicht, startet auf dem Wirt einen Container mit
+# dessen Wurzelverzeichnis und ist damit root.
+
+services:
+  aquaticy-web:
+    build:
+      context: .
+      target: web
+    image: aquaticy:web
+    container_name: aquaticy-web
+    restart: unless-stopped
+    env_file:
+      - path: .env
+        required: false
+    environment:
+      AQUATICY_DATA_DIR: /data
+      AQUATICY_SANDBOXED: "1"
+    # Nur auf diesen Rechner. Ohne die 127.0.0.1 haengt die Oberflaeche an
+    # jeder Netzwerkkarte -- im WLAN eines Cafes waere sie damit offen.
+    ports:
+      - "127.0.0.1:${AQUATICY_PORT:-8765}:8765"
+    volumes:
+      - aquaticy-data:/data
+      - ./exports:/work
+      # Die innere Kiste legt ihre Abbilder hier ab. Das Wurzelwerk ist
+      # schreibgeschuetzt, und auf /tmp waere alles nach jedem Neustart weg
+      # -- dann laedt die Werkstatt ihr Grundabbild jedes Mal neu.
+      - aquaticy-workshop:/home/aquaticy/.local/share/containers
+    # Keine neuen Rechte, keine Faehigkeiten, unveraenderliches Wurzelwerk.
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    read_only: true
+    # Was drinnen wirklich beschreibbar sein muss -- und sonst nichts.
+    tmpfs:
+      - /tmp:rw,nosuid,nodev,size=512m
+      - /run:rw,nosuid,nodev,size=64m
+    init: true
+    pids_limit: 512
+    shm_size: 512m
+    healthcheck:
+      test: ["CMD", "python", "-c",
+             "import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://127.0.0.1:8765/api/auth/status', timeout=5).status < 500 else 1)"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+
+volumes:
+  aquaticy-data:
+  aquaticy-workshop:
