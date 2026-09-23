@@ -1280,6 +1280,19 @@ input:focus,select:focus{border-color:var(--accent)}
   </div>
 </div>
 
+<div class="overlay ask" id="guardbox">
+  <div class="sheet ask-sheet" role="alertdialog" aria-modal="true"
+       aria-labelledby="guard-title" aria-describedby="guard-text">
+    <div class="ask-head"><span class="ask-dot"></span>Rechts-Leitplanken</div>
+    <div class="ask-q" id="guard-title"></div>
+    <div class="note" id="guard-text"></div>
+    <div class="actions">
+      <button type="button" class="btn" id="guard-cancel">Abbrechen</button>
+      <button type="button" class="btn primary" id="guard-ok">Weiter</button>
+    </div>
+  </div>
+</div>
+
 <div class="overlay" id="vmbox">
   <div class="sheet merk-sheet" role="dialog" aria-modal="true" aria-labelledby="vm-title">
     <h2 id="vm-title">Werkstatt</h2>
@@ -1730,8 +1743,6 @@ input:focus,select:focus{border-color:var(--accent)}
       </fieldset>
 
       <fieldset id="dev-settings"><legend>Dev settings</legend>
-        <div class="pro-lock" id="dev-lock" hidden>🔒 Die Dev settings gehören zu Pro.
-          Mit einem normalen Konto bleiben die Rechts-Leitplanken immer eingeschaltet.</div>
         <div class="check">
           <input type="checkbox" role="switch" class="schalter" id="legalguard"
                  name="AQUATICY_LEGAL_GUARD">
@@ -3544,6 +3555,7 @@ $("#picker-settings").addEventListener("click", () => {
 document.addEventListener("keydown", (e) => {
   if (e.key !== "Escape") return;
   if (asking) return;              // die Rueckfrage liegt obenauf
+  if (guardBox.classList.contains("open")) { guardSchliessen(false); return; }
   if (pickerOpen()) { closePicker(); return; }
   if (vmBox.classList.contains("open")) { closeOverlay(vmBox); return; }
   if (memBox.classList.contains("open")) { closeOverlay(memBox); return; }
@@ -3651,12 +3663,10 @@ async function loadAccount(account){
     $("#showload").checked = false;
     $("#usage-note").innerHTML = "";
   }
-  // Dev settings: nur Pro darf die Rechts-Leitplanken abschalten. Der Server
-  // prueft das ohnehin -- das hier sagt es, bevor man es versucht.
-  const dev = $("#dev-settings");
-  dev.classList.toggle("locked-feature", !pro);
-  $("#dev-lock").hidden = pro;
-  dev.querySelectorAll("input").forEach(field => { field.disabled = !pro; });
+  // Dev settings: der Schalter sieht bei jedem Konto gleich aus und laesst
+  // sich anklicken. Was dann passiert, haengt am Konto (siehe unten) -- und
+  // der Server prueft es ohnehin noch einmal.
+  kontoPro = pro;
   if (!pro) $("#legalguard").checked = true;
   const plus = form.elements["AQUATICY_VM_SIZE"].querySelector('option[value="plus"]');
   plus.disabled = !pro;
@@ -3682,15 +3692,61 @@ function showLegalRules(rules){
     list.appendChild(item);
   }
 }
-// Ausschalten ist eine bewusste Entscheidung -- ein verrutschter Finger
-// soll sie nicht treffen. Einschalten fragt nicht nach.
-$("#legalguard").addEventListener("change", (e) => {
-  if (e.target.checked) return;
-  const ok = confirm("Rechts-Leitplanken wirklich ausschalten?\n\n"
-    + "Aquaticy prüft Anfragen dann nicht mehr gegen Grundgesetz und BGB. "
-    + "Die festen Grenzen (Paywalls, Heimnetz, Schalten, Google) bleiben. "
-    + "Gilt erst nach dem Speichern.");
-  if (!ok) e.target.checked = true;
+// Ob das angemeldete Konto Pro ist -- setzt loadAccount.
+let kontoPro = false;
+const guardBox = $("#guardbox");
+let guardFertig = null;
+
+// Ein eigenes Fenster statt confirm(): die Knoepfe sollen sagen, was sie
+// tun ("Abbrechen", "Weiter"), nicht "OK" in der Sprache des Browsers.
+function guardDialog({ title, text, ok, cancel }){
+  $("#guard-title").textContent = title;
+  $("#guard-text").textContent = text;
+  $("#guard-ok").textContent = ok;
+  $("#guard-cancel").hidden = !cancel;
+  if (cancel) $("#guard-cancel").textContent = cancel;
+  openOverlay(guardBox);
+  requestAnimationFrame(() => (cancel ? $("#guard-cancel") : $("#guard-ok")).focus());
+  return new Promise(resolve => { guardFertig = resolve; });
+}
+function guardSchliessen(ergebnis){
+  if (!guardFertig) return;
+  const fertig = guardFertig;
+  guardFertig = null;
+  closeOverlay(guardBox);
+  fertig(ergebnis);
+}
+$("#guard-ok").addEventListener("click", () => guardSchliessen(true));
+$("#guard-cancel").addEventListener("click", () => guardSchliessen(false));
+guardBox.addEventListener("click", (e) => { if (e.target === guardBox) guardSchliessen(false); });
+
+// Einschalten geht immer ohne Rueckfrage. Ausschalten: beim normalen Konto
+// ein freundliches Nein, bei Pro eine bewusste Entscheidung -- ein
+// verrutschter Finger soll sie nicht treffen.
+$("#legalguard").addEventListener("click", async (e) => {
+  const schalter = e.currentTarget;
+  // Beim Klick steht schon der NEUE Zustand da: an heisst, er wird gerade
+  // eingeschaltet -- das geht ohne Rueckfrage.
+  if (schalter.checked) return;
+  e.preventDefault();                     // bleibt an, bis entschieden ist
+  if (!kontoPro){
+    await guardDialog({
+      title: "Diese Funktion ist leider nicht für das normale Konto verfügbar.",
+      text: "Die Rechts-Leitplanken nach Grundgesetz und BGB lassen sich nur mit "
+        + "einem Pro-Konto abschalten. Bei deinem Konto bleiben sie immer an.",
+      ok: "Verstanden",
+    });
+    return;
+  }
+  const weiter = await guardDialog({
+    title: "Bist du dir wirklich sicher?",
+    text: "Aquaticy prüft Anfragen dann nicht mehr gegen Grundgesetz und BGB. "
+      + "Die festen Grenzen (Paywalls, Heimnetz, Schalten, Google) bleiben. "
+      + "Gilt erst nach dem Speichern.",
+    ok: "Weiter",
+    cancel: "Abbrechen",
+  });
+  if (weiter) schalter.checked = false;
 });
 
 $("#account-logout").addEventListener("click", async () => {

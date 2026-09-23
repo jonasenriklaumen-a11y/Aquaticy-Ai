@@ -2199,9 +2199,11 @@ gar kein Modell, wird ebenfalls nichts bearbeitet. Ein Auftrag, dessen Frage abg
 wird, schaltet sich selbst ab, statt jede Minute ins selbe Nein zu laufen.
 
 **Abschalten kann nur Pro**, und nur in den Einstellungen unter **Dev settings**. Beim
-Ausschalten fragt die Oberfläche noch einmal nach. Bei normalen Konten ist der Schalter
-gesperrt, und der Server setzt ihn auf „an", egal was in deren `.env` steht oder was am
-Formular vorbei geschickt wird. Aus dem Chat heraus lässt er sich nie umstellen — auch nicht
+Ausschalten fragt ein eigenes Fenster „Bist du dir wirklich sicher?" — mit **Abbrechen**
+und **Weiter**. Bei normalen Konten sieht der Schalter genauso aus und lässt sich anklicken;
+dann erscheint „Diese Funktion ist leider nicht für das normale Konto verfügbar", und die
+Leitplanken bleiben an. Der Server setzt sie dort ohnehin auf „an", egal was in der `.env`
+steht oder was am Formular vorbei geschickt wird. Aus dem Chat heraus lässt er sich nie umstellen — auch nicht
 als „Rechtsrahmen", „Leitplanken" oder „Guardrails". In der `.env` schaltet nur ein
 ausdrückliches `AQUATICY_LEGAL_GUARD=false` (oder `0`, `aus`, `nein`, `off`, `no`) ab; ein
 Tippfehler lässt die Leitplanken an.

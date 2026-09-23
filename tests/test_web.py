@@ -3902,3 +3902,14 @@ def test_a_body_that_is_not_an_object_is_an_empty_request(client) -> None:
                      "/api/job", "/api/uistate"):
             status, _ = client("POST", pfad, koerper)
             assert status < 500, f"{pfad} mit {koerper!r} gab {status}"
+
+
+def test_a_fresh_form_can_be_saved_as_it_is(client, web_settings: Settings) -> None:
+    """Das Formular schickt, was /api/config vorher geliefert hat. Frueher lag
+    "Gleichzeitig" dabei auf 0 ("Aquaticy entscheidet"), der Server liess aber
+    erst ab 1 zu -- ein frisches Konto konnte gar nichts speichern."""
+    _, body = client("GET", "/api/config")
+    werte = json.loads(body)["values"]
+    assert werte["AQUATICY_SUBAGENT_PARALLEL"] == "0"
+    status, data = client("POST", "/api/config", werte)
+    assert status == 200, data

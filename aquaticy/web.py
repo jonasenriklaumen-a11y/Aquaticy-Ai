@@ -260,7 +260,10 @@ NUMBERS: dict[str, tuple[int, int]] = {
     "AQUATICY_SEARCH_VARIANTS": (1, 10),
     "AQUATICY_MAX_SUBAGENTS": (1, 12),
     "AQUATICY_SUBAGENT_BUDGET": (1, 40),
-    "AQUATICY_SUBAGENT_PARALLEL": (1, 12),
+    # 0 heisst "Aquaticy entscheidet" -- das ist der Standard und steht so
+    # auch im Formular. Mit 1 als Untergrenze liess sich ein frisches Konto
+    # gar nicht speichern.
+    "AQUATICY_SUBAGENT_PARALLEL": (0, 12),
     "AQUATICY_RPM": (1, 100_000),
     "AQUATICY_PARALLEL_CALLS": (1, 64),
     "AQUATICY_MAX_TOOL_CALLS": (1, 200),

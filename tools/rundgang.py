@@ -326,10 +326,30 @@ def normales_konto(browser: Any, port: int, log: Protokoll, fehler: list[str]) -
     pg.click("#btn-settings")
     pg.wait_for_selector("#overlay.open", state="visible")
     pg.wait_for_timeout(700)
-    log.pruefe(pg.is_visible("#dev-lock"), "vor den Dev settings haengt ein Schloss")
     log.pruefe(
-        pg.is_checked("#legalguard") and pg.is_disabled("#legalguard"),
-        "die Rechts-Leitplanken sind an und lassen sich nicht umstellen",
+        pg.is_checked("#legalguard") and pg.is_enabled("#legalguard"),
+        "der Schalter ist an und nicht ausgegraut",
+    )
+    deckkraft = pg.eval_on_selector("#dev-settings", "e => getComputedStyle(e).opacity")
+    log.pruefe(deckkraft == "1", f"die Dev settings sind nicht blass ({deckkraft})")
+    pg.click('#secnav button:has-text("Dev settings")')
+    pg.wait_for_timeout(700)
+    pg.click("#legalguard")
+    pg.wait_for_selector("#guardbox.open", state="visible")
+    pg.wait_for_timeout(300)
+    log.pruefe(
+        "nicht für das normale Konto verfügbar" in pg.inner_text("#guard-title"),
+        f"beim Draufdruecken kommt der Hinweis: {pg.inner_text('#guard-title')[:60]!r}",
+    )
+    log.pruefe(not pg.is_visible("#guard-cancel"), "dort gibt es nichts abzubrechen")
+    pg.click("#guard-ok")
+    pg.wait_for_selector("#guardbox", state="hidden")
+    log.pruefe(pg.is_checked("#legalguard"), "und die Leitplanken bleiben an")
+    pg.click('#settings button[type="submit"]')
+    pg.wait_for_timeout(1200)
+    log.pruefe(
+        "Gespeichert" in pg.inner_text("#savenote"),
+        f"Speichern klappt trotzdem: {pg.inner_text('#savenote')[:50]!r}",
     )
     antwort = pg.evaluate(
         """async () => {
@@ -947,35 +967,46 @@ def rundgang(pg: Any, log: Protokoll, agent: FakeAgent, bilder: Path | None,
             pg.is_checked("#legalguard") and pg.is_enabled("#legalguard"),
             "die Rechts-Leitplanken stehen auf an, und Pro darf sie umstellen",
         )
-        log.pruefe(pg.is_hidden("#dev-lock"), "mit Pro kein Schloss vor den Dev settings")
         regeln = pg.locator("#legal-rule-list li").count()
         log.pruefe(regeln == 11, f"die Regeln stehen in der Liste ({regeln})")
         pg.click('#secnav button:has-text("Dev settings")')
         pg.wait_for_timeout(700)
-        pg.once("dialog", lambda d: d.dismiss())
         pg.click("#legalguard")
+        pg.wait_for_selector("#guardbox.open", state="visible")
         pg.wait_for_timeout(300)
+        log.pruefe(
+            "wirklich sicher" in pg.inner_text("#guard-title")
+            and pg.inner_text("#guard-cancel").strip() == "Abbrechen"
+            and pg.inner_text("#guard-ok").strip() == "Weiter",
+            "Ausschalten fragt: wirklich sicher? -- mit Abbrechen und Weiter",
+        )
+        log.pruefe(pg.is_checked("#legalguard"), "solange gefragt wird, bleibt er an")
+        pg.click("#guard-cancel")
+        pg.wait_for_selector("#guardbox", state="hidden")
         log.pruefe(
             pg.is_checked("#legalguard"),
-            "wer beim Ausschalten abbricht, behaelt die Leitplanken",
+            "wer abbricht, behaelt die Leitplanken",
         )
-        gefragt: list[str] = []
-
-        def zustimmen(dialog: Any) -> None:
-            gefragt.append(dialog.message)
-            dialog.accept()
-
-        pg.once("dialog", zustimmen)
         pg.click("#legalguard")
+        pg.wait_for_selector("#guardbox.open", state="visible")
         pg.wait_for_timeout(300)
+        pg.click("#guard-ok")
+        pg.wait_for_selector("#guardbox", state="hidden")
+        log.pruefe(not pg.is_checked("#legalguard"), "mit Weiter geht er aus")
+        pg.click("#legalguard")
+        pg.wait_for_timeout(400)
         log.pruefe(
-            not pg.is_checked("#legalguard") and bool(gefragt)
-            and "Grundgesetz" in gefragt[0],
-            "Ausschalten fragt vorher nach und geht dann",
+            pg.is_checked("#legalguard") and not pg.is_visible("#guardbox.open"),
+            "Einschalten geht ohne Rueckfrage",
         )
         pg.click("#legalguard")
-        pg.wait_for_timeout(300)
-        log.pruefe(pg.is_checked("#legalguard"), "Einschalten geht ohne Rueckfrage")
+        pg.wait_for_selector("#guardbox.open", state="visible")
+        pg.keyboard.press("Escape")
+        pg.wait_for_selector("#guardbox", state="hidden")
+        log.pruefe(
+            pg.is_checked("#legalguard") and pg.is_visible("#overlay.open"),
+            "Escape bricht nur die Rueckfrage ab, die Einstellungen bleiben offen",
+        )
         foto("07-einstellungen")
         pg.click("#cancel")
         pg.wait_for_timeout(500)
