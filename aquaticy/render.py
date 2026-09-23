@@ -118,6 +118,26 @@ class ChatRenderer:
             )
         )
 
+    def _on_vm_net(self, payload: dict[str, Any]) -> None:
+        self._flush_reading()
+        self.console.print(
+            Text.assemble(
+                ("  [Werkstatt] ", "bold cyan"), ("Internet an, Heimnetz gesperrt", "white")
+            )
+        )
+
+    def _on_desktop(self, payload: dict[str, Any]) -> None:
+        """Was Aquaticy im User mode auf dem Desktop der Werkstatt tut."""
+        self._flush_reading()
+        aktion = str(payload.get("action", ""))
+        warnung = aktion in ("abgelehnt", "nicht bestaetigt")
+        self.console.print(
+            Text.assemble(
+                ("  [Desktop] ", "bold yellow" if warnung else "bold cyan"),
+                (f"{aktion}: {payload.get('detail', '')}", "white"),
+            )
+        )
+
     def _on_search(self, payload: dict[str, Any]) -> None:
         self._flush_reading()
         self.console.print(

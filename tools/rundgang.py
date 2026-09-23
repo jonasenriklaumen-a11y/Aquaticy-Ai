@@ -59,6 +59,8 @@ class FakeAgent:
         #: Liegt das gestellte Modell schon im Speicher? Beim ersten Satz nicht.
         self.modell_geladen = False
         self.stats = self
+        #: Ein gespeichertes Bildschirmfoto fuer den User mode (setzt der Rundgang).
+        self.bildschirm = ""
 
     # -- was der Server vom Agenten erwartet -------------------------------
     def set_ask_handler(self, handler: Any) -> None:
@@ -118,6 +120,25 @@ class FakeAgent:
             self.on_event("answer_chunk", {"text": absage})
             self.on_event("done", {"tool_calls": 0, "hit_limit": False})
             return type("R", (), {"answer": absage, "stopped": False})()
+        # Der User mode: eine Werkstatt als Desktop mit Internet. Die Attrappe
+        # meldet, was die echte meldet -- Sperre, Desktop, Handgriffe, eine
+        # Ablehnung -- und legt das Bildschirmfoto in den Chat.
+        if "usermode-probe" in text:
+            self.on_event("vm_start", {"runtime": "Docker (gehaertet)", "user_mode": True})
+            self.on_event("vm_net", {"locked": True, "ranges": 6})
+            self.on_event("vm_desktop", {"ready": True})
+            self.on_event("desktop", {"action": "sieht", "detail": "den Bildschirm",
+                                      "media_id": self.bildschirm})
+            self.on_event("desktop", {"action": "oeffnet", "detail": "Webbrowser (Falkon)"})
+            self.on_event("desktop", {"action": "klickt", "detail": "Link Impressum"})
+            self.on_event("desktop", {"action": "abgelehnt", "detail": "Alle akzeptieren",
+                                      "kind": "alle_akzeptieren"})
+            antwort = "Die Seite ist offen; das Cookie-Banner habe ich abgelehnt."
+            self.on_event("answer_chunk", {"text": antwort})
+            self.on_event("done", {"tool_calls": 4, "hit_limit": False, "visuals": [
+                {"kind": "desktop", "media_id": self.bildschirm,
+                 "title": "Bildschirm der Werkstatt"}]})
+            return type("R", (), {"answer": antwort, "stopped": False})()
         if mode in ("code", "pro"):
             self.on_event("code_model", {"model": "mistral/mistral-large-latest"})
         if sandbox and mode == "code":
@@ -919,6 +940,51 @@ def rundgang(pg: Any, log: Protokoll, agent: FakeAgent, bilder: Path | None,
         pg.click("#btn-new")
         pg.wait_for_timeout(700)
 
+    if dran("usermode"):
+        log.abschnitt("6b. User mode")
+        # Ein echtes JPEG, gespeichert wie jedes Bildschirmfoto der Werkstatt:
+        # die Oberflaeche soll es aus dem Speicher des Kontos laden.
+        from aquaticy.media import save_snapshot
+
+        foto_bytes = pg.screenshot(type="jpeg", quality=60,
+                                   clip={"x": 0, "y": 0, "width": 320, "height": 200})
+        agent.bildschirm = save_snapshot(konto_einstellungen().data_dir, foto_bytes,
+                                         "image/jpeg")
+        pg.click("#btn-new")
+        pg.wait_for_timeout(700)
+        pg.fill("#input", "usermode-probe: oeffne die Seite")
+        pg.click("#send")
+        pg.wait_for_selector("#stop", state="hidden", timeout=25000)
+        pg.wait_for_timeout(900)
+        schritte = pg.inner_text(".steps >> nth=-1")
+        log.pruefe("Internet an, Heimnetz gesperrt" in schritte,
+                   "die Netzsperre steht in den Schritten")
+        log.pruefe("Desktop bereit" in schritte, "der Desktop meldet sich")
+        log.pruefe("[Desktop]" in schritte and "klickt: Link Impressum" in schritte,
+                   f"die Handgriffe stehen da: {schritte[-120:]!r}")
+        log.pruefe(
+            pg.locator(".steps >> nth=-1").locator(".step.warn").filter(
+                has_text="abgelehnt").count() == 1,
+            "eine Ablehnung ist als Warnung markiert",
+        )
+        log.pruefe(
+            pg.locator(".steps >> nth=-1").locator("img.shot").count() == 1,
+            "das Bildschirmfoto steht klein beim Schritt",
+        )
+        karte = pg.locator(".result-card.visual").filter(has_text="Bildschirm der Werkstatt")
+        log.pruefe(karte.count() == 1, "und gross unter der Antwort")
+        log.pruefe(
+            karte.locator("img").count() == 1
+            and pg.eval_on_selector(".result-card.visual img", "e => e.naturalWidth") > 0,
+            "das Bild laedt wirklich",
+        )
+        log.pruefe(
+            karte.locator("a.source").count() == 0,
+            "ohne 'Bildquelle' -- ein Bildschirmfoto hat keine Webadresse",
+        )
+        pg.click("#btn-new")
+        pg.wait_for_timeout(700)
+
     if dran("einstellungen"):
         log.abschnitt("7. Einstellungen")
         pg.click("#btn-settings")
@@ -958,6 +1024,14 @@ def rundgang(pg: Any, log: Protokoll, agent: FakeAgent, bilder: Path | None,
             "Mitlesen schaltet sich ein",
         )
         pg.uncheck("#showtrace")
+        # Werkstatt: der User mode -- ein Schalter mit Erklaerung.
+        log.pruefe(
+            pg.locator('#workshop-settings [name="AQUATICY_VM_USER_MODE"]').count() == 1,
+            "der User mode steht bei der Werkstatt",
+        )
+        log.pruefe(not pg.is_checked("#usermode"), "und ist ab Werk aus")
+        log.pruefe("Vision-Modell" in pg.inner_text("#usermode-note"),
+                   "der Hinweis nennt, was er braucht")
         # Dev settings: der Schalter fuer die Rechts-Leitplanken, nur mit Pro.
         log.pruefe(
             pg.locator('#secnav button:has-text("Dev settings")').count() == 1,

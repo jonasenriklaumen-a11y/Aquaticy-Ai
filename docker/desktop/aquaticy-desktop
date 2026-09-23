@@ -1,0 +1,497 @@
+#!/usr/bin/env python3
+"""aquaticy-desktop: Augen und Haende von Aquaticy im User mode.
+
+Laeuft IN der Werkstatt, als unprivilegierter Nutzer -- nie auf dem Rechner
+des Nutzers. Aquaticy ruft es von aussen mit festen Argumenten auf (nie ueber
+eine Shell); getippter Text kommt ueber die Standardeingabe, damit kein
+Zeichen darin als Befehl gelesen werden kann.
+
+    aquaticy-desktop start [BROWSER-KENNUNG]
+    aquaticy-desktop shot [--grid] [--mark X Y] [--quality Q]   -> JPEG
+    aquaticy-desktop click X Y [--button 1|2|3] [--double]
+    aquaticy-desktop type                                       <- Text
+    aquaticy-desktop key TASTE [TASTE ...]
+    aquaticy-desktop scroll X Y up|down|left|right N
+    aquaticy-desktop open APP [ZIEL]
+    aquaticy-desktop windows
+    aquaticy-desktop focus FENSTER-ID
+    aquaticy-desktop version
+
+Pruefen, ob etwas erlaubt ist, tut dieses Programm nicht -- das macht
+Aquaticy draussen, bevor es hier irgendetwas aufruft. Hier wird nur sauber
+ausgefuehrt: jede Zahl ist eine Zahl, jede Taste ein Tastenname, jede App
+eine aus der Liste.
+"""
+
+from __future__ import annotations
+
+import json
+import os
+import re
+import subprocess
+import sys
+import time
+from pathlib import Path
+
+VERSION = "1"
+DISPLAY = ":1"
+BREITE, HOEHE = 1280, 800
+
+#: Alle 100 Pixel eine Linie mit Beschriftung -- damit ein Bildmodell
+#: Koordinaten ablesen kann, statt sie zu schaetzen.
+RASTER = 100
+
+#: Tastennamen, wie xdotool sie kennt: Return, ctrl+l, alt+F4, Page_Down ...
+TASTE = re.compile(r"^[A-Za-z0-9_]{1,24}(\+[A-Za-z0-9_]{1,24}){0,3}$")
+
+#: Was sich oeffnen laesst. Mehr braucht es nicht, und eine feste Liste heisst:
+#: aus einem App-Namen wird nie ein beliebiger Befehl.
+APPS: dict[str, list[str]] = {
+    "browser": ["falkon"],
+    "writer": ["libreoffice", "--writer"],
+    "calc": ["libreoffice", "--calc"],
+    "impress": ["libreoffice", "--impress"],
+    "editor": ["mousepad"],
+    "dateien": ["pcmanfm"],
+    "terminal": ["xterm"],
+    "grafik": ["gimp"],
+}
+
+#: Die Grundeinstellungen fuer LibreOffice (siehe profil_anlegen).
+LIBREOFFICE_PROFIL = """<?xml version="1.0" encoding="UTF-8"?>
+<oor:items xmlns:oor="http://openoffice.org/2001/registry"
+  xmlns:xs="http://www.w3.org/2001/XMLSchema" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance">
+<item oor:path="/org.openoffice.Office.Common/Misc"><prop oor:name="ShowTipOfTheDay" oor:op="fuse"><value>false</value></prop></item>
+<item oor:path="/org.openoffice.Setup/Product"><prop oor:name="ooSetupLastVersion" oor:op="fuse"><value>24.2</value></prop></item>
+<item oor:path="/org.openoffice.Setup/L10N"><prop oor:name="ooLocale" oor:op="fuse"><value>de-DE</value></prop></item>
+</oor:items>
+"""
+
+#: So viele Fenster nennt die Liste hoechstens.
+MAX_FENSTER = 50
+
+#: Scrollrichtung -> Mausknopf (so meldet X das Mausrad).
+RAD = {"up": "4", "down": "5", "left": "6", "right": "7"}
+
+
+def home() -> Path:
+    return Path(os.environ.get("HOME") or "/work")
+
+
+def umgebung() -> dict[str, str]:
+    env = dict(os.environ)
+    env["DISPLAY"] = DISPLAY
+    env.setdefault("HOME", str(home()))
+    # Der Browser bringt eine eigene Sandbox mit, die in einem Container ohne
+    # Faehigkeiten nicht starten kann. Die Wand ist hier die Werkstatt selbst.
+    env["QTWEBENGINE_CHROMIUM_FLAGS"] = "--no-sandbox"
+    env["QTWEBENGINE_DISABLE_SANDBOX"] = "1"
+    env["NO_AT_BRIDGE"] = "1"
+    # Die Programme sprechen Deutsch -- der Nutzer sieht die Bildschirmfotos.
+    env["LANG"] = "de_DE.UTF-8"
+    env["LANGUAGE"] = "de_DE:de"
+    return env
+
+
+def rufe(*args: str, eingabe: bytes | None = None, zeit: float = 30) -> subprocess.CompletedProcess:
+    return subprocess.run(
+        list(args), env=umgebung(), input=eingabe, capture_output=True, timeout=zeit,
+        check=False,
+    )
+
+
+def im_hintergrund(name: str, args: list[str]) -> None:
+    """Startet ein Programm, das weiterlaufen soll, wenn dieser Aufruf endet.
+
+    Die Ausgabe geht in eine Datei, nicht in unsere Rohre -- sonst wartete der
+    Aufruf von draussen, bis das Programm endet, also ewig.
+    """
+    protokolle = home() / ".cache" / "aquaticy"
+    protokolle.mkdir(parents=True, exist_ok=True)
+    with open(protokolle / f"{name}.log", "ab") as log:
+        subprocess.Popen(  # noqa: S603 - feste Liste, keine Shell
+            args, env=umgebung(), stdin=subprocess.DEVNULL, stdout=log, stderr=log,
+            start_new_session=True, cwd=str(home()),
+        )
+
+
+def bildschirm_da() -> bool:
+    try:
+        return rufe("xdotool", "getdisplaygeometry", zeit=5).returncode == 0
+    except (OSError, subprocess.SubprocessError):
+        return False
+
+
+def profil_anlegen(kennung: str) -> None:
+    """Ordner und Browser-Einstellungen, bevor zum ersten Mal etwas startet.
+
+    Der Browser meldet sich mit einer ehrlichen Kennung: wer eine Seite
+    ausliefert, soll sehen koennen, dass hier eine KI bedient.
+    """
+    for ordner in ("Downloads", "Dokumente", ".cache/aquaticy", ".config/falkon/profiles/default"):
+        (home() / ordner).mkdir(parents=True, exist_ok=True)
+    falkon = home() / ".config" / "falkon"
+    (falkon / "profiles" / "profiles.ini").write_text(
+        "[Profiles]\nstartProfile=default\n", encoding="utf-8"
+    )
+    zeilen = ["[Web-URL-Settings]", "homepage=about:blank", "afterLaunch=0", ""]
+    if kennung:
+        # Kein Zeilenumbruch, kein Gleichheitszeichen am Anfang: die Kennung
+        # kommt zwar von Aquaticy selbst, aber eine kaputte Datei waere ein
+        # Browser mit Standardkennung -- also einer, der sich nicht zu
+        # erkennen gibt.
+        sauber = " ".join(kennung.split())[:300].replace("\\", "").replace('"', "")
+        # In Anfuehrungszeichen: sonst liest Qt beim ersten Semikolon nur noch
+        # einen Kommentar, und vom "(X11; Linux ...)" bliebe "(X11" uebrig.
+        zeilen = ["[Web-Browser-Settings]", f'UserAgent="{sauber}"', "", *zeilen]
+    (falkon / "profiles" / "default" / "settings.ini").write_text(
+        "\n".join(zeilen), encoding="utf-8"
+    )
+    # LibreOffice: ohne "Tipp des Tages" und ohne "Was ist neu" -- beides sind
+    # Fenster, die sonst vor jedem ersten Handgriff weggeklickt werden muessen.
+    office = home() / ".config" / "libreoffice" / "4" / "user"
+    office.mkdir(parents=True, exist_ok=True)
+    (office / "registrymodifications.xcu").write_text(LIBREOFFICE_PROFIL, encoding="utf-8")
+
+
+def cmd_start(args: list[str]) -> int:
+    kennung = args[0] if args else ""
+    if not bildschirm_da():
+        profil_anlegen(kennung)
+        im_hintergrund("xvfb", [
+            "Xvfb", DISPLAY, "-screen", "0", f"{BREITE}x{HOEHE}x24", "-nolisten", "tcp",
+        ])
+        for _ in range(100):
+            if bildschirm_da():
+                break
+            time.sleep(0.1)
+        else:
+            print("Der Bildschirm (Xvfb) ist nicht hochgekommen.", file=sys.stderr)
+            return 1
+        rufe("xsetroot", "-solid", "#24313a", zeit=5)
+        im_hintergrund("openbox", ["openbox"])
+        im_hintergrund("tint2", ["tint2"])
+        time.sleep(0.5)
+    print(json.dumps({"bereit": True, "breite": BREITE, "hoehe": HOEHE}))
+    return 0
+
+
+def raster_befehle(breite: int = BREITE, hoehe: int = HOEHE, schritt: int = RASTER) -> list[str]:
+    """ImageMagick-Anweisungen fuer das beschriftete Raster."""
+    befehle = ["-stroke", "rgba(255,0,72,0.45)", "-strokewidth", "1"]
+    for x in range(schritt, breite, schritt):
+        befehle += ["-draw", f"line {x},0 {x},{hoehe}"]
+    for y in range(schritt, hoehe, schritt):
+        befehle += ["-draw", f"line 0,{y} {breite},{y}"]
+    befehle += [
+        "-stroke", "none", "-fill", "rgba(200,0,50,1)", "-undercolor", "rgba(255,255,255,0.75)",
+        "-pointsize", "12",
+    ]
+    for x in range(schritt, breite, schritt):
+        befehle += ["-annotate", f"+{x + 2}+12", str(x)]
+    for y in range(schritt, hoehe, schritt):
+        befehle += ["-annotate", f"+2+{y - 3}", str(y)]
+    return befehle
+
+
+def marken_befehle(x: int, y: int) -> list[str]:
+    """Ein roter Kreis mit Fadenkreuz -- dort wird gleich geklickt."""
+    return [
+        "-stroke", "rgba(255,0,0,1)", "-strokewidth", "3", "-fill", "none",
+        "-draw", f"circle {x},{y} {x + 18},{y}",
+        "-draw", f"line {x - 28},{y} {x - 8},{y}",
+        "-draw", f"line {x + 8},{y} {x + 28},{y}",
+        "-draw", f"line {x},{y - 28} {x},{y - 8}",
+        "-draw", f"line {x},{y + 8} {x},{y + 28}",
+    ]
+
+
+def zahl(text: str, unten: int, oben: int) -> int:
+    wert = int(text)
+    if not unten <= wert <= oben:
+        raise ValueError(f"{wert} liegt ausserhalb von {unten} bis {oben}")
+    return wert
+
+
+def cmd_shot(args: list[str]) -> int:
+    raster, marke, guete = False, None, 75
+    i = 0
+    while i < len(args):
+        if args[i] == "--grid":
+            raster = True
+        elif args[i] == "--mark":
+            marke = (zahl(args[i + 1], 0, BREITE - 1), zahl(args[i + 2], 0, HOEHE - 1))
+            i += 2
+        elif args[i] == "--quality":
+            guete = zahl(args[i + 1], 30, 95)
+            i += 1
+        else:
+            raise ValueError(f"unbekannt: {args[i]}")
+        i += 1
+    roh = rufe("import", "-display", DISPLAY, "-window", "root", "png:-", zeit=20)
+    if roh.returncode != 0 or not roh.stdout:
+        sys.stderr.write(roh.stderr.decode("utf-8", "replace")[:300])
+        return 1
+    befehle: list[str] = []
+    if raster:
+        befehle += raster_befehle()
+    if marke:
+        befehle += marken_befehle(*marke)
+    bild = rufe("convert", "png:-", *befehle, "-quality", str(guete), "jpg:-",
+                eingabe=roh.stdout, zeit=20)
+    if bild.returncode != 0:
+        sys.stderr.write(bild.stderr.decode("utf-8", "replace")[:300])
+        return 1
+    sys.stdout.buffer.write(bild.stdout)
+    return 0
+
+
+def aktives_fenster() -> str:
+    gefunden = rufe("xdotool", "getactivewindow", "getwindowname", zeit=5)
+    return gefunden.stdout.decode("utf-8", "replace").strip() if gefunden.returncode == 0 else ""
+
+
+def fertig(**mehr: object) -> int:
+    time.sleep(0.6)  # dem Programm einen Augenblick geben, bevor jemand nachsieht
+    print(json.dumps({"ok": True, "fenster": aktives_fenster(), **mehr}, ensure_ascii=False))
+    return 0
+
+
+def cmd_click(args: list[str]) -> int:
+    x, y = zahl(args[0], 0, BREITE - 1), zahl(args[1], 0, HOEHE - 1)
+    knopf, doppelt = "1", False
+    i = 2
+    while i < len(args):
+        if args[i] == "--button":
+            knopf = str(zahl(args[i + 1], 1, 3))
+            i += 1
+        elif args[i] == "--double":
+            doppelt = True
+        else:
+            raise ValueError(f"unbekannt: {args[i]}")
+        i += 1
+    klick = ["click", "--repeat", "2", "--delay", "120", knopf] if doppelt else ["click", knopf]
+    done = rufe("xdotool", "mousemove", "--sync", str(x), str(y), *klick)
+    if done.returncode != 0:
+        sys.stderr.write(done.stderr.decode("utf-8", "replace")[:300])
+        return 1
+    return fertig()
+
+
+def keysym_fuer(zeichen: str) -> str:
+    """Der Tastenname, unter dem xdotool dieses Zeichen sucht.
+
+    Bis 0xFF sind Zeichen und X-Tastennamen dieselbe Zahl (ä = 0xe4), darueber
+    liegen sie bei 0x1000000 + Codepunkt (€ = 0x10020ac).
+    """
+    punkt = ord(zeichen)
+    return f"0x{punkt:x}" if punkt < 0x100 else f"0x{0x1000000 + punkt:x}"
+
+
+def freie_tasten(belegung: str) -> tuple[list[int], set[str]]:
+    """Unbelegte Tastennummern und schon belegte Tastennamen aus `xmodmap -pke`."""
+    frei: list[int] = []
+    belegt: set[str] = set()
+    for zeile in belegung.splitlines():
+        teile = zeile.split("=", 1)
+        if len(teile) != 2 or not teile[0].strip().startswith("keycode"):
+            continue
+        try:
+            nummer = int(teile[0].split()[1])
+        except (IndexError, ValueError):
+            continue
+        namen = teile[1].split()
+        if namen:
+            belegt.update(namen)
+        elif nummer >= 100:  # unten liegen die echten Tasten, oben ist Platz
+            frei.append(nummer)
+    return frei, belegt
+
+
+def sonderzeichen_belegen(text: str) -> None:
+    """Legt jedes Nicht-ASCII-Zeichen vorab auf eine freie Taste.
+
+    Ohne das belegt xdotool fuer jedes "ä" spontan eine Taste um -- und das
+    Programm bekommt die Umbelegung manchmal erst nach dem Tastendruck mit.
+    Aus "Grüße aus Köln" wird dann "Grüe aus Kln". Vorab belegt, kurz
+    gewartet, und die Zeichen kommen an.
+    """
+    gebraucht: list[str] = []
+    for zeichen in dict.fromkeys(text):
+        if ord(zeichen) > 0x7E or (ord(zeichen) < 0x20 and zeichen not in "\n\t"):
+            gebraucht.append(zeichen)
+    if not gebraucht:
+        return
+    belegung = rufe("xmodmap", "-pke", zeit=10).stdout.decode("utf-8", "replace")
+    frei, belegt = freie_tasten(belegung)
+    befehle: list[str] = []
+    for zeichen in gebraucht:
+        name = keysym_fuer(zeichen)
+        # xmodmap nennt belegte Tasten mit Namen (adiaeresis), nicht als Zahl --
+        # doppelt belegen schadet nicht, fehlende Tasten schon.
+        if not frei:
+            break
+        befehle += ["-e", f"keycode {frei.pop()} = {name} {name}"]
+    if befehle:
+        rufe("xmodmap", *befehle, zeit=10)
+        time.sleep(0.3)  # den Programmen Zeit geben, die neue Belegung zu lesen
+
+
+def cmd_type(_args: list[str]) -> int:
+    text = sys.stdin.buffer.read()
+    if len(text) > 20_000:
+        print("Zu viel Text auf einmal (hoechstens 20000 Zeichen).", file=sys.stderr)
+        return 1
+    klartext = text.decode("utf-8", "replace")
+    if any(ord(zeichen) > 0xFFFF for zeichen in klartext):
+        # Jenseits der Unicode-Grundebene (Emoji) kommt das Zeichen in Qt-
+        # Programmen verstuemmelt an. Lieber gar nicht tippen als falsch.
+        print("Zeichen ausserhalb der Unicode-Grundebene (etwa Emoji) gehen nicht.",
+              file=sys.stderr)
+        return 2
+    sonderzeichen_belegen(klartext)
+    done = rufe("xdotool", "type", "--delay", "25", "--clearmodifiers", "--file", "-",
+                eingabe=text, zeit=300)
+    if done.returncode != 0:
+        sys.stderr.write(done.stderr.decode("utf-8", "replace")[:300])
+        return 1
+    return fertig()
+
+
+def cmd_key(args: list[str]) -> int:
+    if not args or len(args) > 10:
+        raise ValueError("eine bis zehn Tasten")
+    for taste in args:
+        if not TASTE.match(taste):
+            raise ValueError(f"kein Tastenname: {taste!r}")
+    done = rufe("xdotool", "key", "--clearmodifiers", "--delay", "80", *args)
+    if done.returncode != 0:
+        sys.stderr.write(done.stderr.decode("utf-8", "replace")[:300])
+        return 1
+    return fertig()
+
+
+def cmd_scroll(args: list[str]) -> int:
+    x, y = zahl(args[0], 0, BREITE - 1), zahl(args[1], 0, HOEHE - 1)
+    richtung = args[2]
+    if richtung not in RAD:
+        raise ValueError(f"Richtung: {', '.join(RAD)}")
+    anzahl = zahl(args[3], 1, 30)
+    done = rufe("xdotool", "mousemove", "--sync", str(x), str(y),
+                "click", "--repeat", str(anzahl), "--delay", "40", RAD[richtung])
+    if done.returncode != 0:
+        sys.stderr.write(done.stderr.decode("utf-8", "replace")[:300])
+        return 1
+    return fertig()
+
+
+def fenster_zeilen(ausgabe: str, rechner: str) -> list[dict[str, str]]:
+    """Liest `wmctrl -lx`: ID, Arbeitsflaeche, Klasse, Rechner, Titel.
+
+    Die Klasse darf Leerzeichen enthalten ("Falkon Browser.Falkon") -- an
+    Leerzeichen zu trennen, schiebt dann den Rechnernamen in den Titel.
+    Getrennt wird deshalb am Rechnernamen (oder "N/A", wenn ein Fenster
+    keinen nennt).
+    """
+    liste: list[dict[str, str]] = []
+    for zeile in ausgabe.splitlines():
+        teile = zeile.split(None, 2)
+        if len(teile) < 3:
+            continue
+        rest = f" {teile[2]} "
+        for marke in (f" {rechner} ", " N/A "):
+            if rechner and marke.strip() and marke in rest:
+                klasse, titel = rest.split(marke, 1)
+                break
+        else:
+            klasse, _, titel = teile[2].partition(" ")
+        klasse, titel = klasse.strip(), titel.strip()
+        if klasse.lower().startswith("tint2"):
+            continue  # die Leiste unten ist kein Fenster, das man bedient
+        liste.append({"id": teile[0], "klasse": klasse[:80], "titel": titel[:200]})
+        if len(liste) >= MAX_FENSTER:
+            break  # mehr liest niemand -- und die Antwort bleibt klein
+    return liste
+
+
+def fenster_liste() -> list[dict[str, str]]:
+    import socket
+
+    gefunden = rufe("wmctrl", "-lx", zeit=5)
+    return fenster_zeilen(gefunden.stdout.decode("utf-8", "replace"), socket.gethostname())
+
+
+def cmd_open(args: list[str]) -> int:
+    if not args or args[0] not in APPS:
+        raise ValueError(f"App: {', '.join(APPS)}")
+    app, ziel = args[0], (args[1] if len(args) > 1 else "")
+    # Ein Ziel mit Strich vorn waere fuer das Programm eine Option statt einer
+    # Adresse oder Datei. Draussen wird das schon geprueft -- hier noch einmal.
+    if ziel.startswith("-"):
+        raise ValueError("Das Ziel darf nicht mit '-' beginnen.")
+    offen = fenster_liste()
+    vorher = {fenster["id"] for fenster in offen}
+    befehl = [*APPS[app], *([ziel] if ziel else [])]
+    im_hintergrund(app, befehl)
+    if app == "browser" and any("falkon" in f["klasse"].lower() for f in offen):
+        # Der Browser laeuft schon: er oeffnet die Adresse als neuen Tab im
+        # vorhandenen Fenster. Auf ein neues Fenster zu warten hiesse dreissig
+        # Sekunden warten auf etwas, das nicht kommt.
+        time.sleep(2.0)
+        return fertig(neu=[], hinweis="Im schon offenen Browser als neuer Tab geoeffnet.")
+    # Warten, bis ein neues Fenster da ist -- Office braucht beim ersten Mal
+    # ein paar Sekunden. Wer nicht wartet, klickt ins Leere.
+    for _ in range(60):
+        time.sleep(0.5)
+        neu = [f for f in fenster_liste() if f["id"] not in vorher]
+        if neu:
+            time.sleep(1.0)
+            return fertig(neu=neu)
+    return fertig(neu=[], hinweis="Noch kein neues Fenster -- evtl. dauert der Start laenger.")
+
+
+def cmd_windows(_args: list[str]) -> int:
+    print(json.dumps({"fenster": fenster_liste(), "aktiv": aktives_fenster()},
+                     ensure_ascii=False))
+    return 0
+
+
+def cmd_focus(args: list[str]) -> int:
+    kennung = args[0] if args else ""
+    if not re.fullmatch(r"0x[0-9a-fA-F]{1,10}", kennung):
+        raise ValueError("Fenster-ID wie 0x0040001a")
+    done = rufe("wmctrl", "-ia", kennung, zeit=5)
+    if done.returncode != 0:
+        print("Dieses Fenster gibt es nicht (mehr).", file=sys.stderr)
+        return 1
+    return fertig()
+
+
+def cmd_version(_args: list[str]) -> int:
+    print(VERSION)
+    return 0
+
+
+BEFEHLE = {
+    "start": cmd_start, "shot": cmd_shot, "click": cmd_click, "type": cmd_type,
+    "key": cmd_key, "scroll": cmd_scroll, "open": cmd_open, "windows": cmd_windows,
+    "focus": cmd_focus, "version": cmd_version,
+}
+
+
+def main(argv: list[str]) -> int:
+    if not argv or argv[0] not in BEFEHLE:
+        print(f"Befehle: {', '.join(BEFEHLE)}", file=sys.stderr)
+        return 2
+    try:
+        return BEFEHLE[argv[0]](argv[1:])
+    except (ValueError, IndexError) as exc:
+        print(f"Falscher Aufruf: {exc}", file=sys.stderr)
+        return 2
+    except subprocess.TimeoutExpired:
+        print("Zeitueberschreitung.", file=sys.stderr)
+        return 1
+
+
+if __name__ == "__main__":
+    sys.exit(main(sys.argv[1:]))

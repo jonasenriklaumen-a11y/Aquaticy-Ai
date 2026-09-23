@@ -51,6 +51,13 @@ services:
     tmpfs:
       - /tmp:rw,nosuid,nodev,size=512m
       - /run:rw,nosuid,nodev,size=64m
+    # Nur fuer den User mode der Werkstatt (Desktop mit Internet): die innere
+    # Werkstatt baut ihr Netz ueber dieses Geraet. Ohne den User mode bleibt
+    # es zu -- darum steht es hier nur als Kommentar. Wer den User mode im
+    # eingeschlossenen Start will, nimmt die beiden Zeilen herein. Das
+    # Heimnetz bleibt auch dann gesperrt (siehe docker/desktop/aquaticy-netz).
+    # devices:
+    #   - /dev/net/tun
     init: true
     pids_limit: 512
     shm_size: 512m

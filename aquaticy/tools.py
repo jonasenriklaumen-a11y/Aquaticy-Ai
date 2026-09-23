@@ -11,6 +11,7 @@ Ausschnitt.
 
 from __future__ import annotations
 
+import subprocess
 import time
 from collections.abc import Callable
 from concurrent.futures import ThreadPoolExecutor
@@ -830,10 +831,15 @@ STORAGE_EDIT_SCHEMA: dict[str, Any] = {
 VM_RUN_DESCRIPTION = (
     "Fuehrt einen Shell-Befehl in der abgeschotteten Werkstatt aus und gibt "
     "Ausgabe und Rueckgabewert zurueck. Dort darfst du alles: Dateien anlegen, "
-    "Programme starten, Tests laufen lassen. Es gibt KEIN Netz (kein pip "
-    "install, kein curl), {memory_mb} MB Arbeitsspeicher, {cpus} {kern_wort} "
-    "und {disk_gb} GB Platte unter /work. Nutze es, um deinen Code wirklich "
-    "auszuprobieren, statt zu behaupten, er laufe."
+    "Programme starten, Tests laufen lassen. {netz}, {memory_mb} MB "
+    "Arbeitsspeicher, {cpus} {kern_wort} und {disk_gb} GB Platte unter /work. "
+    "Nutze es, um deinen Code wirklich auszuprobieren, statt zu behaupten, er laufe."
+)
+
+#: Der Satz ueber das Netz -- ohne und mit User mode.
+VM_NET_OFF = "Es gibt KEIN Netz (kein pip install, kein curl)"
+VM_NET_USER = (
+    "Es gibt Internet, aber kein Heimnetz (User mode) -- pip install und curl gehen"
 )
 
 VM_RUN_SCHEMA: dict[str, Any] = {
@@ -841,7 +847,7 @@ VM_RUN_SCHEMA: dict[str, Any] = {
     "function": {
         "name": "vm_run",
         "description": VM_RUN_DESCRIPTION.format(
-            memory_mb=1024, cpus=1, kern_wort="Prozessorkern", disk_gb=4
+            netz=VM_NET_OFF, memory_mb=1024, cpus=1, kern_wort="Prozessorkern", disk_gb=4
         ),
         "parameters": {
             "type": "object",
@@ -975,6 +981,151 @@ VM_SCHEMAS: tuple[dict[str, Any], ...] = (
     BLENDER_SCHEMA,
 )
 
+# ---------------------------------------------------------------------------
+# User mode: die Werkstatt bedienen wie ein Mensch (siehe aquaticy/desktop.py)
+# ---------------------------------------------------------------------------
+DESKTOP_SCHEMAS: tuple[dict[str, Any], ...] = (
+    {
+        "type": "function",
+        "function": {
+            "name": "desktop_look",
+            "description": (
+                "Sieht auf den Bildschirm der Werkstatt (User mode, 1280x800). Du bekommst "
+                "eine Beschreibung: welches Fenster vorn ist, der sichtbare Text, die "
+                "bedienbaren Elemente mit Koordinaten, dazu die Liste der Fenster. Der "
+                "Nutzer sieht das Bild im Chat. Nimm es am Anfang und nach jedem Schritt, "
+                "dessen Ergebnis du nicht sicher kennst."
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "question": {
+                        "type": "string",
+                        "description": "Worauf du achten willst, z.B. 'Ist die Seite geladen?'.",
+                    }
+                },
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "desktop_click",
+            "description": (
+                "Klickt mit der Maus. Am besten mit 'target': beschreib in Worten, was du "
+                "anklicken willst ('Knopf Speichern unten rechts', 'Link Impressum') -- "
+                "die Stelle wird auf dem Bildschirm gesucht. Oder mit x und y. Vor jedem "
+                "Klick wird geprueft, was er ausloest: Absenden, Kaufen und Loeschen gehen "
+                "nur nach Rueckfrage beim Nutzer (das Werkzeug fragt selbst); Anmelden, "
+                "Captchas und 'Alle akzeptieren' gehen nie."
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "target": {"type": "string", "description": "Was angeklickt werden soll."},
+                    "x": {"type": "integer", "description": "0 bis 1279, nur ohne target."},
+                    "y": {"type": "integer", "description": "0 bis 799, nur ohne target."},
+                    "button": {"type": "string", "description": "left (Standard), right, middle."},
+                    "double": {"type": "boolean", "description": "Doppelklick."},
+                },
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "desktop_type",
+            "description": (
+                "Tippt Text in das gerade aktive Feld -- vorher hineinklicken. Keine "
+                "Passwoerter, keine Zahlungsdaten (wird geprueft und abgelehnt). "
+                "Zeilenumbrueche nur in Dokumente und das Terminal; fuer Enter nimm "
+                "desktop_key('Return'). Laengere Texte besser mit vm_write als Datei "
+                "anlegen und im Programm oeffnen."
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {"text": {"type": "string"}},
+                "required": ["text"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "desktop_key",
+            "description": (
+                "Drueckt Tasten, nacheinander: 'Return', 'Tab', 'Escape', 'ctrl+l' "
+                "(Adresszeile im Browser), 'ctrl+s', 'alt+F4', 'Page_Down'. Vor Enter und "
+                "Leertaste wird geprueft wie vor einem Klick."
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "keys": {
+                        "type": "string",
+                        "description": "Eine oder mehrere Tasten, durch Leerzeichen getrennt.",
+                    }
+                },
+                "required": ["keys"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "desktop_scroll",
+            "description": "Scrollt mit dem Mausrad, Standard in der Bildschirmmitte.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "direction": {"type": "string", "description": "down, up, left, right."},
+                    "amount": {"type": "integer", "description": "Schritte, 1 bis 30."},
+                    "x": {"type": "integer"},
+                    "y": {"type": "integer"},
+                },
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "desktop_open",
+            "description": (
+                "Oeffnet ein Programm in der Werkstatt: browser (mit target = Webadresse), "
+                "writer, calc, impress (LibreOffice), editor, dateien, terminal, grafik "
+                "(GIMP). Bei den anderen darf target eine Datei unter /work sein."
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "app": {"type": "string"},
+                    "target": {"type": "string", "description": "Adresse oder Datei."},
+                },
+                "required": ["app"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "desktop_windows",
+            "description": (
+                "Listet die offenen Fenster (ID, Programm, Titel) und das aktive -- ohne "
+                "Bild, also schnell. Mit window_id holst du ein Fenster nach vorn."
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "window_id": {
+                        "type": "string",
+                        "description": "Nach vorn holen, z.B. 0x0040001a.",
+                    }
+                },
+            },
+        },
+    },
+)
+
 
 def vm_schemas_for(settings: Any) -> tuple[dict[str, Any], ...]:
     """Die Werkstatt-Werkzeuge, mit den tatsaechlichen Grenzen im Text.
@@ -989,10 +1140,14 @@ def vm_schemas_for(settings: Any) -> tuple[dict[str, Any], ...]:
     cpus = max(1, int(getattr(settings, "vm_cpus", 1) or 1))
     memory_mb = max(1, int(getattr(settings, "vm_memory_mb", 1024) or 1024))
     disk_gb = max(1, int(getattr(settings, "vm_disk_gb", 4) or 4))
-    schemas = copy.deepcopy(VM_SCHEMAS)
+    user_mode = bool(getattr(settings, "vm_user_mode", False))
+    # Im User mode kommen die Desktop-Werkzeuge dazu -- ohne ihn gibt es sie
+    # fuer das Modell gar nicht.
+    schemas = copy.deepcopy(VM_SCHEMAS + (DESKTOP_SCHEMAS if user_mode else ()))
     for schema in schemas:
         if schema["function"]["name"] == "vm_run":
             schema["function"]["description"] = VM_RUN_DESCRIPTION.format(
+                netz=VM_NET_USER if user_mode else VM_NET_OFF,
                 memory_mb=memory_mb,
                 cpus=cpus,
                 kern_wort="Prozessorkern" if cpus == 1 else "Prozessorkerne",
@@ -1170,6 +1325,8 @@ class Toolbox:
         self.guard: Guard | None = (
             Guard(settings) if getattr(settings, "legal_guard", True) else None
         )
+        #: Ersetzt im User mode das Vision-Modell (Tests). None = das echte.
+        self.screen_reader: Callable[[bytes, str], str] | None = None
 
     def close(self, *, close_fetcher: bool = True) -> None:
         """Gibt eigene Ressourcen frei.
@@ -1926,6 +2083,59 @@ class Toolbox:
         self.stats.vm_calls += 1
         return {"files": dateien, "count": len(dateien)}
 
+    def desktop_action(self, action: str, **arguments: Any) -> dict[str, Any]:
+        """Eine Handlung im User mode (siehe aquaticy/desktop.py).
+
+        Jede Pruefung -- Rueckfrage, Ablehnung, Zahlungsdaten -- steckt in
+        `Desktop`. Hier wird nur verbunden: Werkstatt, Rueckfrage, Anzeige,
+        und das Bildschirmfoto wandert in den Chat, nie in den Verlauf des
+        Modells.
+        """
+        from aquaticy.desktop import Desktop, DesktopError
+        from aquaticy.sandbox import SandboxUnavailable
+
+        try:
+            desktop = Desktop(
+                self._sandbox(),
+                self.settings,
+                ask=self.ask_handler,
+                emit=self._emit,
+                vision=self.screen_reader,
+            )
+            answer = getattr(desktop, action)(**arguments)
+        except (SandboxUnavailable, DesktopError, ValueError) as exc:
+            return {"error": str(exc)}
+        except subprocess.TimeoutExpired:
+            return {"error": "Die Werkstatt hat nicht rechtzeitig geantwortet."}
+        except Exception as exc:  # pragma: no cover - Laufzeit meldet Unerwartetes
+            return {"error": f"Die Werkstatt antwortet nicht: {exc}"}
+        self.stats.vm_calls += 1
+        bild = answer.pop("_bild", b"") if isinstance(answer, dict) else b""
+        if bild:
+            from aquaticy.media import save_snapshot
+
+            try:
+                media_id = save_snapshot(self.settings.data_dir, bild, "image/jpeg")
+            except (OSError, ValueError):
+                media_id = ""
+            if media_id:
+                self.stats.visuals.append(
+                    {
+                        "kind": "desktop",
+                        "media_id": media_id,
+                        "mime_type": "image/jpeg",
+                        "title": "Bildschirm der Werkstatt",
+                        "captured_at": datetime.now(UTC).isoformat(timespec="seconds"),
+                    }
+                )
+                self._emit(
+                    "desktop",
+                    action="sieht",
+                    detail=str(arguments.get("question") or "den Bildschirm")[:120],
+                    media_id=media_id,
+                )
+        return answer
+
     def blender_run(self, script: str, filename: str = "", timeout: int = 0) -> dict[str, Any]:
         """Schreibt ein bpy-Skript in die Werkstatt und laesst Blender es headless laufen.
 
@@ -2092,6 +2302,8 @@ class Toolbox:
                 filename=str(arguments.get("filename", "") or ""),
                 timeout=int(arguments.get("timeout") or 0),
             )
+        if name.startswith("desktop_"):
+            return self._desktop_call(name, arguments)
         if name == "calculate":
             return self.calculate(expression=str(arguments.get("expression", "")))
         if name == "remember":
@@ -2196,6 +2408,61 @@ class Toolbox:
             )
         if name == "research_subtasks":
             return self.research_subtasks(arguments.get("tasks") or [])
+        return {"error": f"Unbekanntes Werkzeug '{name}'."}
+
+    def _desktop_call(self, name: str, arguments: dict[str, Any]) -> dict[str, Any]:
+        """Die Desktop-Werkzeuge -- nur, wo der User mode eingeschaltet ist.
+
+        Das Modell bekommt sie ohne User mode gar nicht angeboten. Ruft es sie
+        trotzdem auf (ein Modell erfindet gern Werkzeuge), gibt es hier eine
+        klare Absage statt eines Versuchs.
+        """
+        if not getattr(self.settings, "vm_user_mode", False):
+            return {
+                "error": (
+                    "Der User mode ist aus. Einschalten kann ihn nur der Nutzer in den "
+                    "Einstellungen unter 'Werkstatt'."
+                )
+            }
+        if name == "desktop_look":
+            return self.desktop_action("look", question=str(arguments.get("question") or ""))
+        if name == "desktop_click":
+            return self.desktop_action(
+                "click",
+                target=str(arguments.get("target") or ""),
+                x=arguments.get("x"),
+                y=arguments.get("y"),
+                button=str(arguments.get("button") or "left"),
+                # "false" ist ein Wort, kein Ja -- bool("false") waere True.
+                double=str(arguments.get("double", "")).strip().lower()
+                in ("true", "1", "ja", "yes"),
+            )
+        if name == "desktop_type":
+            return self.desktop_action("type", text=str(arguments.get("text") or ""))
+        if name == "desktop_key":
+            keys = arguments.get("keys")
+            return self.desktop_action(
+                "key", keys=keys if isinstance(keys, list) else str(keys or "")
+            )
+        if name == "desktop_scroll":
+            return self.desktop_action(
+                "scroll",
+                direction=str(arguments.get("direction") or "down"),
+                amount=arguments.get("amount") or 3,
+                x=arguments.get("x"),
+                y=arguments.get("y"),
+            )
+        if name == "desktop_open":
+            return self.desktop_action(
+                "open",
+                app=str(arguments.get("app") or ""),
+                target=str(arguments.get("target") or ""),
+            )
+        if name == "desktop_windows":
+            fenster = str(arguments.get("window_id") or "").strip()
+            if fenster:
+                return self.desktop_action("focus", window_id=fenster)
+            return self.desktop_action("windows")
         return {"error": f"Unbekanntes Werkzeug '{name}'."}
 
     # -- Werkzeug 3: News -------------------------------------------------

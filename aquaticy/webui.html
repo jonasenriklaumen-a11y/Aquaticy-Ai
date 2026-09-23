@@ -1009,6 +1009,13 @@ input:focus,select:focus{border-color:var(--accent)}
 .pro-lock{border:1px solid var(--line-2);background:var(--surface-2);border-radius:10px;
   padding:10px 12px;margin:0 0 16px;color:var(--text-2)}
 .pro-lock[hidden]{display:none}.locked-feature{opacity:.62}
+/* User mode: der Bildschirm der Werkstatt -- im Dialog und klein im Verlauf */
+.vm-screen{margin:4px 0 14px}.vm-screen[hidden]{display:none}
+.vm-screen img{display:block;width:100%;height:auto;border-radius:10px;
+  border:1px solid var(--line-2);background:var(--surface-2)}
+.vm-screen .note{margin-top:6px}
+.step .shot{display:block;margin-top:6px;max-width:260px;width:100%;border-radius:8px;
+  border:1px solid var(--line-2)}
 .account-grid{display:grid;grid-template-columns:1fr auto;gap:8px 18px;align-items:center}
 </style>
 </head>
@@ -1300,6 +1307,10 @@ input:focus,select:focus{border-color:var(--accent)}
       landen in <code>/work/eingang</code>; alles, was Aquaticy AI dort erzeugt,
       kannst du herunterladen. Zwanzig Minuten nach der letzten Nachricht wird
       die Werkstatt samt Inhalt gelöscht.</p>
+    <div class="vm-screen" id="vm-screen" hidden>
+      <img id="vm-screen-img" alt="Bildschirm der Werkstatt im User mode">
+      <div class="note">So sieht der Desktop der Werkstatt gerade aus (User mode).</div>
+    </div>
     <div class="merkliste" id="vmliste"></div>
     <div class="actions">
       <span class="note" id="vm-note"></span>
@@ -1416,6 +1427,22 @@ input:focus,select:focus{border-color:var(--accent)}
         <div class="note">Normal reicht für die meisten Programmieraufgaben. Plus lohnt sich für
           alles, was mehr Rechenleistung braucht — zum Beispiel, wenn Aquaticy im Code-Modus mit
           Blender ein 3D-Design erstellen oder rendern soll.</div>
+        <div class="check">
+          <input type="checkbox" role="switch" class="schalter" id="usermode"
+                 name="AQUATICY_VM_USER_MODE">
+          <label for="usermode" style="margin:0">User mode — Aquaticy bedient die Werkstatt
+            wie ein Mensch
+            <span class="why">Die Werkstatt wird ein kleiner Desktop mit Internet: Aquaticy
+              sieht den Bildschirm, klickt, tippt und nutzt Programme wie Browser, Office und
+              Bildbearbeitung. Das Heimnetz bleibt gesperrt. Absenden, Kaufen und Löschen nur
+              nach deiner Zustimmung; Anmelden, Passwörter, Zahlungsdaten, Captchas und
+              „Alle akzeptieren“ nie.</span></label>
+        </div>
+        <div class="note" id="usermode-note">Braucht ein Vision-Modell (Abschnitt Modell) und
+          einmalig das Desktop-Abbild:
+          <code>docker build -f docker/workshop-desktop.Dockerfile -t aquaticy-werkstatt-desktop:local .</code>
+          Mit „Normal“ (1 GB) reicht es für den Browser; Browser und Office zusammen laufen mit
+          „Plus“ deutlich ruhiger.</div>
       </fieldset>
 
       <fieldset><legend>Speicher</legend>
@@ -1773,7 +1800,7 @@ input:focus,select:focus{border-color:var(--accent)}
 const $ = (s) => document.querySelector(s);
 const thread = $("#thread"), main = $("#main"), input = $("#input"), send = $("#send");
 let busy = false;
-const aquaticyVersion = window.__AQUATICY_VERSION__ || "9.5.7";
+const aquaticyVersion = window.__AQUATICY_VERSION__ || "9.5.8";
 $("#version").textContent = "v" + aquaticyVersion;
 document.title = `Aquaticy AI ${aquaticyVersion}`;
 
@@ -2243,6 +2270,21 @@ function renderResultMedia(bubble, products = [], visuals = []){
   const grid = document.createElement("div"); grid.className = "result-media";
   const seen = new Set();
   (Array.isArray(visuals) ? visuals : []).slice(0, 6).forEach(visual => {
+    // Ein Bildschirmfoto der Werkstatt hat keine Webadresse -- nur das
+    // gespeicherte Bild. Gezeigt wird dann auch keine "Bildquelle".
+    if (visual?.kind === "desktop"){
+      const id = String(visual.media_id || "");
+      if (!id || seen.has(id)) return; seen.add(id);
+      const image = resultImage("", visual.title || "Bildschirm der Werkstatt", id);
+      if (!image) return;
+      const card = document.createElement("article"); card.className = "result-card visual";
+      card.appendChild(image);
+      const body = document.createElement("div"); body.className = "body";
+      const title = document.createElement("div"); title.className = "title";
+      title.textContent = visual.title || "Bildschirm der Werkstatt"; body.appendChild(title);
+      card.appendChild(body); grid.appendChild(card);
+      return;
+    }
     const url = safeHttpUrl(visual?.url);
     if (!url || seen.has(url)) return; seen.add(url);
     const card = document.createElement("article"); card.className = "result-card visual";
@@ -2798,6 +2840,25 @@ async function verfolge(hole, steps, bubble, text){
           ev.exit_code === 0 ? "" : "warn"); break;
       case "vm_stop":
         step(steps, "[Werkstatt]", `abgeräumt — ${ev.reason}`); break;
+      case "vm_net":
+        step(steps, "[Werkstatt]", "Internet an, Heimnetz gesperrt"); break;
+      case "vm_desktop":
+        step(steps, "[Werkstatt]", "Desktop bereit (User mode)"); break;
+      case "desktop": {
+        const was = {sieht: "sieht", klickt: "klickt", tippt: "tippt", drueckt: "drückt",
+          scrollt: "scrollt", oeffnet: "öffnet", abgelehnt: "abgelehnt",
+          "nicht bestaetigt": "nicht bestätigt"}[ev.action] || ev.action || "";
+        const zeile = step(steps, "[Desktop]", `${was}: ${ev.detail || ""}`,
+          ev.action === "abgelehnt" || ev.action === "nicht bestaetigt" ? "warn" : "");
+        if (/^[0-9]{13}-[0-9a-f]{16}\.(jpg|png|webp|gif)$/.test(String(ev.media_id || ""))){
+          const bild = document.createElement("img");
+          bild.className = "shot"; bild.alt = "Bildschirm der Werkstatt";
+          bild.loading = "lazy"; bild.src = "/api/media?id=" + encodeURIComponent(ev.media_id);
+          bild.addEventListener("error", () => bild.remove());
+          zeile.querySelector(".txt").appendChild(bild);
+        }
+        break;
+      }
       case "code_model":
         // Im Code- wie im Pro-Modus zaehlt das staerkste Modell, nicht das
         // eingestellte. Die Marke sagt, aus welchem der beiden Gruende --
@@ -3821,9 +3882,11 @@ async function loadWorkshop(){
   const liste = $("#vmliste"), note = $("#vm-note");
   liste.innerHTML = "";
   note.textContent = "";
+  $("#vm-screen").hidden = true;
   let data;
   try { data = await (await api("/api/werkstatt")).json(); }
   catch { note.textContent = "Die Werkstatt antwortet nicht."; return; }
+  if (data.running && data.status?.user_mode) zeigeBildschirm();
 
   if (!data.running){
     const leer = document.createElement("div");
@@ -3848,6 +3911,15 @@ async function loadWorkshop(){
     + (belegt != null ? ` · ${belegt} von ${data.disk_gb || 4} GB belegt` : "")
     + (data.status?.idle_left_seconds != null
         ? ` · noch ${Math.ceil(data.status.idle_left_seconds / 60)} Min.` : "");
+}
+
+// Der Bildschirm im User mode -- ein frisches Foto, kein Video. Geladen wird
+// es nur, wenn die Werkstatt ohnehin laeuft; ein Blick soll keine starten.
+function zeigeBildschirm(){
+  const bild = $("#vm-screen-img"), rahmen = $("#vm-screen");
+  bild.onload = () => { rahmen.hidden = false; };
+  bild.onerror = () => { rahmen.hidden = true; };
+  bild.src = "/api/werkstatt/bildschirm?t=" + Date.now();
 }
 
 function vmZeile(datei){

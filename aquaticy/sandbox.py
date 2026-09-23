@@ -48,12 +48,32 @@ gibt es die Werkstatt nicht, und das Werkzeug sagt, was zu installieren ist.
 **Was danach uebrig bleibt: nichts.** Zwanzig Minuten nach der letzten Nutzung
 werden Behaelter und Datentraeger geloescht. Beim naechsten Mal entsteht eine
 neue, leere Werkstatt. Auch beim Beenden des Programms wird aufgeraeumt.
+
+**User mode.** Auf Wunsch (Einstellungen -> Werkstatt) wird die Werkstatt ein
+kleiner Desktop, den Aquaticy bedient wie ein Mensch: Bildschirm ansehen,
+klicken, tippen, Programme oeffnen (siehe aquaticy/desktop.py). Dafuer
+aendert sich genau zweierlei, und beides ist hier begruendet:
+
+* Es gibt **Internet** -- aber **kein Heimnetz**. Beim Start setzt ein Skript
+  im Abbild (docker/desktop/aquaticy-netz) als root eine Sperre fuer alle
+  privaten und lokalen Bereiche; dafuer bekommt der Behaelter als einzige
+  Faehigkeit `NET_ADMIN`. Alles andere laeuft weiter als unprivilegierter
+  Nutzer ohne jede Faehigkeit -- die Sperre kann von drinnen niemand aendern.
+  Aquaticy liest die Regeln danach selbst nach. Fehlt auch nur ein Bereich,
+  wird die Werkstatt sofort wieder abgebaut: ohne Sperre kein User mode.
+* Mehr Prozesse und offene Dateien, ein Aufraeumer (`tini`) als erster
+  Prozess und ein beschreibbares `/run` -- ein Browser ist kein Skript.
+
+Alles andere bleibt: kein root, unveraenderliches Wurzeldateisystem, keine
+Verzeichnisse und keine Umgebungsvariablen vom Rechner, feste Grenzen fuer
+Speicher und Prozessor, Loeschen nach zwanzig Minuten Ruhe.
 """
 
 from __future__ import annotations
 
 import atexit
 import contextlib
+import os
 import re
 import shutil
 import subprocess
@@ -120,6 +140,43 @@ WORKDIR = "/work"
 
 #: Die Kennung, unter der drinnen gearbeitet wird -- nicht root.
 RUN_AS = "1000:1000"
+
+#: Das Abbild fuer den User mode (siehe docker/workshop-desktop.Dockerfile).
+DESKTOP_IMAGE = "aquaticy-werkstatt-desktop:local"
+
+#: Im User mode laufen Browser und Office. Die brauchen mehr Prozesse --
+#: jeder Thread zaehlt mit -- und mehr offene Dateien als ein Skript. Gegen
+#: eine Gabelbombe hilft die Grenze trotzdem noch.
+DESKTOP_PID_LIMIT = 1024
+DESKTOP_FILE_LIMIT = 4096
+
+#: Der Bildschirm in der Werkstatt.
+DISPLAY = ":1"
+
+#: Die Hilfsprogramme im Desktop-Abbild.
+DESKTOP_HELPER = "aquaticy-desktop"
+NETWORK_SCRIPT = "/usr/local/sbin/aquaticy-netz"
+
+#: Diese Bereiche muessen in der Netzsperre stehen, sonst gilt sie als nicht
+#: eingerichtet: das Heimnetz (RFC 1918), Tailscale/CGNAT, Loopback und
+#: Link-Local. Die Werkstatt kaeme sonst an Router, Home Assistant und Lager.
+BLOCKED_RANGES = (
+    "10.0.0.0/8",
+    "100.64.0.0/10",
+    "127.0.0.0/8",
+    "169.254.0.0/16",
+    "172.16.0.0/12",
+    "192.168.0.0/16",
+)
+
+#: Der Suchpfad fuer die beiden Aufrufe als root (Sperre setzen, Sperre lesen).
+#: Drinnen gilt sonst der knappe PATH der Werkstatt -- ohne /usr/sbin, wo
+#: iptables liegt.
+ROOT_PATH = "/usr/sbin:/sbin:/usr/bin:/bin"
+
+#: So viel darf ein Bildschirmfoto hoechstens wiegen. Ein JPEG von 1280x800
+#: hat gut 100 kB; was deutlich groesser ist, ist kein Bildschirmfoto.
+MAX_SHOT_BYTES = 5 * 1024 * 1024
 
 
 class SandboxUnavailable(RuntimeError):
@@ -327,14 +384,22 @@ class Sandbox:
     def __init__(
         self,
         *,
-        image: str = DEFAULT_IMAGE,
+        image: str = "",
         idle_minutes: int = IDLE_MINUTES,
         memory_mb: int = MEMORY_MB,
         disk_gb: int = DISK_GB,
         cpus: int = CPUS,
         on_event: Any = None,
+        user_mode: bool = False,
+        browser_agent: str = "",
     ) -> None:
-        self.image = image or DEFAULT_IMAGE
+        #: Desktop mit Internet statt Maschine ohne Netz (siehe Kopf der Datei).
+        self.user_mode = bool(user_mode)
+        #: Womit sich der Browser im User mode bei Webseiten meldet.
+        self.browser_agent = browser_agent
+        # Ohne ausdrueckliches Abbild entscheidet die Betriebsart: der User mode
+        # braucht den Desktop, alles andere kommt mit dem kleinen Abbild aus.
+        self.image = image or (DESKTOP_IMAGE if self.user_mode else DEFAULT_IMAGE)
         self.idle_seconds = max(60, int(idle_minutes) * 60)
         self.memory_mb = max(128, int(memory_mb))
         self.disk_gb = max(1, int(disk_gb))
@@ -396,20 +461,45 @@ class Sandbox:
                     "selbst fuehre ich nichts aus."
                 )
             self.runtime = runtime
+            self._check_nested_network()
             token = uuid.uuid4().hex[:12]
             self._name = f"aquaticy-werkstatt-{token}"
             self._volume = f"aquaticy-werkstatt-{token}"
             self._quota_warned = False
-            self._emit("vm_start", runtime=runtime.label, image=self.image)
+            self._emit(
+                "vm_start", runtime=runtime.label, image=self.image, user_mode=self.user_mode
+            )
             try:
                 self._create_volume()
                 self._start_container()
+                if self.user_mode:
+                    self._lock_network()
+                    self._start_desktop()
             except Exception:
                 # Halbe Werkstatt ist schlimmer als keine: alles wieder weg.
                 self._destroy_locked("Start fehlgeschlagen")
                 raise
             self._touch_locked()
             return self._name
+
+    def _check_nested_network(self) -> None:
+        """Im eingeschlossenen Start (Kiste in der Kiste) braucht Netz ein Geraet.
+
+        Die innere Werkstatt laeuft dort mit Podman ohne Wurzelrechte, und das
+        baut sein Netz ueber /dev/net/tun. Die aeussere Kiste reicht dieses
+        Geraet bewusst nicht von selbst herein (compose.sandbox.yaml). Ohne
+        diese Pruefung kaeme eine Fehlermeldung von Podman, die niemand
+        versteht -- so steht da, was fehlt und wo man es freigibt.
+        """
+        if not self.user_mode or os.environ.get("AQUATICY_SANDBOXED") != "1":
+            return
+        if not Path("/dev/net/tun").exists():
+            raise SandboxUnavailable(
+                "Im eingeschlossenen Start braucht der User mode das Geraet /dev/net/tun, "
+                "damit die Werkstatt ins Internet kann. Freigeben in compose.sandbox.yaml "
+                "(Abschnitt 'devices', dort erklaert) und neu starten -- oder den User "
+                "mode ausschalten."
+            )
 
     def _create_volume(self) -> None:
         """Legt den Datentraeger an und macht ihn fuer die Kennung schreibbar.
@@ -450,13 +540,23 @@ class Sandbox:
         """Die Haertung. Jede Zeile steht im Kopf der Datei begruendet."""
         runtime = self.runtime
         assert runtime is not None
+        desktop = self.user_mode
+        # Ohne User mode: gar kein Netz. Mit: das uebliche Netz der Laufzeit --
+        # die Sperre fuers Heimnetz setzt _lock_network gleich nach dem Start.
+        netz = [] if desktop else ["--network", "none"]
+        # NET_ADMIN ist die eine Faehigkeit, die die Sperre braucht. Sie steht
+        # nur root zur Verfuegung, und root arbeitet drinnen nie -- ausser fuer
+        # genau dieses eine Skript beim Start.
+        faehigkeiten = ["--cap-drop", "ALL", *(("--cap-add", "NET_ADMIN") if desktop else ())]
+        prozesse = DESKTOP_PID_LIMIT if desktop else PID_LIMIT
+        dateien = DESKTOP_FILE_LIMIT if desktop else FILE_LIMIT
         flags = [
             "run", "--detach",
             "--name", self._name,
             *runtime.extra,
             # -- Abschottung --
-            "--network", "none",
-            "--cap-drop", "ALL",
+            *netz,
+            *faehigkeiten,
             "--security-opt", "no-new-privileges",
             "--read-only",
             "--user", RUN_AS,
@@ -464,8 +564,8 @@ class Sandbox:
             "--memory", f"{self.memory_mb}m",
             "--memory-swap", f"{self.memory_mb}m",
             "--cpus", str(self.cpus),
-            "--pids-limit", str(PID_LIMIT),
-            "--ulimit", f"nofile={FILE_LIMIT}:{FILE_LIMIT}",
+            "--pids-limit", str(prozesse),
+            "--ulimit", f"nofile={dateien}:{dateien}",
             "--ulimit", f"fsize={self.disk_gb * 1024 * 1024 * 1024}",
             # -- Platz zum Arbeiten --
             "-v", f"{self._volume}:{WORKDIR}",
@@ -482,7 +582,27 @@ class Sandbox:
             "--env", "PYTHONDONTWRITEBYTECODE=1",
             "--label", "aquaticy-werkstatt=1",
         ]
+        if desktop:
+            flags += [
+                # iptables braucht ein beschreibbares /run fuer seine Sperrdatei,
+                # der Browser ein groesseres /dev/shm als die 64 MB ab Werk.
+                "--tmpfs", "/run:rw,nosuid,nodev,size=8m",
+                "--shm-size", "256m",
+                "--env", f"DISPLAY={DISPLAY}",
+                "--label", "aquaticy-werkstatt-user=1",
+            ]
         return flags
+
+    def _command(self) -> list[str]:
+        """Was im Behaelter als erster Prozess laeuft.
+
+        Im User mode startet und beendet der Desktop Programme. Deren
+        Ueberbleibsel raeumt nur ein echter erster Prozess weg -- `sleep` tut
+        das nicht, und jeder nicht abgeholte Prozess zaehlt gegen die Grenze.
+        """
+        if self.user_mode:
+            return ["tini", "--", "sleep", "infinity"]
+        return ["sleep", "infinity"]
 
     def _start_container(self) -> None:
         runtime = self.runtime
@@ -492,21 +612,153 @@ class Sandbox:
             self.image,
             # Nichts tun, aber am Leben bleiben. `sleep infinity` haelt genau
             # einen Prozess und kostet nichts.
-            "sleep", "infinity",
+            *self._command(),
         ]
         started = _runs(runtime.binary, *args, timeout=300)
         if started.returncode != 0 and "storage-opt" in started.stderr:
             # Die Laufzeit kann keine Quote -- dann eben ohne, und der Platz
             # wird nach jedem Befehl nachgemessen.
             self._quota_ok = False
-            args = [*self._run_flags(), self.image, "sleep", "infinity"]
+            args = [*self._run_flags(), self.image, *self._command()]
             started = _runs(runtime.binary, *args, timeout=300)
         if started.returncode != 0:
+            if self.user_mode:
+                hilfe = (
+                    " (Fuer den User mode braucht es das Desktop-Abbild. Bauen mit: "
+                    f"'{runtime.binary} build -f docker/workshop-desktop.Dockerfile "
+                    f"-t {DESKTOP_IMAGE} .')"
+                )
+            else:
+                hilfe = (
+                    f" (Fehlt das Abbild? '{runtime.binary} pull {self.image}' holt es einmalig.)"
+                )
             raise SandboxUnavailable(
-                "Die Werkstatt liess sich nicht starten: "
-                + started.stderr.strip()[:300]
-                + f" (Fehlt das Abbild? '{runtime.binary} pull {self.image}' holt es einmalig.)"
+                "Die Werkstatt liess sich nicht starten: " + started.stderr.strip()[:300] + hilfe
             )
+
+    def _lock_network(self) -> None:
+        """Setzt die Sperre fuers Heimnetz -- und prueft sie selbst nach.
+
+        Das Skript im Abbild laeuft als root, weil nur root mit NET_ADMIN die
+        Regeln setzen kann. Danach liest Aquaticy die Regeln aus und verlaesst
+        sich nicht auf das "gesperrt" des Skripts: steht auch nur ein Bereich
+        nicht darin, gilt die Werkstatt als offen -- und wird abgebaut.
+
+        Raises:
+            SandboxUnavailable: Wenn die Sperre fehlt oder unvollstaendig ist.
+        """
+        runtime = self.runtime
+        assert runtime is not None
+        gesetzt = _runs(
+            runtime.binary, "exec", "--user", "0:0", "--env", f"PATH={ROOT_PATH}",
+            self._name, NETWORK_SCRIPT,
+            timeout=60,
+        )
+        if gesetzt.returncode != 0 or "gesperrt" not in gesetzt.stdout:
+            raise SandboxUnavailable(
+                "Die Netzsperre fuers Heimnetz liess sich nicht einrichten -- ohne sie "
+                "startet der User mode nicht. " + gesetzt.stderr.strip()[:300]
+            )
+        regeln = _runs(
+            runtime.binary, "exec", "--user", "0:0", "--env", f"PATH={ROOT_PATH}",
+            self._name, "iptables", "-S", "OUTPUT",
+            timeout=30,
+        )
+        fehlt = [
+            bereich
+            for bereich in BLOCKED_RANGES
+            if f"-d {bereich} -j REJECT" not in regeln.stdout
+        ]
+        if regeln.returncode != 0 or fehlt:
+            raise SandboxUnavailable(
+                "Die Netzsperre fuers Heimnetz ist unvollstaendig (es fehlt: "
+                + (", ".join(fehlt) or "die Regelliste")
+                + ") -- ohne sie startet der User mode nicht."
+            )
+        self._emit("vm_net", locked=True, ranges=len(BLOCKED_RANGES))
+
+    def _start_desktop(self) -> None:
+        """Startet Bildschirm, Fenstermanager und Leiste in der Werkstatt."""
+        runtime = self.runtime
+        assert runtime is not None
+        gestartet = _runs(
+            runtime.binary,
+            "exec", "--user", RUN_AS, "--workdir", WORKDIR, self._name,
+            DESKTOP_HELPER, "start", self.browser_agent,
+            timeout=90,
+        )
+        if gestartet.returncode != 0 or "bereit" not in gestartet.stdout:
+            raise SandboxUnavailable(
+                "Der Desktop in der Werkstatt ist nicht hochgekommen: "
+                + (gestartet.stderr.strip() or gestartet.stdout.strip())[:300]
+            )
+        self._emit("vm_desktop", ready=True)
+
+    def desktop(
+        self, *args: str, stdin: bytes | None = None, timeout: float = 60, start: bool = True
+    ) -> subprocess.CompletedProcess[bytes]:
+        """Ruft das Hilfsprogramm des Desktops auf -- mit festen Argumenten.
+
+        Keine Shell, kein Text, der als Befehl gelesen werden koennte: die
+        Argumente gehen als Liste an die Laufzeit, getippter Text ueber die
+        Standardeingabe.
+
+        Args:
+            start: Darf dafuer eine Werkstatt entstehen? Ein Blick von aussen
+                (die Oberflaeche) soll keine hochfahren -- auch keine, deren
+                Behaelter inzwischen verschwunden ist.
+
+        Raises:
+            SandboxUnavailable: Wenn die Werkstatt nicht im User mode laeuft.
+        """
+        if not self.user_mode:
+            raise SandboxUnavailable(
+                "Die Werkstatt laeuft nicht im User mode -- den schaltet der Nutzer in "
+                "den Einstellungen unter 'Werkstatt' ein."
+            )
+        if start:
+            name = self.ensure()
+        elif self._name and self._running():
+            name = self._name
+        else:
+            raise SandboxUnavailable("Die Werkstatt laeuft gerade nicht.")
+        runtime = self.runtime
+        assert runtime is not None
+        done = subprocess.run(
+            [
+                runtime.binary, "exec", *(("--interactive",) if stdin is not None else ()),
+                "--user", RUN_AS, "--workdir", WORKDIR, name,
+                DESKTOP_HELPER, *args,
+            ],
+            input=stdin,
+            capture_output=True,
+            timeout=timeout,
+            check=False,
+        )
+        self.touch()
+        return done
+
+    def screenshot(
+        self, *, grid: bool = False, mark: tuple[int, int] | None = None, start: bool = True
+    ) -> bytes:
+        """Ein Bildschirmfoto als JPEG.
+
+        Raises:
+            SandboxUnavailable: Ohne User mode oder wenn kein Bild kommt.
+        """
+        extra: list[str] = []
+        if grid:
+            extra.append("--grid")
+        if mark is not None:
+            extra += ["--mark", str(int(mark[0])), str(int(mark[1]))]
+        done = self.desktop("shot", *extra, timeout=40, start=start)
+        bild = done.stdout or b""
+        if done.returncode != 0 or not bild.startswith(b"\xff\xd8"):
+            grund = (done.stderr or b"").decode("utf-8", "replace").strip()[:300]
+            raise SandboxUnavailable("Kein Bildschirmfoto bekommen. " + grund)
+        if len(bild) > MAX_SHOT_BYTES:
+            raise SandboxUnavailable("Das Bildschirmfoto ist unplausibel gross.")
+        return bild
 
     def _running(self) -> bool:
         runtime = self.runtime
@@ -588,12 +840,27 @@ class Sandbox:
         )
 
     def _kill_processes(self) -> None:
-        """Beendet, was nach einer Zeitueberschreitung noch laeuft."""
+        """Beendet, was nach einer Zeitueberschreitung noch laeuft.
+
+        Im User mode baut ein Neustart das Netz des Behaelters neu auf -- ohne
+        die Sperre von vorher. Die wird deshalb sofort neu gesetzt und
+        nachgelesen, bevor irgendetwas anderes darin laeuft, und der Desktop
+        kommt wieder hoch. Klappt eins davon nicht, wird die Werkstatt
+        abgebaut: eine offene Werkstatt ist schlimmer als keine.
+        """
         runtime = self.runtime
         if runtime is None or not self._name:
             return
-        with contextlib.suppress(OSError, subprocess.SubprocessError):
-            _runs(runtime.binary, "restart", "--time", "1", self._name, timeout=60)
+        with self._lock:
+            with contextlib.suppress(OSError, subprocess.SubprocessError):
+                _runs(runtime.binary, "restart", "--time", "1", self._name, timeout=60)
+            if not self.user_mode or not self._name:
+                return
+            try:
+                self._lock_network()
+                self._start_desktop()
+            except Exception:
+                self._destroy_locked("Netzsperre nach dem Neustart nicht wiederhergestellt")
 
     def write(self, path: str, text: str) -> dict[str, Any]:
         """Legt eine Datei in der Werkstatt an."""
@@ -808,6 +1075,7 @@ class Sandbox:
         ruhe = max(0, int(self.idle_seconds - (time.time() - self.last_used)))
         return {
             "running": True,
+            "user_mode": self.user_mode,
             "runtime": self.runtime.label if self.runtime else "",
             "image": self.image,
             "cpus": self.cpus,
@@ -875,8 +1143,15 @@ def shared(settings: Any = None, on_event: Any = _KEEP) -> Sandbox:
             _shared_registered = True
         box = _shared.get(key)
         if box is None:
+            user_mode = bool(getattr(settings, "vm_user_mode", False))
             box = Sandbox(
-                image=getattr(settings, "vm_image", "") or DEFAULT_IMAGE,
+                image=(
+                    getattr(settings, "vm_desktop_image", "") or DESKTOP_IMAGE
+                    if user_mode
+                    else getattr(settings, "vm_image", "") or DEFAULT_IMAGE
+                ),
+                user_mode=user_mode,
+                browser_agent=browser_agent(settings) if user_mode else "",
                 idle_minutes=int(
                     getattr(settings, "vm_idle_minutes", IDLE_MINUTES) or IDLE_MINUTES
                 ),
@@ -888,6 +1163,23 @@ def shared(settings: Any = None, on_event: Any = _KEEP) -> Sandbox:
         if on_event is not _KEEP:
             box.on_event = on_event
         return box
+
+
+def browser_agent(settings: Any = None) -> str:
+    """Die Kennung des Browsers im User mode -- ehrlich, mit Kontaktweg.
+
+    Der Anfang ist der uebliche Browser-Teil, damit Seiten nicht nur eine
+    Fehlerseite ausliefern. Der Schluss sagt, wer hier wirklich bedient: eine
+    KI, und wo man sich beschweren kann.
+    """
+    from aquaticy import __version__
+
+    return (
+        "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) "
+        "Chrome/87.0 Safari/537.36 Falkon/3.2 "
+        f"aquaticy-usermode/{__version__} (KI-gesteuert; "
+        "+https://github.com/jonasenriklaumen-a11y/thing-finder-)"
+    )
 
 
 def _stop_shared() -> None:

@@ -137,7 +137,7 @@ aquaticy "welche Bahnstrecken in NRW sind gerade gesperrt?"
 $ aquaticy --location "Mönchengladbach" --lang de
 
 ╭──────────────────────────────────────────────────────╮
-│ Aquaticy AI 9.5.7                                      │
+│ Aquaticy AI 9.5.8                                      │
 │ Modell mistral/mistral-large-latest · Suche duckduckgo │
 │ Frag einfach los. /help zeigt die Befehle.           │
 ╰──────────────────────────────────────────────────────╯
@@ -597,7 +597,7 @@ laufen live mit, die Antwort wird Wort für Wort gestreamt.
 
   Findet er nichts davon, gibt es die Werkstatt nicht und das Werkzeug sagt, was zu
   installieren ist. Dazu in jedem Fall: `--network none` (kein Netz, weder hinaus
-  noch ins Heimnetz), `--cap-drop ALL`, `--security-opt no-new-privileges`,
+  noch ins Heimnetz — nur im *User mode* gibt es Internet, siehe unten), `--cap-drop ALL`, `--security-opt no-new-privileges`,
   `--read-only` (geschrieben wird nur in `/work` und ein 64-MB-`/tmp` im
   Arbeitsspeicher), ein unprivilegierter Benutzer, `--pids-limit` gegen die
   Gabelbombe, Speicher- und CPU-Deckel, **keine** Umgebungsvariablen von außen (deine
@@ -665,6 +665,78 @@ laufen live mit, die Antwort wird Wort für Wort gestreamt.
 
   Ohne dieses Abbild versucht Aquaticy es trotzdem — `blender_run` meldet dann
   ganz gewöhnlich „command not found", keinen Sonderfehler, und sagt dir das.
+
+  **User mode — die Werkstatt bedienen wie ein Mensch.** In den Einstellungen unter
+  *Werkstatt* lässt sich der *User mode* einschalten (aus dem Chat heraus nie). Die
+  Werkstatt ist dann ein kleiner Linux-Desktop (1280×800) mit Internet, und Aquaticy
+  bedient ihn so, wie du es tun würdest: Bildschirm ansehen, klicken, tippen, Tasten
+  drücken, Programme öffnen — auch solche, die es nur mit Oberfläche gibt. An Bord:
+  Webbrowser (Falkon), LibreOffice (Writer, Calc, Impress), Texteditor, Dateimanager,
+  GIMP und ein Terminal, alles auf Deutsch. Du siehst jeden Schritt als `[Desktop]`
+  im Verlauf, die Bildschirmfotos im Chat, und der Knopf 🗀 zeigt den Bildschirm der
+  laufenden Werkstatt.
+
+  Einmalig nötig sind ein **Vision-Modell** (Einstellungen → Modell; ohne sieht
+  Aquaticy den Bildschirm nicht) und das Desktop-Abbild:
+
+  ```bash
+  docker build -f docker/workshop-desktop.Dockerfile -t aquaticy-werkstatt-desktop:local .
+  ```
+
+  Mit der Größe „Normal" (1 GB) reicht es für den Browser; Browser und Office
+  zusammen laufen mit „Plus" deutlich ruhiger. Im User mode sind je Frage mindestens
+  60 Handgriffe erlaubt (oder mehr, wenn das Werkzeug-Budget höher steht) — ein Brief
+  in LibreOffice ist schnell zwanzig.
+
+  *Wie Aquaticy sieht:* Das Hauptmodell bekommt Text, keine Bilder. Das
+  Bildschirmfoto liest das Vision-Modell — mit einem beschrifteten Raster alle 100
+  Pixel, damit es Koordinaten abliest statt sie zu raten. „Klick auf Speichern"
+  wird so zu einer Stelle auf dem Bildschirm.
+
+  *Was vor jeder Handlung geprüft wird — im Code, nicht nur im Prompt.* Vor jedem
+  Klick, vor Enter und Leertaste und vor jedem Tippen sieht sich das Vision-Modell an,
+  was dadurch passieren würde:
+
+  | Art | Beispiel | Was passiert |
+  |---|---|---|
+  | harmlos | Link, Menü, Suche, Schreiben in ein Dokument | geht |
+  | senden, kaufen, löschen | Formular absenden, Bestellung, Kommentar | **nur nach deiner Zustimmung**; ohne jemanden, der zustimmen kann, gar nicht |
+  | anmelden | Login, Registrieren, Passwortfeld | **nie** |
+  | Captcha, Roboter-Prüfung, Altersnachweis | „Ich bin kein Roboter" | **nie** — das bleibt beim Menschen |
+  | „Alle akzeptieren" | Cookie-Banner | **nie** — nur Ablehnen oder Schließen |
+  | Zahlungsdaten | Kartennummer, IBAN | **nie** — erkannt am Text selbst (Prüfziffer), bevor ein Modell ihn sieht |
+  | unklar | das Vision-Modell ist sich nicht sicher | wie „senden": nur nach Zustimmung |
+
+  Was getippt wird und welche Adresse der Browser öffnet, prüft zusätzlich der
+  Rechtsrahmen (Grundgesetz und BGB), sofern er an ist.
+
+  *Internet ja, Heimnetz nein.* Beim Start setzt ein Skript im Abbild
+  (`docker/desktop/aquaticy-netz`) als root eine Sperre für alle privaten und lokalen
+  Bereiche (10/8, 172.16/12, 192.168/16, 100.64/10, 127/8, 169.254/16 und weitere,
+  IPv6 bis auf die Werkstatt selbst ganz). Dafür bekommt der Behälter als einzige
+  Fähigkeit `NET_ADMIN` — gearbeitet wird trotzdem nie als root, und ohne Fähigkeiten
+  kann von drinnen niemand die Sperre ändern. Aquaticy liest die Regeln danach selbst
+  nach; fehlt auch nur ein Bereich, wird die Werkstatt sofort wieder abgebaut. Router,
+  Home Assistant, Lager und alles andere im Haus sind aus dem User mode so nicht
+  erreichbar — auch nicht als Umweg um deren eigene Rückfragen. Namensauflösung geht
+  nur zu den eingetragenen DNS-Servern, nur auf Port 53.
+
+  *Ehrlich im Netz:* Der Browser meldet sich bei jeder Seite als
+  `aquaticy-usermode/… (KI-gesteuert; +Projektadresse)`. In der Werkstatt gibt es
+  keine Konten und keine Daten von dir — nichts wird hineingereicht außer dem, was du
+  anhängst. Paywalls und Login-Schranken umgeht Aquaticy auch hier nicht, und für
+  Recherche nimmt er weiter Suche und Seitenabruf statt Seiten im Browser abzugrasen.
+
+  *Was der User mode nicht ist:* unfehlbar. Das Vision-Modell kann sich verklicken
+  oder eine Art falsch einschätzen — deshalb liegen die harten Grenzen zusätzlich
+  woanders (Netzsperre, keine Konten, keine Zahlungsdaten). Emoji und andere Zeichen
+  jenseits der Unicode-Grundebene kann die Werkstatt nicht eintippen (sie kämen
+  verstümmelt an); Aquaticy sagt das, statt Falsches zu tippen. Die Chromium-eigene
+  Sandbox des Browsers ist in der Werkstatt aus, weil sie ohne Fähigkeiten nicht
+  startet — die Wand ist dort die Werkstatt selbst. Im eingeschlossenen Start
+  (`./aquaticy-sandbox`) braucht der User mode zusätzlich `/dev/net/tun` — in
+  `compose.sandbox.yaml` steht die Freigabe als Kommentar bereit; ohne sie sagt
+  Aquaticy genau das.
 
   **Eigene VM als zusätzliche Grenze.** Aquaticy erstellt keine virtuelle Maschine
   für den Rechner selbst. Läuft Aquaticy aber in einer eigenen VM, arbeitet die
@@ -863,7 +935,7 @@ er erreichbar ist — im heimischen Netz und über Tailscale:
 
 ```
 ╭───────────────────────────────────────────────────────────────────╮
-│ Aquaticy AI 9.5.7                                                   │
+│ Aquaticy AI 9.5.8                                                   │
 │ Diese Adresse im Browser oeffnen:                                 │
 │   http://192.168.1.44:8765/    im heimischen Netz                 │
 │   http://100.81.120.100:8765/  ueber Tailscale                    │
@@ -1889,6 +1961,8 @@ Alle Werte kommen aus der `.env` (siehe [`.env.example`](.env.example)):
 | `AQUATICY_ENABLE_PLAYWRIGHT` | Stufe-3-Fallback erlauben | `true` |
 | `AQUATICY_VM_SIZE` | Größe der Werkstatt: `normal` oder `plus` (Plus nur mit Pro-Konto) | `normal` |
 | `AQUATICY_VM_IMAGE` | Abbild für die Werkstatt (z. B. mit Blender) | `python:3.12-slim` |
+| `AQUATICY_VM_USER_MODE` | User mode: Werkstatt als Desktop mit Internet (Heimnetz gesperrt), bedient wie von einem Menschen | `false` |
+| `AQUATICY_VM_DESKTOP_IMAGE` | Abbild für den User mode | `aquaticy-werkstatt-desktop:local` |
 | `AQUATICY_VM_IDLE_MINUTES` | Werkstatt löschen nach so vielen Minuten Ruhe | `20` |
 | `AQUATICY_VM_CPUS` / `_MEMORY_MB` / `_DISK_GB` | Grenzen von Hand statt der Größe | aus `AQUATICY_VM_SIZE` |
 | `AQUATICY_STORAGE_URL` | Adresse der Lagerverwaltung im Netz | — |
@@ -2244,6 +2318,7 @@ aquaticy/
   export.py      # HTML / Markdown / CSV
   uistate.py     # der Zustand der Oberfläche -- auf dem Server, geprüft
   sandbox.py     # die Werkstatt: abgeschotteter Behälter für den Code-Modus
+  desktop.py     # User mode: sehen, klicken, tippen -- jede Handlung vorher geprüft
   jobs.py        # Aufträge: Fragen, die sich von selbst stellen
   usage.py       # der Token-Zähler (drei Zeichen sind ein Token)
   auth.py        # Konten, Passwort-Hashes, Sitzungen und Limits
@@ -2259,6 +2334,8 @@ aquaticy/
   selectors.yaml # Selektor- und Marker-Listen, ohne Code erweiterbar
 
 Dockerfile       # zwei Ziele: slim (ohne Browser) und browser (mit Chromium)
+docker/workshop-desktop.Dockerfile  # Werkstatt-Abbild fuer den User mode (Desktop)
+docker/desktop/  # aquaticy-desktop (sehen, klicken, tippen) und aquaticy-netz (Sperre)
 compose.yaml     # aquaticy plus optionales SearXNG
 aquaticy-box       # Wrapper: ./aquaticy-box "deine Frage"
 ```

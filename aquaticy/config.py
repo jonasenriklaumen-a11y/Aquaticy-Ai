@@ -305,6 +305,12 @@ class Settings:
     vm_memory_mb: int = 1024
     vm_disk_gb: int = 4
     vm_cpus: int = 1
+    #: User mode: die Werkstatt ist ein kleiner Desktop mit Internet, den
+    #: Aquaticy bedient wie ein Mensch (siehe aquaticy/desktop.py). Aus, bis
+    #: es jemand in den Einstellungen einschaltet -- aus dem Chat heraus nie.
+    vm_user_mode: bool = False
+    #: Das Abbild dafuer (siehe docker/workshop-desktop.Dockerfile).
+    vm_desktop_image: str = "aquaticy-werkstatt-desktop:local"
     #: Werkzeug-Budget je Subagent.
     subagent_budget: int = 6
     #: Wie viele Subagenten gleichzeitig laufen. Bei lokalen Modellen bringt
@@ -579,6 +585,10 @@ def get_settings() -> Settings:
         vm_memory_mb=_env_int("AQUATICY_VM_MEMORY_MB", 0) or vm_preset["memory_mb"],
         vm_disk_gb=_env_int("AQUATICY_VM_DISK_GB", 0) or vm_preset["disk_gb"],
         vm_cpus=_env_int("AQUATICY_VM_CPUS", 0) or vm_preset["cpus"],
+        vm_user_mode=_env_bool("AQUATICY_VM_USER_MODE", False),
+        vm_desktop_image=(
+            _env_str("AQUATICY_VM_DESKTOP_IMAGE") or "aquaticy-werkstatt-desktop:local"
+        ),
         subagent_budget=_env_int("AQUATICY_SUBAGENT_BUDGET", 6),
         subagent_parallel=_env_int("AQUATICY_SUBAGENT_PARALLEL", 0),
         ha_url=_env_str("AQUATICY_HA_URL"),

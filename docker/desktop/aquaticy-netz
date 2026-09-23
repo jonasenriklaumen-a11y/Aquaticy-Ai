@@ -1,0 +1,53 @@
+#!/bin/sh
+# aquaticy-netz: die Netzsperre der Werkstatt im User mode.
+#
+# Im User mode darf die Werkstatt ins Internet -- aber nicht ins Heimnetz und
+# nicht auf den Rechner, auf dem sie laeuft. Sonst waere sie ein Umweg um
+# alles, was Aquaticy dort ausdruecklich nicht darf: Home Assistant ohne
+# Rueckfrage, das Lager, der Router, das Netz durchsuchen.
+#
+# Dieses Skript laeuft einmal beim Start, als root, mit genau einer
+# Faehigkeit (NET_ADMIN). Alles, was Aquaticy danach in der Werkstatt tut,
+# laeuft als unprivilegierter Nutzer ohne jede Faehigkeit -- die Regeln hier
+# kann von drinnen niemand mehr aendern.
+#
+# Scheitert eine Zeile, endet das Skript mit Fehler, und Aquaticy baut die
+# Werkstatt wieder ab: ohne Sperre gibt es keinen User mode.
+set -eu
+# Die Werkstatt setzt PATH bewusst knapp; iptables liegt unter /usr/sbin.
+PATH=/usr/sbin:/sbin:/usr/bin:/bin
+export PATH
+
+# Private, lokale und besondere Bereiche (RFC 1918, CGNAT/Tailscale,
+# Loopback, Link-Local, Doku- und Testnetze, Multicast, reserviert).
+GESPERRT="0.0.0.0/8 10.0.0.0/8 100.64.0.0/10 127.0.0.0/8 169.254.0.0/16 172.16.0.0/12 192.0.0.0/24 192.0.2.0/24 192.168.0.0/16 198.18.0.0/15 198.51.100.0/24 203.0.113.0/24 224.0.0.0/4 240.0.0.0/4"
+
+iptables -F OUTPUT
+iptables -P OUTPUT ACCEPT
+# Innerhalb der Werkstatt selbst (Bildschirm, Hilfsprogramme) ist alles frei.
+iptables -A OUTPUT -o lo -j ACCEPT
+# Namensaufloesung: nur zu den eingetragenen Servern, nur Port 53 -- auch
+# wenn einer davon im Heimnetz steht (der Router), ist er damit nur als
+# Telefonbuch erreichbar, nicht als Router.
+for ns in $(awk '/^nameserver[ \t]/ {print $2}' /etc/resolv.conf); do
+    case "$ns" in *:*) continue ;; esac
+    iptables -A OUTPUT -d "$ns" -p udp --dport 53 -j ACCEPT
+    iptables -A OUTPUT -d "$ns" -p tcp --dport 53 -j ACCEPT
+done
+for netz in $GESPERRT; do
+    iptables -A OUTPUT -d "$netz" -j REJECT
+done
+# Zusaetzliche Adressen, die Aquaticy mitgibt (etwa die oeffentliche Adresse
+# des eigenen Rechners).
+for adresse in "$@"; do
+    iptables -A OUTPUT -d "$adresse" -j REJECT
+done
+
+# IPv6: bis auf die Werkstatt selbst alles zu. Ohne IPv6 gibt es nichts zu tun.
+if [ -e /proc/net/if_inet6 ]; then
+    ip6tables -F OUTPUT
+    ip6tables -A OUTPUT -o lo -j ACCEPT
+    ip6tables -P OUTPUT DROP
+fi
+
+echo "gesperrt"

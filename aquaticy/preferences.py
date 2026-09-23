@@ -15,7 +15,9 @@ Nicht aenderbar ist alles, was Aquaticy mehr Zugriff auf fremdes Eigentum gaebe:
 * ob er ins Heimnetz sehen darf (``LAN_ENABLED``),
 * ob er sich Dinge merken darf (``MEMORY``),
 * ob er sich an die Rechts-Leitplanken haelt (``LEGAL_GUARD``) -- die schaltet
-  nur ein Pro-Konto in den Einstellungen ab, nie ein Satz im Chat.
+  nur ein Pro-Konto in den Einstellungen ab, nie ein Satz im Chat,
+* ob die Werkstatt ins Internet darf und er sie bedient wie ein Mensch
+  (``VM_USER_MODE``), und welches Abbild dort laeuft.
 
 Das ist kein Misstrauen gegen das Modell, sondern eine Bauweise: Wer die
 Rechte vergibt, darf nicht derselbe sein, der sie bekommt. Sonst waere die
@@ -167,6 +169,11 @@ PROTECTED: dict[str, str] = {
     "AQUATICY_HA_URL": "welches Zuhause angebunden ist",
     "AQUATICY_MEMORY": "ob ich mir Dinge merken darf",
     "AQUATICY_LEGAL_GUARD": "ob ich mich an die Leitplanken nach Grundgesetz und BGB halte",
+    "AQUATICY_VM_USER_MODE": (
+        "ob ich die Werkstatt mit Internet bediene wie ein Mensch (User mode)"
+    ),
+    "AQUATICY_VM_DESKTOP_IMAGE": "welches Abbild der User mode benutzt",
+    "AQUATICY_VM_IMAGE": "welches Abbild die Werkstatt benutzt",
 }
 
 #: Wie das Modell die geschuetzten Schalter sonst noch nennt. Ohne das kaeme
@@ -179,6 +186,10 @@ PROTECTED_ALIASES: dict[str, str] = {
     "AQUATICY_GUARDRAILS": "AQUATICY_LEGAL_GUARD",
     "AQUATICY_RECHTSPRUEFUNG": "AQUATICY_LEGAL_GUARD",
     "AQUATICY_RECHTSPRÜFUNG": "AQUATICY_LEGAL_GUARD",
+    "AQUATICY_USER_MODE": "AQUATICY_VM_USER_MODE",
+    "AQUATICY_USERMODE": "AQUATICY_VM_USER_MODE",
+    "AQUATICY_WERKSTATT_INTERNET": "AQUATICY_VM_USER_MODE",
+    "AQUATICY_DESKTOP": "AQUATICY_VM_USER_MODE",
 }
 
 _YES = frozenset({"an", "ein", "ja", "true", "1", "aktiv", "on", "yes"})

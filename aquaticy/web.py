@@ -248,6 +248,7 @@ SETTING_KEYS: tuple[str, ...] = (
     "AQUATICY_LAN_SUBNET",
     "AQUATICY_MEMORY",
     "AQUATICY_VM_SIZE",
+    "AQUATICY_VM_USER_MODE",
     "AQUATICY_LEGAL_GUARD",
 )
 
@@ -382,6 +383,7 @@ _BOOL_SETTINGS = {
     "AQUATICY_GOOGLE_WRITE": "google_write",
     "AQUATICY_LAN_ENABLED": "lan_enabled",
     "AQUATICY_MEMORY": "memory_enabled",
+    "AQUATICY_VM_USER_MODE": "vm_user_mode",
 }
 _INT_SETTINGS = {
     "AQUATICY_SEARCH_VARIANTS": "search_variants",
@@ -1201,6 +1203,7 @@ def current_values() -> dict[str, str]:
         "AQUATICY_LAN_SUBNET": settings.lan_subnet,
         "AQUATICY_MEMORY": "true" if settings.memory_enabled else "false",
         "AQUATICY_VM_SIZE": settings.vm_size,
+        "AQUATICY_VM_USER_MODE": "true" if settings.vm_user_mode else "false",
         "AQUATICY_LEGAL_GUARD": "true" if settings.legal_guard else "false",
     }
 
@@ -1912,6 +1915,31 @@ class Handler(BaseHTTPRequestHandler):
         self.end_headers()
         self.wfile.write(data)
 
+    def _workshop_screen(self) -> None:
+        """Der Bildschirm der Werkstatt im User mode -- so, wie Aquaticy ihn sieht.
+
+        Startet nichts: laeuft keine Werkstatt, gibt es auch kein Bild. Ein
+        Blick hinein soll keine Maschine hochfahren.
+        """
+        from aquaticy import sandbox as werkstatt
+
+        box = werkstatt.shared(SESSION.settings())
+        if not box.alive or not box.user_mode:
+            self._json({"error": "Es laeuft gerade keine Werkstatt im User mode."}, 404)
+            return
+        try:
+            data = box.screenshot(start=False)
+        except Exception as exc:  # pragma: no cover - Laufzeit meldet Unerwartetes
+            self._json({"error": f"Kein Bildschirmfoto bekommen: {exc}"}, 502)
+            return
+        self.send_response(200)
+        self.send_header("Content-Type", "image/jpeg")
+        self.send_header("Content-Length", str(len(data)))
+        self.send_header("Cache-Control", "no-store")
+        self.send_header("X-Content-Type-Options", "nosniff")
+        self.end_headers()
+        self.wfile.write(data)
+
     def _get(self) -> None:
         if not self._authorized():
             self._deny()
@@ -2073,6 +2101,8 @@ class Handler(BaseHTTPRequestHandler):
             )
         elif route == "/api/werkstatt/datei":
             self._workshop_file()
+        elif route == "/api/werkstatt/bildschirm":
+            self._workshop_screen()
         elif route == "/api/jobs":
             from aquaticy.jobs import RHYTHM_NAMES, JobStore
 

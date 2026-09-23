@@ -392,3 +392,227 @@ def test_blender_timeout_is_longer_than_a_normal_command() -> None:
     """Ein Rendering braucht laenger als ein gewoehnlicher Befehl -- aber
     bleibt trotzdem innerhalb der harten Obergrenze."""
     assert werkstatt.COMMAND_TIMEOUT < werkstatt.BLENDER_TIMEOUT <= werkstatt.MAX_TIMEOUT
+
+
+# ---------------------------------------------------------------------------
+# User mode: Desktop mit Internet -- aber mit Netzsperre fuers Heimnetz
+# ---------------------------------------------------------------------------
+_ALLE_REGELN = "\n".join(
+    f"-A OUTPUT -d {bereich} -j REJECT --reject-with icmp-port-unreachable"
+    for bereich in werkstatt.BLOCKED_RANGES
+)
+
+
+class UserModeRun:
+    """Wie FakeRun, kennt aber Sperre, Regelliste und Desktop-Start."""
+
+    def __init__(self, regeln: str = _ALLE_REGELN, sperre: tuple[int, str] = (0, "gesperrt\n"),
+                 desktop: tuple[int, str] = (0, '{"bereit": true}\n')) -> None:
+        self.aufrufe: list[list[str]] = []
+        self.regeln, self.sperre, self.desktop = regeln, sperre, desktop
+
+    def __call__(self, args: list[str], **kwargs: Any) -> subprocess.CompletedProcess[str]:
+        self.aufrufe.append(list(args))
+        if "inspect" in args:
+            return subprocess.CompletedProcess(args, 0, "true\n", "")
+        if werkstatt.NETWORK_SCRIPT in args:
+            return subprocess.CompletedProcess(args, self.sperre[0], self.sperre[1], "kaputt")
+        if "iptables" in args:
+            return subprocess.CompletedProcess(args, 0, self.regeln, "")
+        if werkstatt.DESKTOP_HELPER in args and "start" in args:
+            return subprocess.CompletedProcess(args, self.desktop[0], self.desktop[1], "")
+        return subprocess.CompletedProcess(args, 0, "", "")
+
+    def zeile(self, enthaelt: str) -> list[str]:
+        for aufruf in self.aufrufe:
+            if enthaelt in aufruf:
+                return aufruf
+        raise AssertionError(f"keine Zeile mit {enthaelt!r}")
+
+
+def _user_box(monkeypatch: pytest.MonkeyPatch, fake: UserModeRun) -> werkstatt.Sandbox:
+    monkeypatch.setattr(subprocess, "run", fake)
+    sandkasten = werkstatt.Sandbox(user_mode=True, browser_agent="Kennung (KI-gesteuert)")
+    sandkasten.runtime = werkstatt.Runtime("docker", "docker", "Docker (gehaertet)")
+    return sandkasten
+
+
+def test_user_mode_opens_the_internet_and_nothing_else(monkeypatch: pytest.MonkeyPatch) -> None:
+    fake = UserModeRun()
+    sandkasten = _user_box(monkeypatch, fake)
+    sandkasten.ensure()
+    zeile = fake.zeile("--detach")
+
+    def paar(flagge: str) -> str:
+        return zeile[zeile.index(flagge) + 1]
+
+    assert "--network" not in zeile, "das uebliche Netz der Laufzeit -- gesperrt wird drinnen"
+    assert paar("--cap-drop") == "ALL"
+    assert zeile.count("--cap-add") == 1 and paar("--cap-add") == "NET_ADMIN", (
+        "genau eine Faehigkeit, nur fuer die Sperre"
+    )
+    assert paar("--security-opt") == "no-new-privileges"
+    assert "--read-only" in zeile
+    assert paar("--user") == werkstatt.RUN_AS, "gearbeitet wird nie als root"
+    assert paar("--pids-limit") == str(werkstatt.DESKTOP_PID_LIMIT)
+    assert "/run:rw,nosuid,nodev,size=8m" in zeile
+    assert f"DISPLAY={werkstatt.DISPLAY}" in zeile
+    assert zeile[-4:] == [werkstatt.DESKTOP_IMAGE, "tini", "--", "sleep", "infinity"][-4:]
+    assert werkstatt.DESKTOP_IMAGE in zeile, "ohne Angabe das Desktop-Abbild"
+    assert not any(teil.startswith("/home") or teil.startswith("/Users") for teil in zeile)
+
+
+def test_the_lock_runs_as_root_and_everything_else_does_not(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    fake = UserModeRun()
+    _user_box(monkeypatch, fake).ensure()
+    als_root = [aufruf for aufruf in fake.aufrufe if "exec" in aufruf and "0:0" in aufruf]
+    assert {werkstatt.NETWORK_SCRIPT, "iptables"} == {
+        teil for aufruf in als_root for teil in aufruf
+        if teil in (werkstatt.NETWORK_SCRIPT, "iptables")
+    }, "als root laufen genau die Sperre und das Nachlesen der Regeln"
+    start = fake.zeile(werkstatt.DESKTOP_HELPER)
+    assert start[start.index("--user") + 1] == werkstatt.RUN_AS
+    assert "Kennung (KI-gesteuert)" in start, "der Browser bekommt seine ehrliche Kennung"
+
+
+@pytest.mark.parametrize("fehlt", werkstatt.BLOCKED_RANGES)
+def test_an_incomplete_lock_means_no_user_mode(monkeypatch: pytest.MonkeyPatch, fehlt: str) -> None:
+    regeln = "\n".join(z for z in _ALLE_REGELN.splitlines() if f" {fehlt} " not in z)
+    fake = UserModeRun(regeln=regeln)
+    sandkasten = _user_box(monkeypatch, fake)
+    with pytest.raises(werkstatt.SandboxUnavailable, match=fehlt.replace(".", r"\.")):
+        sandkasten.ensure()
+    assert not sandkasten.alive
+    assert any("rm" in aufruf and "--force" in aufruf for aufruf in fake.aufrufe), (
+        "die offene Werkstatt wird sofort wieder abgebaut"
+    )
+
+
+def test_a_failing_lock_script_means_no_user_mode(monkeypatch: pytest.MonkeyPatch) -> None:
+    fake = UserModeRun(sperre=(1, ""))
+    sandkasten = _user_box(monkeypatch, fake)
+    with pytest.raises(werkstatt.SandboxUnavailable, match="Netzsperre"):
+        sandkasten.ensure()
+    assert not sandkasten.alive
+
+
+def test_the_script_saying_locked_is_not_enough(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Das Skript meldet "gesperrt" -- nachgelesen wird trotzdem."""
+    fake = UserModeRun(regeln="-P OUTPUT ACCEPT\n")
+    with pytest.raises(werkstatt.SandboxUnavailable, match="unvollstaendig"):
+        _user_box(monkeypatch, fake).ensure()
+
+
+def test_a_desktop_that_does_not_start_takes_the_workshop_with_it(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    fake = UserModeRun(desktop=(1, ""))
+    sandkasten = _user_box(monkeypatch, fake)
+    with pytest.raises(werkstatt.SandboxUnavailable, match="Desktop"):
+        sandkasten.ensure()
+    assert not sandkasten.alive
+
+
+def test_without_user_mode_there_is_no_desktop(box: tuple[werkstatt.Sandbox, FakeRun]) -> None:
+    sandkasten, fake = box
+    with pytest.raises(werkstatt.SandboxUnavailable, match="User mode"):
+        sandkasten.desktop("windows")
+    zeile = fake.zeile("--detach") if any("--detach" in a for a in fake.aufrufe) else []
+    assert "NET_ADMIN" not in zeile
+
+
+def test_a_screenshot_must_be_a_jpeg(monkeypatch: pytest.MonkeyPatch) -> None:
+    fake = UserModeRun()
+    sandkasten = _user_box(monkeypatch, fake)
+    sandkasten.ensure()
+
+    def antwort(args: list[str], **kwargs: Any) -> Any:
+        if "shot" in args:
+            return subprocess.CompletedProcess(args, 0, b"<html>kein Bild</html>", b"")
+        return fake(args, **kwargs)
+
+    monkeypatch.setattr(subprocess, "run", antwort)
+    with pytest.raises(werkstatt.SandboxUnavailable, match="Bildschirmfoto"):
+        sandkasten.screenshot()
+
+
+def test_typed_text_travels_through_stdin(monkeypatch: pytest.MonkeyPatch) -> None:
+    fake = UserModeRun()
+    sandkasten = _user_box(monkeypatch, fake)
+    sandkasten.ensure()
+    gesehen: list[dict[str, Any]] = []
+
+    def antwort(args: list[str], **kwargs: Any) -> Any:
+        if werkstatt.DESKTOP_HELPER not in args:
+            return fake(args, **kwargs)
+        gesehen.append({"args": list(args), "input": kwargs.get("input")})
+        return subprocess.CompletedProcess(args, 0, b"{}", b"")
+
+    monkeypatch.setattr(subprocess, "run", antwort)
+    sandkasten.desktop("type", stdin=b"; rm -rf / $(boese)")
+    assert gesehen[-1]["input"] == b"; rm -rf / $(boese)"
+    assert "; rm -rf / $(boese)" not in " ".join(gesehen[-1]["args"])
+    assert "--interactive" in gesehen[-1]["args"]
+
+
+def test_shared_picks_the_desktop_image_in_user_mode(monkeypatch: pytest.MonkeyPatch) -> None:
+    settings = SimpleNamespace(data_dir="/tmp/aquaticy-test-usermode", vm_user_mode=True,
+                               vm_desktop_image="", vm_image="python:3.12-slim")
+    werkstatt.forget_shared(settings)
+    try:
+        sandkasten = werkstatt.shared(settings)
+        assert sandkasten.user_mode is True
+        assert sandkasten.image == werkstatt.DESKTOP_IMAGE
+        assert "KI-gesteuert" in sandkasten.browser_agent
+    finally:
+        werkstatt.forget_shared(settings)
+
+
+def _zu_lang(fake: UserModeRun):
+    def capped(binary: str, *args: str, **kwargs: Any):
+        fake([binary, *args], **kwargs)
+        raise subprocess.TimeoutExpired([binary, *args], 1)
+
+    return capped
+
+
+def test_a_timeout_restart_puts_the_lock_back_first(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Ein Neustart baut das Netz neu auf -- die Sperre muss sofort wieder hin."""
+    fake = UserModeRun()
+    sandkasten = _user_box(monkeypatch, fake)
+    sandkasten.ensure()
+    monkeypatch.setattr(werkstatt, "_runs_capped", _zu_lang(fake))
+    fake.aufrufe.clear()
+    assert sandkasten.run("sleep 999", timeout=1).timed_out
+    reihenfolge = [
+        "restart" if "restart" in aufruf else
+        "sperre" if werkstatt.NETWORK_SCRIPT in aufruf else
+        "nachlesen" if "iptables" in aufruf else
+        "desktop" if werkstatt.DESKTOP_HELPER in aufruf else None
+        for aufruf in fake.aufrufe
+    ]
+    schritte = [schritt for schritt in reihenfolge if schritt]
+    assert schritte[:4] == ["restart", "sperre", "nachlesen", "desktop"], schritte
+    assert sandkasten.alive
+
+
+def test_a_restart_without_the_lock_takes_the_workshop_down(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    fake = UserModeRun()
+    sandkasten = _user_box(monkeypatch, fake)
+    sandkasten.ensure()
+    fake.regeln = "-P OUTPUT ACCEPT\n"  # nach dem Neustart fehlt die Sperre
+    monkeypatch.setattr(werkstatt, "_runs_capped", _zu_lang(fake))
+    sandkasten.run("sleep 999", timeout=1)
+    assert not sandkasten.alive, "eine offene Werkstatt ist schlimmer als keine"
+
+
+def test_a_look_from_outside_starts_no_workshop(monkeypatch: pytest.MonkeyPatch) -> None:
+    fake = UserModeRun()
+    sandkasten = _user_box(monkeypatch, fake)
+    with pytest.raises(werkstatt.SandboxUnavailable, match="laeuft gerade nicht"):
+        sandkasten.screenshot(start=False)
+    assert not any("--detach" in aufruf for aufruf in fake.aufrufe), "nichts gestartet"

@@ -231,6 +231,11 @@ SENSITIVE_TOOLS: dict[str, str] = {
     "find_profiles": "sucht öffentliche Profile und Einträge zu einem Namen",
     "inspect_public_visual": "öffnet ein Kamera-, Straßen- oder Satellitenbild",
     "mail_draft": "legt im Postfach des Nutzers einen Mail-Entwurf an",
+    # User mode: was Aquaticy in der Werkstatt eintippt, kann an andere gehen
+    # (Formulare, Beitraege) -- und eine Adresse im Browser kann eine Kamera
+    # oder ein Profil sein.
+    "desktop_type": "tippt im User mode Text in ein Programm der Werkstatt (mit Internet)",
+    "desktop_open": "öffnet im User mode ein Programm, im Browser eine Webadresse",
 }
 
 #: So viel Text liest der Pruefer. Laengeres wird vorn und hinten gelesen:
@@ -552,6 +557,10 @@ class Guard:
 
     def check_call(self, tool: str, arguments: dict[str, Any]) -> Verdict:
         if tool not in SENSITIVE_TOOLS:
+            return ALLOWED
+        if tool == "desktop_open" and not str(arguments.get("target") or "").strip():
+            # Ein leeres Programm zu oeffnen beruehrt niemanden -- erst die
+            # Adresse oder Datei darin kann das.
             return ALLOWED
         try:
             text = json.dumps(arguments, ensure_ascii=False, sort_keys=True, default=str)
