@@ -389,6 +389,53 @@ def normales_konto(browser: Any, port: int, log: Protokoll, fehler: list[str]) -
         werte.get("AQUATICY_LEGAL_GUARD") == "true",
         "und danach steht der Schalter weiter auf an",
     )
+    # 9.5.9: der User mode gehoert zu Pro -- gleiche Art wie die Leitplanken.
+    pg.click("#btn-settings")
+    pg.wait_for_selector("#overlay.open", state="visible")
+    pg.wait_for_timeout(700)
+    pg.click('#secnav button:has-text("Werkstatt")')
+    pg.wait_for_timeout(700)
+    log.pruefe(pg.is_enabled("#usermode") and not pg.is_checked("#usermode"),
+               "User mode: der Schalter ist aus und nicht ausgegraut")
+    pg.click("#usermode")
+    pg.wait_for_selector("#guardbox.open", state="visible")
+    log.pruefe("nicht für das normale Konto verfügbar" in pg.inner_text("#guard-title"),
+               "beim Draufdruecken kommt der Pro-Hinweis")
+    pg.click("#guard-ok")
+    pg.wait_for_selector("#guardbox", state="hidden")
+    log.pruefe(not pg.is_checked("#usermode"), "und der User mode bleibt aus")
+    antwort = pg.evaluate(
+        """async () => {
+          const r = await fetch("/api/config", {method: "POST",
+            headers: {"Content-Type": "application/json"},
+            body: JSON.stringify({AQUATICY_VM_USER_MODE: "true"})});
+          return await r.json();
+        }"""
+    )
+    log.pruefe(not antwort.get("ok") and "Pro" in str(antwort.get("error", "")),
+               "am Formular vorbei lehnt der Server den User mode ab")
+    pg.click("#btn-addons")
+    pg.wait_for_selector("#addon-list .addon", timeout=10_000)
+    pg.wait_for_timeout(400)
+    pg.locator('.addon[data-id="whatsapp"] button', has_text="Installieren").click()
+    pg.wait_for_selector("#guardbox.open", state="visible")
+    log.pruefe("nicht für das normale Konto verfügbar" in pg.inner_text("#guard-title"),
+               "WhatsApp installieren: Hinweis statt Installation")
+    pg.click("#guard-ok")
+    pg.wait_for_selector("#guardbox", state="hidden")
+    antwort = pg.evaluate(
+        """async () => {
+          const r = await fetch("/api/addons", {method: "POST",
+            headers: {"Content-Type": "application/json"},
+            body: JSON.stringify({action: "install", id: "signal"})});
+          return await r.json();
+        }"""
+    )
+    log.pruefe(not antwort.get("ok") and "Pro" in str(antwort.get("error", "")),
+               "am Fenster vorbei lehnt der Server Werkstatt-Add-ons ab")
+    pg.locator('.addon[data-id="feeds"] button', has_text="Installieren").click()
+    pg.wait_for_selector('.addon[data-id="feeds"] textarea', timeout=10_000)
+    log.pruefe(True, "Add-ons ohne Werkstatt (RSS-Feeds) gehen auch mit dem normalen Konto")
     kontext.close()
 
 
@@ -984,6 +1031,84 @@ def rundgang(pg: Any, log: Protokoll, agent: FakeAgent, bilder: Path | None,
         )
         pg.click("#btn-new")
         pg.wait_for_timeout(700)
+
+    if dran("addons"):
+        log.abschnitt("6c. Add-ons und Login-Apps")
+        pg.click("#btn-settings")
+        pg.wait_for_selector("#overlay.open", state="visible")
+        pg.wait_for_timeout(700)
+        pg.click('#secnav button:has-text("Werkstatt")')
+        pg.wait_for_timeout(700)
+        neben = pg.evaluate("""() => {
+          const s = document.querySelector('#usermode').getBoundingClientRect();
+          const k = document.querySelector('#btn-addons').getBoundingClientRect();
+          const l = document.querySelector('#btn-loginapps').getBoundingClientRect();
+          return {gleicheZeile: Math.abs(s.top - k.top) < 30, darunter: l.top > s.top};
+        }""")
+        log.pruefe(neben["gleicheZeile"], "der Add-ons-Knopf steht beim User-mode-Schalter")
+        log.pruefe(neben["darunter"], "die Login-Apps stehen darunter")
+        pg.click("#btn-addons")
+        pg.wait_for_selector("#addonbox.open", state="visible")
+        pg.wait_for_selector("#addon-list .addon", timeout=10_000)
+        pg.wait_for_timeout(500)
+        karten = pg.locator("#addon-list .addon")
+        namen = [karten.nth(i).locator(".addon-name").inner_text() for i in range(karten.count())]
+        log.pruefe(
+            {"GitHub", "WhatsApp Web", "Signal", "Blender"} <= set(namen),
+            f"die gewuenschten Add-ons sind da: {namen}",
+        )
+        log.pruefe(pg.locator(".addon-badge", has_text="Vorschlag").count() >= 2,
+                   "und Vorschlaege dazu")
+        log.pruefe(
+            all(karten.nth(i).locator("button", has_text="Installieren").count() == 1
+                for i in range(karten.count())),
+            "jedes Add-on hat einen Installieren-Knopf -- auch WhatsApp Web",
+        )
+        whatsapp = pg.locator('.addon[data-id="whatsapp"]')
+        log.pruefe("User mode" in whatsapp.inner_text(),
+                   "WhatsApp sagt, dass es den User mode braucht")
+        wetter = pg.locator('.addon[data-id="wetter"]')
+        wetter.locator("button", has_text="Installieren").click()
+        pg.wait_for_selector('.addon[data-id="wetter"] .schalter', timeout=10_000)
+        wetter = pg.locator('.addon[data-id="wetter"]')
+        log.pruefe(wetter.locator(".schalter").is_checked(), "installiert ist es gleich an")
+        log.pruefe(wetter.locator("button", has_text="Deinstallieren").count() == 1,
+                   "und laesst sich wieder deinstallieren")
+        log.pruefe("Keine Anmeldung" in wetter.inner_text(), "darunter: wie man sich anmeldet")
+        wetter.locator(".schalter").click()
+        pg.wait_for_timeout(900)
+        log.pruefe(not pg.locator('.addon[data-id="wetter"] .schalter').is_checked(),
+                   "ausschalten klappt")
+        stand = pg.evaluate("async () => (await (await fetch('/api/addons')).json()).active")
+        log.pruefe("wetter" not in stand, "und der Server sieht es auch aus")
+        pg.locator('.addon[data-id="github"] button', has_text="Installieren").click()
+        pg.wait_for_selector('.addon[data-id="github"] input[type=password]', timeout=10_000)
+        log.pruefe(True, "nach dem Installieren von GitHub steht das Token-Feld darunter")
+        pg.locator('.addon[data-id="wetter"] button', has_text="Deinstallieren").click()
+        pg.wait_for_selector("#guardbox.open", state="visible")
+        log.pruefe("deinstallieren" in pg.inner_text("#guard-title"),
+                   "vor dem Deinstallieren wird gefragt")
+        pg.click("#guard-ok")
+        pg.wait_for_selector("#guardbox", state="hidden")
+        pg.wait_for_timeout(900)
+        log.pruefe(
+            pg.locator('.addon[data-id="wetter"] button', has_text="Installieren").count() == 1,
+            "deinstalliert steht wieder Installieren da",
+        )
+        foto("addons")
+        pg.click("#addon-close")
+        pg.wait_for_selector("#addonbox", state="hidden")
+        pg.click("#btn-loginapps")
+        pg.wait_for_selector("#screenbox.open", state="visible")
+        pg.wait_for_timeout(900)
+        log.pruefe("läuft gerade nicht" in pg.inner_text("#screen-leer"),
+                   "Login-Apps: ohne Werkstatt ein ehrlicher Hinweis statt eines kaputten Bildes")
+        log.pruefe(pg.get_attribute("#screen-text", "type") == "password",
+                   "das Tippfeld zeigt Passwoerter nicht")
+        pg.click("#screen-close")
+        pg.wait_for_selector("#screenbox", state="hidden")
+        pg.click("#cancel")
+        pg.wait_for_timeout(500)
 
     if dran("einstellungen"):
         log.abschnitt("7. Einstellungen")

@@ -12,7 +12,7 @@ Zeichen darin als Befehl gelesen werden kann.
     aquaticy-desktop type                                       <- Text
     aquaticy-desktop key TASTE [TASTE ...]
     aquaticy-desktop scroll X Y up|down|left|right N
-    aquaticy-desktop open APP [ZIEL]
+    aquaticy-desktop open APP [ZIEL]      (auch whatsapp, telegram, signal, blender)
     aquaticy-desktop windows
     aquaticy-desktop focus FENSTER-ID
     aquaticy-desktop version
@@ -55,7 +55,20 @@ APPS: dict[str, list[str]] = {
     "dateien": ["pcmanfm"],
     "terminal": ["xterm"],
     "grafik": ["gimp"],
+    # Add-ons: sie liegen nicht im Abbild, sondern auf ihrem eigenen
+    # Datentraeger unter /addons/<name> -- und sind nur da, wenn der Nutzer sie
+    # installiert und eingeschaltet hat (sonst ist nichts eingehaengt).
+    "whatsapp": [],
+    "telegram": [],
+    "signal": [],
+    "blender": [],
 }
+
+#: Wo die Add-ons haengen.
+ADDONS = Path("/addons")
+
+#: Web-Apps laufen in Firefox, jede mit eigenem Profil (also eigener Anmeldung).
+WEBAPPS = {"whatsapp", "telegram"}
 
 #: Die Grundeinstellungen fuer LibreOffice (siehe profil_anlegen).
 LIBREOFFICE_PROFIL = """<?xml version="1.0" encoding="UTF-8"?>
@@ -421,6 +434,70 @@ def fenster_liste() -> list[dict[str, str]]:
     return fenster_zeilen(gefunden.stdout.decode("utf-8", "replace"), socket.gethostname())
 
 
+def addon_info(name: str) -> dict:
+    try:
+        info = json.loads((ADDONS / name / "aquaticy.json").read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return {}
+    return info if isinstance(info, dict) else {}
+
+
+def addon_befehl(app: str, ziel: str) -> list[str]:
+    """Der Startbefehl eines Add-ons -- nur aus dem, was installiert ist.
+
+    Raises:
+        ValueError: Wenn das Add-on nicht eingehaengt oder nicht installiert ist.
+    """
+    fehlt = ValueError(
+        f"Das Add-on '{app}' ist nicht installiert oder ausgeschaltet (Einstellungen -> "
+        "Werkstatt -> Add-ons)."
+    )
+    info = addon_info(app)
+    if app in WEBAPPS:
+        firefox = addon_info("_firefox")
+        programm = ADDONS / "_firefox" / str(firefox.get("start", ""))
+        adresse = str(info.get("adresse", ""))
+        if not firefox.get("start") or not programm.is_file() or not adresse.startswith("https://"):
+            raise fehlt
+        # Die Web-App oeffnet nur ihre eigene Adresse -- ein Ziel von aussen
+        # wuerde aus dem WhatsApp-Profil einen Browser fuer alles machen.
+        return [str(programm), "--no-remote", "--new-instance", "--profile",
+                str(ADDONS / app / "profil"), "--class", f"aquaticy-{app}", adresse]
+    start = str(info.get("start", ""))
+    programm = ADDONS / app / start
+    if not start or ".." in start or not programm.is_file():
+        raise fehlt
+    if app == "signal":
+        return [str(programm), "--no-sandbox", f"--user-data-dir={ADDONS / 'signal' / 'daten'}",
+                "--lang=de"]
+    if ziel and not ziel.startswith("/work/"):
+        raise ValueError("Blender oeffnet nur Dateien unter /work.")
+    return [str(programm), *([ziel] if ziel else [])]
+
+
+def addon_laeuft(app: str, proc: Path = Path("/proc")) -> bool:
+    """Laeuft ein Prozess aus dem Datentraeger dieses Add-ons?
+
+    Am Fensternamen erkennt man das nicht verlaesslich -- nicht jedes Programm
+    nennt sich so, wie es heisst. Am Pfad schon: alles, was vom Add-on kommt,
+    liegt unter /addons/<name>/ (Web-Apps: ihr Profil dort).
+    """
+    merkmal = f"/addons/{app}/".encode()
+    try:
+        eintraege = list(proc.iterdir())
+    except OSError:
+        return False
+    for eintrag in eintraege:
+        if not eintrag.name.isdigit():
+            continue
+        try:
+            if merkmal in (eintrag / "cmdline").read_bytes():
+                return True
+        except OSError:
+            continue
+    return False
+
+
 def cmd_open(args: list[str]) -> int:
     if not args or args[0] not in APPS:
         raise ValueError(f"App: {', '.join(APPS)}")
@@ -429,9 +506,19 @@ def cmd_open(args: list[str]) -> int:
     # Adresse oder Datei. Draussen wird das schon geprueft -- hier noch einmal.
     if ziel.startswith("-"):
         raise ValueError("Das Ziel darf nicht mit '-' beginnen.")
+    befehl = addon_befehl(app, ziel) if not APPS[app] else [*APPS[app], *([ziel] if ziel else [])]
     offen = fenster_liste()
     vorher = {fenster["id"] for fenster in offen}
-    befehl = [*APPS[app], *([ziel] if ziel else [])]
+    if not APPS[app] and addon_laeuft(app):
+        # Ein Add-on laeuft schon: nach vorn holen statt ein zweites Mal
+        # starten -- zweimal dasselbe Profil mag weder Firefox noch Signal.
+        kennzeichen = f"aquaticy-{app}" if app in WEBAPPS else app
+        passend = [f for f in offen if kennzeichen in f["klasse"].lower()
+                   or kennzeichen in f["titel"].lower()]
+        if passend:
+            rufe("wmctrl", "-ia", passend[0]["id"], zeit=5)
+            return fertig(neu=[], hinweis="Laeuft schon -- nach vorn geholt.")
+        return fertig(neu=[], hinweis="Laeuft schon -- siehe desktop_windows.")
     im_hintergrund(app, befehl)
     if app == "browser" and any("falkon" in f["klasse"].lower() for f in offen):
         # Der Browser laeuft schon: er oeffnet die Adresse als neuen Tab im

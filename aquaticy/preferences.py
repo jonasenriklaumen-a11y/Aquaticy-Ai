@@ -174,6 +174,11 @@ PROTECTED: dict[str, str] = {
     ),
     "AQUATICY_VM_DESKTOP_IMAGE": "welches Abbild der User mode benutzt",
     "AQUATICY_VM_IMAGE": "welches Abbild die Werkstatt benutzt",
+    "AQUATICY_GITHUB_TOKEN": "mit welchem Zugang ich GitHub lese",
+    "AQUATICY_ADDONS": (
+        "welche Add-ons installiert, eingeschaltet und angemeldet sind (GitHub, "
+        "WhatsApp, Signal, Telegram, Blender, Wetter, Feeds)"
+    ),
 }
 
 #: Wie das Modell die geschuetzten Schalter sonst noch nennt. Ohne das kaeme
@@ -190,6 +195,15 @@ PROTECTED_ALIASES: dict[str, str] = {
     "AQUATICY_USERMODE": "AQUATICY_VM_USER_MODE",
     "AQUATICY_WERKSTATT_INTERNET": "AQUATICY_VM_USER_MODE",
     "AQUATICY_DESKTOP": "AQUATICY_VM_USER_MODE",
+    "AQUATICY_GITHUB": "AQUATICY_GITHUB_TOKEN",
+    "AQUATICY_ADDON": "AQUATICY_ADDONS",
+    "AQUATICY_ADD_ONS": "AQUATICY_ADDONS",
+    "AQUATICY_ERWEITERUNGEN": "AQUATICY_ADDONS",
+    "AQUATICY_WHATSAPP": "AQUATICY_ADDONS",
+    "AQUATICY_SIGNAL": "AQUATICY_ADDONS",
+    "AQUATICY_TELEGRAM": "AQUATICY_ADDONS",
+    "AQUATICY_BLENDER": "AQUATICY_ADDONS",
+    "AQUATICY_LOGIN_APPS": "AQUATICY_ADDONS",
 }
 
 _YES = frozenset({"an", "ein", "ja", "true", "1", "aktiv", "on", "yes"})

@@ -1,0 +1,498 @@
+#!/usr/bin/env python3
+"""aquaticy-addons: installiert Programme fuer die Add-ons -- in der Werkstatt.
+
+Laeuft IN einer abgesperrten Werkstatt (Heimnetz gesperrt, kein root), nie auf
+dem Rechner des Nutzers. Jedes Add-on hat einen eigenen Datentraeger, der unter
+/addons/<name> haengt; nur dorthin wird geschrieben.
+
+    aquaticy-addons install firefox|signal|blender ZIEL [--quelle URL]
+    aquaticy-addons webapp ZIEL --firefox ORDNER --adresse URL [--zusatz TEXT]
+    aquaticy-addons reset ZIEL profil|daten
+    aquaticy-addons status ZIEL
+    aquaticy-addons version
+
+Was geladen wird, kommt nur von den offiziellen Servern der Hersteller, ueber
+HTTPS, und wird vor dem Auspacken gegen die Pruefsumme verglichen, die der
+Hersteller selbst veroeffentlicht. Passt sie nicht, bleibt nichts liegen.
+Die letzte Zeile jeder Ausgabe ist JSON -- Aquaticy liest nur die.
+
+--quelle ist fuer Tests: dann kommt alles von diesem einen Server
+(http://127.0.0.1:<port> oder https://...), und nur von ihm.
+"""
+
+from __future__ import annotations
+
+import hashlib
+import json
+import os
+import platform
+import re
+import shutil
+import subprocess
+import sys
+import tarfile
+import time
+import urllib.parse
+import urllib.request
+import zlib
+from pathlib import Path
+
+VERSION = "1"
+
+#: Nur diese Ordner duerfen Ziel sein: der Datentraeger eines Add-ons.
+ZIEL_RE = re.compile(r"^/addons/[a-z_]{2,20}$")
+
+#: Groesste Datei, die geladen wird -- Blender ist mit gut 350 MB die groesste.
+MAX_DOWNLOAD = 700 * 1024 * 1024
+
+#: So viel darf ausgepackt werden. Blender braucht ausgepackt gut 1 GB.
+MAX_ENTPACKT = 3 * 1024 * 1024 * 1024
+
+#: Hoechstens so lange je Anfrage ohne ein einziges Byte.
+TIMEOUT = 60
+
+#: Wer laedt -- ehrlich, wie ueberall bei Aquaticy.
+KENNUNG = "aquaticy-addons/" + VERSION + " (+https://github.com/jonasenriklaumen-a11y/thing-finder-)"
+
+#: Woher die Programme kommen. Nichts anderes wird angesprochen.
+QUELLEN = {
+    "firefox": {
+        "start": "https://download.mozilla.org/?product=firefox-esr-latest-ssl&os=linux64&lang=de",
+        "summen": "https://archive.mozilla.org/pub/firefox/releases/{version}/SHA256SUMS",
+        "hosts": ("download.mozilla.org", "archive.mozilla.org",
+                  "download-installer.cdn.mozilla.net", "ftp.mozilla.org"),
+    },
+    "signal": {
+        "pakete": "https://updates.signal.org/desktop/apt/dists/xenial/main/binary-amd64/Packages",
+        "basis": "https://updates.signal.org/desktop/apt/",
+        "hosts": ("updates.signal.org",),
+    },
+    "blender": {
+        "index": "https://download.blender.org/release/Blender4.5/",
+        "summen": "https://download.blender.org/release/Blender4.5/blender-{version}.sha256",
+        "datei": "blender-{version}-linux-x64.tar.xz",
+        "hosts": ("download.blender.org",),
+    },
+}
+
+
+class Fehler(Exception):
+    """Etwas, das der Nutzer lesen soll -- ohne Stacktrace."""
+
+
+# ---------------------------------------------------------------------------
+# Laden
+# ---------------------------------------------------------------------------
+def umlenken(url: str, quelle: str) -> str:
+    """Im Test kommt alles von der Testquelle: gleicher Pfad, anderer Server."""
+    if not quelle:
+        return url
+    teile = urllib.parse.urlsplit(url)
+    ziel = urllib.parse.urlsplit(quelle)
+    return urllib.parse.urlunsplit((ziel.scheme, ziel.netloc, teile.path, teile.query, ""))
+
+
+def quelle_ok(quelle: str) -> None:
+    if not quelle:
+        return
+    teile = urllib.parse.urlsplit(quelle)
+    lokal = teile.scheme == "http" and teile.hostname == "127.0.0.1"
+    if not (lokal or teile.scheme == "https") or not teile.hostname:
+        raise Fehler("--quelle nur als https://… oder http://127.0.0.1:<port>")
+
+
+def erlaubt(url: str, hosts: tuple[str, ...], quelle: str) -> None:
+    """Prueft jede Adresse -- auch die, auf die ein Server umlenkt."""
+    teile = urllib.parse.urlsplit(url)
+    if quelle:
+        if teile.netloc != urllib.parse.urlsplit(quelle).netloc:
+            raise Fehler(f"Umgelenkt auf einen fremden Server: {teile.netloc}")
+        return
+    if teile.scheme != "https" or teile.hostname not in hosts:
+        raise Fehler(f"Umgelenkt auf einen fremden Server: {teile.netloc}")
+
+
+class _Umleitung(urllib.request.HTTPRedirectHandler):
+    def __init__(self, hosts: tuple[str, ...], quelle: str) -> None:
+        self.hosts, self.quelle = hosts, quelle
+
+    def redirect_request(self, req, fp, code, msg, headers, newurl):  # noqa: ANN001
+        erlaubt(newurl, self.hosts, self.quelle)
+        return super().redirect_request(req, fp, code, msg, headers, newurl)
+
+
+def oeffne(url: str, hosts: tuple[str, ...], quelle: str):  # noqa: ANN201
+    erlaubt(url, hosts, quelle)
+    oeffner = urllib.request.build_opener(_Umleitung(hosts, quelle))
+    anfrage = urllib.request.Request(url, headers={"User-Agent": KENNUNG})
+    try:
+        return oeffner.open(anfrage, timeout=TIMEOUT)
+    except OSError as exc:
+        raise Fehler(f"{urllib.parse.urlsplit(url).netloc} nicht erreichbar: {exc}") from exc
+
+
+def text_laden(url: str, hosts: tuple[str, ...], quelle: str, grenze: int = 20_000_000) -> tuple[str, str]:
+    """Returns: (Text, Adresse nach allen Umleitungen)."""
+    with oeffne(url, hosts, quelle) as antwort:
+        daten = antwort.read(grenze + 1)
+        if len(daten) > grenze:
+            raise Fehler("Die Antwort ist groesser als erwartet.")
+        return daten.decode("utf-8", "replace"), antwort.geturl()
+
+
+def datei_laden(url: str, ziel: Path, hosts: tuple[str, ...], quelle: str) -> tuple[str, int, str]:
+    """Laedt in eine Datei und rechnet dabei die Pruefsumme.
+
+    Returns: (sha256, Bytes, Adresse nach allen Umleitungen).
+    """
+    summe = hashlib.sha256()
+    gelesen = 0
+    with oeffne(url, hosts, quelle) as antwort, open(ziel, "wb") as datei:
+        while True:
+            stueck = antwort.read(1024 * 1024)
+            if not stueck:
+                break
+            gelesen += len(stueck)
+            if gelesen > MAX_DOWNLOAD:
+                raise Fehler("Die Datei ist groesser als erlaubt -- abgebrochen.")
+            summe.update(stueck)
+            datei.write(stueck)
+        endadresse = antwort.geturl()
+    return summe.hexdigest(), gelesen, endadresse
+
+
+def summe_aus_liste(liste: str, dateiname: str) -> str:
+    """Findet die Pruefsumme zu *dateiname* in einer SHA256SUMS-Liste."""
+    for zeile in liste.splitlines():
+        teile = zeile.strip().split()
+        if len(teile) == 2 and re.fullmatch(r"[0-9a-f]{64}", teile[0]):
+            name = teile[1].lstrip("*")
+            if name == dateiname or name.endswith("/" + dateiname) or dateiname.endswith("/" + name):
+                return teile[0]
+    raise Fehler(f"Keine Pruefsumme fuer {dateiname} veroeffentlicht -- nicht installiert.")
+
+
+def versions_schluessel(version: str) -> tuple[int, ...]:
+    return tuple(int(teil) for teil in re.findall(r"\d+", version)[:6])
+
+
+# ---------------------------------------------------------------------------
+# Auspacken
+# ---------------------------------------------------------------------------
+def tar_auspacken(archiv: Path, ziel: Path) -> None:
+    """Packt aus -- nur in *ziel*, ohne Geraete, ohne Ausbrueche, mit Grenze."""
+    gesamt = 0
+    with tarfile.open(archiv) as tar:
+        mitglieder = []
+        for eintrag in tar:
+            gesamt += max(0, eintrag.size)
+            if gesamt > MAX_ENTPACKT:
+                raise Fehler("Ausgepackt waere es groesser als erlaubt -- abgebrochen.")
+            mitglieder.append(eintrag)
+        # "data": keine absoluten Pfade, kein "..", keine Links nach draussen,
+        # keine Geraetedateien, keine Rechte fuer andere.
+        tar.extractall(ziel, members=mitglieder, filter="data")
+
+
+def deb_auspacken(paket: Path, ziel: Path) -> None:
+    """Ein .deb ohne root auspacken: nur die Dateien, keine Skripte."""
+    fertig = subprocess.run(
+        ["dpkg-deb", "-x", str(paket), str(ziel)], capture_output=True, timeout=600,
+        check=False,
+    )
+    if fertig.returncode != 0:
+        raise Fehler("Das Paket liess sich nicht auspacken: " + fertig.stderr.decode()[:300])
+
+
+def ordner_groesse(ordner: Path) -> int:
+    gesamt = 0
+    for wurzel, _ordner, dateien in os.walk(ordner):
+        for name in dateien:
+            pfad = Path(wurzel) / name
+            if not pfad.is_symlink():
+                try:
+                    gesamt += pfad.stat().st_size
+                except OSError:
+                    pass
+    return gesamt
+
+
+# ---------------------------------------------------------------------------
+# Die drei Programme
+# ---------------------------------------------------------------------------
+FIREFOX_PFAD = re.compile(
+    r"/pub/firefox/releases/(?P<version>[0-9][0-9.]*esr)/"
+    r"(?P<datei>linux-x86_64/de/firefox-[0-9][0-9.]*esr\.tar\.(?:xz|bz2))$"
+)
+
+
+def hole_firefox(arbeit: Path, quelle: str) -> dict:
+    q = QUELLEN["firefox"]
+    archiv = arbeit / "firefox.tar"
+    summe, groesse, endadresse = datei_laden(umlenken(q["start"], quelle), archiv, q["hosts"], quelle)
+    treffer = FIREFOX_PFAD.search(urllib.parse.urlsplit(endadresse).path)
+    if not treffer:
+        raise Fehler("Mozilla hat auf eine unerwartete Datei umgelenkt -- nicht installiert.")
+    version = treffer["version"]
+    liste, _ = text_laden(umlenken(q["summen"].format(version=version), quelle), q["hosts"], quelle)
+    if summe_aus_liste(liste, treffer["datei"]) != summe:
+        raise Fehler("Die Pruefsumme von Firefox stimmt nicht -- nicht installiert.")
+    neu = arbeit / "neu"
+    tar_auspacken(archiv, neu)
+    if not (neu / "firefox" / "firefox").is_file():
+        raise Fehler("Im Firefox-Archiv fehlt das Programm.")
+    return {"version": version, "start": "app/firefox/firefox", "geladen": groesse}
+
+
+def paket_absaetze(text: str) -> list[dict[str, str]]:
+    absaetze, aktuell, feld = [], {}, ""
+    for zeile in text.splitlines():
+        if not zeile.strip():
+            if aktuell:
+                absaetze.append(aktuell)
+            aktuell, feld = {}, ""
+        elif zeile[0] in " \t" and feld:
+            aktuell[feld] += "\n" + zeile.strip()
+        elif ":" in zeile:
+            feld, _, wert = zeile.partition(":")
+            aktuell[feld.strip()] = wert.strip()
+    if aktuell:
+        absaetze.append(aktuell)
+    return absaetze
+
+
+def entpacke_gz(daten: bytes, grenze: int = 50_000_000) -> bytes:
+    """gunzip mit Obergrenze -- eine kleine Datei darf nicht zu Gigabytes werden."""
+    entpacker = zlib.decompressobj(16 + zlib.MAX_WBITS)
+    ergebnis = entpacker.decompress(daten, grenze + 1)
+    if len(ergebnis) > grenze or entpacker.unconsumed_tail:
+        raise Fehler("Die Paketliste ist groesser als erwartet.")
+    return ergebnis
+
+
+def hole_signal(arbeit: Path, quelle: str) -> dict:
+    q = QUELLEN["signal"]
+    try:
+        with oeffne(umlenken(q["pakete"] + ".gz", quelle), q["hosts"], quelle) as antwort:
+            text = entpacke_gz(antwort.read(20_000_000)).decode("utf-8", "replace")
+    except (Fehler, OSError, zlib.error):
+        text, _ = text_laden(umlenken(q["pakete"], quelle), q["hosts"], quelle)
+    kandidaten = [
+        absatz for absatz in paket_absaetze(text)
+        if absatz.get("Package") == "signal-desktop"
+        and re.fullmatch(r"[0-9a-f]{64}", absatz.get("SHA256", ""))
+        and re.fullmatch(r"pool/[A-Za-z0-9._/+-]+\.deb", absatz.get("Filename", ""))
+        and ".." not in absatz.get("Filename", "")
+    ]
+    if not kandidaten:
+        raise Fehler("Signal nennt kein Paket 'signal-desktop' -- nicht installiert.")
+    bestes = max(kandidaten, key=lambda absatz: versions_schluessel(absatz.get("Version", "")))
+    paket = arbeit / "signal.deb"
+    summe, groesse, _ = datei_laden(
+        umlenken(q["basis"] + bestes["Filename"], quelle), paket, q["hosts"], quelle
+    )
+    if summe != bestes["SHA256"]:
+        raise Fehler("Die Pruefsumme von Signal stimmt nicht -- nicht installiert.")
+    neu = arbeit / "neu"
+    neu.mkdir()
+    deb_auspacken(paket, neu)
+    if not (neu / "opt" / "Signal" / "signal-desktop").is_file():
+        raise Fehler("Im Signal-Paket fehlt das Programm.")
+    return {"version": bestes.get("Version", ""), "start": "app/opt/Signal/signal-desktop",
+            "geladen": groesse}
+
+
+def hole_blender(arbeit: Path, quelle: str) -> dict:
+    q = QUELLEN["blender"]
+    index, _ = text_laden(umlenken(q["index"], quelle), q["hosts"], quelle)
+    versionen = set(re.findall(r"blender-(4\.5\.\d+)-linux-x64\.tar\.xz", index))
+    if not versionen:
+        raise Fehler("Auf blender.org steht keine Linux-Version 4.5 -- nicht installiert.")
+    version = max(versionen, key=versions_schluessel)
+    datei = q["datei"].format(version=version)
+    liste, _ = text_laden(umlenken(q["summen"].format(version=version), quelle), q["hosts"], quelle)
+    erwartet = summe_aus_liste(liste, datei)
+    archiv = arbeit / "blender.tar.xz"
+    summe, groesse, _ = datei_laden(umlenken(q["index"] + datei, quelle), archiv, q["hosts"], quelle)
+    if summe != erwartet:
+        raise Fehler("Die Pruefsumme von Blender stimmt nicht -- nicht installiert.")
+    neu = arbeit / "neu"
+    tar_auspacken(archiv, neu)
+    ordner = f"blender-{version}-linux-x64"
+    if not (neu / ordner / "blender").is_file():
+        raise Fehler("Im Blender-Archiv fehlt das Programm.")
+    return {"version": version, "start": f"app/{ordner}/blender", "geladen": groesse}
+
+
+PROGRAMME = {"firefox": hole_firefox, "signal": hole_signal, "blender": hole_blender}
+
+
+def ziel_ok(text: str) -> Path:
+    if not ZIEL_RE.fullmatch(text):
+        raise Fehler("Ziel nur als /addons/<name>")
+    ziel = Path(text)
+    if not ziel.is_dir():
+        raise Fehler(f"{ziel} ist nicht eingehaengt.")
+    return ziel
+
+
+def ziel_frei(text: str) -> Path:
+    """Wie ziel_ok -- in Tests darf das Ziel woanders liegen."""
+    if os.environ.get("AQUATICY_ADDONS_TEST") == "1":
+        ziel = Path(text)
+        ziel.mkdir(parents=True, exist_ok=True)
+        return ziel
+    return ziel_ok(text)
+
+
+def schreibe_info(ziel: Path, info: dict) -> None:
+    tmp = ziel / "aquaticy.json.neu"
+    tmp.write_text(json.dumps(info, ensure_ascii=False), encoding="utf-8")
+    tmp.replace(ziel / "aquaticy.json")
+
+
+def lies_info(ziel: Path) -> dict:
+    try:
+        info = json.loads((ziel / "aquaticy.json").read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return {}
+    return info if isinstance(info, dict) else {}
+
+
+def cmd_install(args: list[str]) -> dict:
+    if len(args) < 2 or args[0] not in PROGRAMME:
+        raise ValueError(f"install {'|'.join(PROGRAMME)} ZIEL [--quelle URL]")
+    programm, ziel = args[0], ziel_frei(args[1])
+    quelle = args[args.index("--quelle") + 1] if "--quelle" in args else ""
+    quelle_ok(quelle)
+    if platform.machine() not in ("x86_64", "amd64") and not quelle:
+        raise Fehler(f"{programm} gibt es fuer diesen Rechner ({platform.machine()}) nicht "
+                     "als fertiges Paket -- nur fuer x86_64.")
+    arbeit = ziel / ".arbeit"
+    shutil.rmtree(arbeit, ignore_errors=True)
+    arbeit.mkdir()
+    try:
+        info = PROGRAMME[programm](arbeit, quelle)
+        # Erst jetzt wird das Alte ersetzt: ein Abbruch vorher laesst eine
+        # funktionierende Installation stehen.
+        shutil.rmtree(ziel / "app", ignore_errors=True)
+        (arbeit / "neu").replace(ziel / "app")
+    finally:
+        shutil.rmtree(arbeit, ignore_errors=True)
+    info.update(programm=programm, installiert_am=int(time.time()),
+                bytes=ordner_groesse(ziel / "app"))
+    schreibe_info(ziel, info)
+    return {"ok": True, **info}
+
+
+#: Grundeinstellungen fuer ein Web-App-Profil: kein Willkommen, keine
+#: Telemetrie, keine Updates (das Programm kommt von Aquaticy), Deutsch.
+FIREFOX_PREFS = {
+    "browser.aboutwelcome.enabled": False,
+    "browser.shell.checkDefaultBrowser": False,
+    "browser.startup.homepage_override.mstone": "ignore",
+    "browser.tabs.warnOnClose": False,
+    "datareporting.healthreport.uploadEnabled": False,
+    "datareporting.policy.dataSubmissionEnabled": False,
+    "toolkit.telemetry.enabled": False,
+    "toolkit.telemetry.reportingpolicy.firstRun": False,
+    "app.update.auto": False,
+    "app.update.enabled": False,
+    "browser.translations.automaticallyPopup": False,
+    "intl.locale.requested": "de",
+    "intl.accept_languages": "de-DE, de, en",
+    "signon.rememberSignons": False,
+    "extensions.formautofill.creditCards.enabled": False,
+    "extensions.formautofill.addresses.enabled": False,
+    "media.navigator.permission.disabled": False,
+    "permissions.default.camera": 2,
+    "permissions.default.microphone": 2,
+    "permissions.default.geo": 2,
+}
+
+
+def firefox_kennung(version: str, zusatz: str) -> str:
+    haupt = (re.match(r"\d+", version) or ["128"])[0]
+    kennung = f"Mozilla/5.0 (X11; Linux x86_64; rv:{haupt}.0) Gecko/20100101 Firefox/{haupt}.0"
+    zusatz = " ".join(zusatz.split())[:200]
+    return f"{kennung} {zusatz}".strip()
+
+
+def user_js(prefs: dict) -> str:
+    zeilen = []
+    for name, wert in prefs.items():
+        zeilen.append(f"user_pref({json.dumps(name)}, {json.dumps(wert)});")
+    return "\n".join(zeilen) + "\n"
+
+
+def cmd_webapp(args: list[str]) -> dict:
+    if not args:
+        raise ValueError("webapp ZIEL --firefox ORDNER --adresse URL [--zusatz TEXT]")
+    ziel = ziel_frei(args[0])
+
+    def wert(name: str) -> str:
+        return args[args.index(name) + 1] if name in args else ""
+
+    adresse, zusatz = wert("--adresse"), wert("--zusatz")
+    teile = urllib.parse.urlsplit(adresse)
+    if teile.scheme != "https" or not teile.hostname:
+        raise Fehler("Web-Apps nur ueber https://")
+    firefox = lies_info(Path(wert("--firefox"))) if wert("--firefox") else {}
+    profil = ziel / "profil"
+    profil.mkdir(parents=True, exist_ok=True)
+    prefs = dict(FIREFOX_PREFS)
+    prefs["general.useragent.override"] = firefox_kennung(firefox.get("version", ""), zusatz)
+    prefs["browser.startup.homepage"] = adresse
+    (profil / "user.js").write_text(user_js(prefs), encoding="utf-8")
+    info = lies_info(ziel)
+    info.update(programm="webapp", adresse=adresse,
+                installiert_am=info.get("installiert_am") or int(time.time()))
+    schreibe_info(ziel, info)
+    return {"ok": True, "adresse": adresse, "kennung": prefs["general.useragent.override"]}
+
+
+def cmd_reset(args: list[str]) -> dict:
+    """Meldet ab: loescht Profil bzw. Daten, das Programm bleibt."""
+    if len(args) != 2 or args[1] not in ("profil", "daten"):
+        raise ValueError("reset ZIEL profil|daten")
+    ziel = ziel_frei(args[0])
+    shutil.rmtree(ziel / args[1], ignore_errors=True)
+    return {"ok": True, "geloescht": args[1]}
+
+
+def cmd_status(args: list[str]) -> dict:
+    if not args:
+        raise ValueError("status ZIEL")
+    ziel = ziel_frei(args[0])
+    info = lies_info(ziel)
+    start = info.get("start", "")
+    da = bool(start) and (ziel / start).is_file()
+    return {**info, "ok": True, "installiert": da or info.get("programm") == "webapp",
+            "bytes": ordner_groesse(ziel)}
+
+
+BEFEHLE = {"install": cmd_install, "webapp": cmd_webapp, "reset": cmd_reset,
+           "status": cmd_status}
+
+
+def main(argv: list[str]) -> int:
+    if argv[:1] == ["version"]:
+        print(VERSION)
+        return 0
+    if not argv or argv[0] not in BEFEHLE:
+        print(json.dumps({"ok": False, "fehler": f"Befehle: {', '.join(BEFEHLE)}, version"}))
+        return 2
+    try:
+        ergebnis = BEFEHLE[argv[0]](argv[1:])
+    except (ValueError, IndexError) as exc:
+        print(json.dumps({"ok": False, "fehler": f"Falscher Aufruf: {exc}"}, ensure_ascii=False))
+        return 2
+    except (Fehler, OSError, tarfile.TarError, EOFError, subprocess.SubprocessError) as exc:
+        print(json.dumps({"ok": False, "fehler": str(exc)[:400]}, ensure_ascii=False))
+        return 1
+    print(json.dumps(ergebnis, ensure_ascii=False))
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main(sys.argv[1:]))

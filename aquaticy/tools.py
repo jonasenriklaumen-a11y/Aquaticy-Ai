@@ -1093,7 +1093,7 @@ DESKTOP_SCHEMAS: tuple[dict[str, Any], ...] = (
             "description": (
                 "Oeffnet ein Programm in der Werkstatt: browser (mit target = Webadresse), "
                 "writer, calc, impress (LibreOffice), editor, dateien, terminal, grafik "
-                "(GIMP). Bei den anderen darf target eine Datei unter /work sein."
+                "(GIMP). Bei den anderen darf target eine Datei unter /work sein.%(addons)s"
             ),
             "parameters": {
                 "type": "object",
@@ -1143,8 +1143,24 @@ def vm_schemas_for(settings: Any) -> tuple[dict[str, Any], ...]:
     user_mode = bool(getattr(settings, "vm_user_mode", False))
     # Im User mode kommen die Desktop-Werkzeuge dazu -- ohne ihn gibt es sie
     # fuer das Modell gar nicht.
-    schemas = copy.deepcopy(VM_SCHEMAS + (DESKTOP_SCHEMAS if user_mode else ()))
+    schemas = list(copy.deepcopy(VM_SCHEMAS + (DESKTOP_SCHEMAS if user_mode else ())))
+    from aquaticy import addons
+
+    aktiv = addons.active_ids(settings) if getattr(settings, "data_dir", None) else []
+    if user_mode and "blender" not in aktiv:
+        # Im User mode kommt Blender als Add-on. Ist es nicht eingeschaltet,
+        # gibt es das Werkzeug nicht -- statt eines "command not found".
+        schemas = [s for s in schemas if s["function"]["name"] != "blender_run"]
+    apps = addons.desktop_apps(settings) if user_mode and aktiv else []
+    zusatz = (
+        " Add-ons (ohne target, Anmeldung macht der Nutzer selbst): " + ", ".join(apps) + "."
+        if apps else ""
+    )
     for schema in schemas:
+        if schema["function"]["name"] == "desktop_open":
+            schema["function"]["description"] = schema["function"]["description"] % {
+                "addons": zusatz
+            }
         if schema["function"]["name"] == "vm_run":
             schema["function"]["description"] = VM_RUN_DESCRIPTION.format(
                 netz=VM_NET_USER if user_mode else VM_NET_OFF,
@@ -1153,6 +1169,93 @@ def vm_schemas_for(settings: Any) -> tuple[dict[str, Any], ...]:
                 kern_wort="Prozessorkern" if cpus == 1 else "Prozessorkerne",
                 disk_gb=disk_gb,
             )
+    return tuple(schemas)
+
+
+# ---------------------------------------------------------------------------
+# Add-ons (aquaticy/addons.py) -- nur, wenn installiert und eingeschaltet
+# ---------------------------------------------------------------------------
+GITHUB_SCHEMA: dict[str, Any] = {
+    "type": "function",
+    "function": {
+        "name": "github",
+        "description": (
+            "Liest bei GitHub mit dem Konto des Nutzers -- NUR lesen, nie schreiben. "
+            "action: ich (wer bin ich), repos (eigene Repos), repo, issues, issue, pulls, "
+            "pull (mit geaenderten Dateien), datei (Datei oder Ordner, path + optional ref), "
+            "commits, suche (Issues/PRs, query, optional repo). repo immer als "
+            "'besitzer/name'. Inhalte privater Repos nie in eine Websuche uebernehmen."
+        ),
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "action": {"type": "string"},
+                "repo": {"type": "string"},
+                "number": {"type": "integer"},
+                "path": {"type": "string"},
+                "ref": {"type": "string"},
+                "state": {"type": "string", "description": "open, closed oder all."},
+                "query": {"type": "string"},
+            },
+            "required": ["action"],
+        },
+    },
+}
+
+WEATHER_SCHEMA: dict[str, Any] = {
+    "type": "function",
+    "function": {
+        "name": "weather",
+        "description": (
+            "Aktuelles Wetter und Vorhersage (1-7 Tage) fuer einen Ort, von Open-Meteo. "
+            "Nimm das statt einer Websuche, wenn nach Wetter, Regen, Temperatur oder Wind "
+            "gefragt wird. place z.B. 'Bremen' oder 'Paris, Frankreich'."
+        ),
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "place": {"type": "string"},
+                "days": {"type": "integer", "description": "1 bis 7, Standard 3."},
+            },
+            "required": ["place"],
+        },
+    },
+}
+
+FEEDS_SCHEMA: dict[str, Any] = {
+    "type": "function",
+    "function": {
+        "name": "read_feeds",
+        "description": (
+            "Liest die RSS-/Atom-Feeds, die der Nutzer im Add-on eingetragen hat -- "
+            "neueste zuerst. Mit query nur Eintraege, in denen eines der Woerter vorkommt. "
+            "Fuer 'was gibt es Neues in meinen Feeds/Quellen'."
+        ),
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "query": {"type": "string"},
+                "limit": {"type": "integer", "description": "Hoechstens 40, Standard 15."},
+            },
+        },
+    },
+}
+
+
+def addon_schemas_for(settings: Any, pro: bool = True) -> list[dict[str, Any]]:
+    """Die Werkzeuge der eingeschalteten Add-ons, die ohne Werkstatt auskommen."""
+    from aquaticy import addons
+
+    if not getattr(settings, "data_dir", None):
+        return []
+    aktiv = addons.active_ids(settings, pro)
+    schemas: list[dict[str, Any]] = []
+    if "github" in aktiv and addons.github_token(settings):
+        schemas.append(GITHUB_SCHEMA)
+    if "wetter" in aktiv:
+        schemas.append(WEATHER_SCHEMA)
+    if "feeds" in aktiv and addons.feeds_of(settings):
+        schemas.append(FEEDS_SCHEMA)
     return schemas
 
 
@@ -1219,6 +1322,7 @@ class ToolStats:
     settings_changed: int = 0
     #: Aufrufe in der Werkstatt -- ausfuehren, schreiben, lesen.
     vm_calls: int = 0
+    addon_calls: int = 0
 
     @property
     def tool_calls(self) -> int:
@@ -2136,6 +2240,39 @@ class Toolbox:
                 )
         return answer
 
+    def _addon_call(self, name: str, arguments: dict[str, Any]) -> dict[str, Any]:
+        """Die Werkzeuge der Add-ons. Ausgeschaltet heisst: gibt es nicht."""
+        from aquaticy import addons
+
+        erforderlich = {"github": "github", "weather": "wetter", "read_feeds": "feeds"}[name]
+        if not addons.active(self.settings, erforderlich):
+            return {"error": (
+                f"Das Add-on '{addons.CATALOG[erforderlich].name}' ist nicht installiert oder "
+                "ausgeschaltet. Das entscheidet der Nutzer: Einstellungen -> Werkstatt -> Add-ons."
+            )}
+        self.stats.addon_calls += 1
+        if name == "github":
+            return addons.github_call(
+                addons.github_token(self.settings),
+                str(arguments.get("action") or ""),
+                repo=str(arguments.get("repo") or ""),
+                number=arguments.get("number"),
+                path=str(arguments.get("path") or ""),
+                ref=str(arguments.get("ref") or ""),
+                state=str(arguments.get("state") or "open"),
+                query=str(arguments.get("query") or ""),
+            )
+        if name == "weather":
+            return addons.weather(
+                str(arguments.get("place") or self.settings.location or ""),
+                arguments.get("days") or 3,
+            )
+        return addons.read_feeds(
+            addons.feeds_of(self.settings),
+            str(arguments.get("query") or ""),
+            arguments.get("limit") or 15,
+        )
+
     def blender_run(self, script: str, filename: str = "", timeout: int = 0) -> dict[str, Any]:
         """Schreibt ein bpy-Skript in die Werkstatt und laesst Blender es headless laufen.
 
@@ -2156,8 +2293,17 @@ class Toolbox:
             if "error" in geschrieben:
                 return geschrieben
             pfad = geschrieben["written"]
+            from aquaticy.addons import werkstatt_command_for_blender
+
+            # Im User mode kommt Blender vom Add-on (/addons/blender), sonst aus
+            # dem Abbild -- der Befehl nimmt, was da ist.
+            programm = (
+                werkstatt_command_for_blender()
+                if getattr(self.settings, "vm_user_mode", False)
+                else "blender"
+            )
             result = box.run(
-                f"blender --background --python {shlex.quote(pfad)}",
+                f"{programm} --background --python {shlex.quote(pfad)}",
                 timeout=int(timeout or BLENDER_TIMEOUT),
             )
         except SandboxUnavailable as exc:
@@ -2296,6 +2442,8 @@ class Toolbox:
             return self.vm_read(path=str(arguments.get("path", "")))
         if name == "vm_files":
             return self.vm_files(path=str(arguments.get("path", "") or ""))
+        if name in ("github", "weather", "read_feeds"):
+            return self._addon_call(name, arguments)
         if name == "blender_run":
             return self.blender_run(
                 script=str(arguments.get("script", "")),

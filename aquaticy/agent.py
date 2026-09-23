@@ -7,6 +7,7 @@ Settings). Danach gibt er den Zwischenstand aus.
 
 from __future__ import annotations
 
+import contextlib
 import json
 import re
 import threading
@@ -53,6 +54,7 @@ from aquaticy.tools import (
     TOOL_SCHEMAS,
     EventHook,
     Toolbox,
+    addon_schemas_for,
     vm_schemas_for,
 )
 
@@ -1210,6 +1212,10 @@ class Agent:
         # eine Maschine, in der man Programme startet, nur eine Ablenkung.
         if self.workshop_on:
             extra.extend(vm_schemas_for(self.settings))
+        # Add-ons: nur, was der Nutzer installiert UND eingeschaltet hat --
+        # und nur mit Web, denn alle drei fragen einen Dienst im Internet.
+        if self.online:
+            extra.extend(addon_schemas_for(self.settings))
         # Subagenten bekommen diese Liste nie -- sie arbeiten mit TOOL_SCHEMAS
         # allein. Einstellungen aendert also nur der Hauptagent, und das ist
         # genau richtig so.
@@ -1821,6 +1827,11 @@ class Agent:
             }
             if user_mode:
                 text += USER_MODE_PROMPT
+        if self.online:
+            with contextlib.suppress(Exception):  # ohne Add-ons geht es auch
+                from aquaticy.addons import prompt_for
+
+                text += prompt_for(self.settings)
         if not self.online:
             text += OFFLINE_PROMPT
         elif self.visual_sources and clean_mode(self.mode) != "code":

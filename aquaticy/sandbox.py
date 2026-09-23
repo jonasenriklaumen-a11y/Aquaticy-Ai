@@ -378,6 +378,74 @@ def safe_path(path: str) -> str:
     return full
 
 
+#: So heissen die Datentraeger der Add-ons: je Konto und Add-on einer.
+ADDON_VOLUME_RE = re.compile(r"^aquaticy-addon-[0-9a-f]{12}-[a-z_]{2,20}$")
+#: Und dort haengen sie in der Werkstatt.
+ADDON_PATH_RE = re.compile(r"^/addons/[a-z_]{2,20}$")
+#: Beschriftung, an der man sie erkennt -- sweep() laesst sie in Ruhe.
+ADDON_LABEL = "aquaticy-addon=1"
+
+
+def ensure_addon_volume(runtime: Runtime, volume: str, image: str) -> None:
+    """Legt den Datentraeger eines Add-ons an (falls noetig) und gibt ihn 1000.
+
+    Raises:
+        SandboxUnavailable: Wenn das nicht geht.
+    """
+    if not ADDON_VOLUME_RE.fullmatch(volume):
+        raise SandboxUnavailable(f"Ungueltiger Name fuer einen Add-on-Datentraeger: {volume}")
+    da = _runs(runtime.binary, "volume", "inspect", volume, timeout=20)
+    if da.returncode != 0:
+        made = _runs(
+            runtime.binary, "volume", "create", "--label", ADDON_LABEL, volume, timeout=20
+        )
+        if made.returncode != 0:
+            raise SandboxUnavailable(
+                "Datentraeger fuers Add-on liess sich nicht anlegen: " + made.stderr.strip()[:300]
+            )
+    prepared = _runs(
+        runtime.binary,
+        "run", "--rm",
+        "--network", "none",
+        "--cap-drop", "ALL",
+        "--cap-add", "CHOWN",
+        "--security-opt", "no-new-privileges",
+        "--user", "0:0",
+        "-v", f"{volume}:/addon",
+        image,
+        "chown", RUN_AS, "/addon",
+        timeout=120,
+    )
+    if prepared.returncode != 0:
+        raise SandboxUnavailable(
+            "Datentraeger fuers Add-on liess sich nicht vorbereiten: "
+            + prepared.stderr.strip()[:300]
+        )
+
+
+def remove_addon_volume(runtime: Runtime, volume: str) -> bool:
+    """Loescht den Datentraeger eines Add-ons samt Programm und Anmeldung."""
+    if not ADDON_VOLUME_RE.fullmatch(volume):
+        return False
+    weg = _runs(runtime.binary, "volume", "rm", "--force", volume, timeout=60)
+    if weg.returncode == 0:
+        return True
+    return "no such volume" in weg.stderr.lower()
+
+
+def addon_volumes(runtime: Runtime, prefix: str) -> list[str]:
+    """Welche Add-on-Datentraeger es fuer ein Konto gibt."""
+    gefunden = _runs(
+        runtime.binary, "volume", "ls", "--quiet", "--filter", f"label={ADDON_LABEL}",
+        timeout=30,
+    )
+    return [
+        zeile.strip()
+        for zeile in gefunden.stdout.splitlines()
+        if zeile.strip().startswith(prefix) and ADDON_VOLUME_RE.fullmatch(zeile.strip())
+    ]
+
+
 class Sandbox:
     """Eine Werkstatt: startet auf Bedarf, raeumt sich selbst weg."""
 
@@ -392,11 +460,23 @@ class Sandbox:
         on_event: Any = None,
         user_mode: bool = False,
         browser_agent: str = "",
+        addon_mounts: dict[str, str] | None = None,
+        headless: bool = False,
     ) -> None:
         #: Desktop mit Internet statt Maschine ohne Netz (siehe Kopf der Datei).
         self.user_mode = bool(user_mode)
         #: Womit sich der Browser im User mode bei Webseiten meldet.
         self.browser_agent = browser_agent
+        #: Datentraeger der eingeschalteten Add-ons -> wo sie haengen
+        #: (/addons/<name>). Sie gehoeren nicht der Werkstatt und bleiben,
+        #: wenn sie abgebaut wird -- dort liegen Programme und Anmeldungen.
+        self.addon_mounts = {
+            volume: ziel
+            for volume, ziel in (addon_mounts or {}).items()
+            if ADDON_VOLUME_RE.fullmatch(volume) and ADDON_PATH_RE.fullmatch(ziel)
+        }
+        #: Ohne Bildschirm: fuer den Installer, der nur laedt und auspackt.
+        self.headless = bool(headless)
         # Ohne ausdrueckliches Abbild entscheidet die Betriebsart: der User mode
         # braucht den Desktop, alles andere kommt mit dem kleinen Abbild aus.
         self.image = image or (DESKTOP_IMAGE if self.user_mode else DEFAULT_IMAGE)
@@ -474,7 +554,8 @@ class Sandbox:
                 self._start_container()
                 if self.user_mode:
                     self._lock_network()
-                    self._start_desktop()
+                    if not self.headless:
+                        self._start_desktop()
             except Exception:
                 # Halbe Werkstatt ist schlimmer als keine: alles wieder weg.
                 self._destroy_locked("Start fehlgeschlagen")
@@ -569,6 +650,11 @@ class Sandbox:
             "--ulimit", f"fsize={self.disk_gb * 1024 * 1024 * 1024}",
             # -- Platz zum Arbeiten --
             "-v", f"{self._volume}:{WORKDIR}",
+            *(
+                flag
+                for volume, ziel in sorted(self.addon_mounts.items())
+                for flag in ("-v", f"{volume}:{ziel}")
+            ),
             "--tmpfs", "/tmp:rw,noexec,nosuid,size=64m",
             # Nicht jede Laufzeit kennt diese Quote (sie braucht xfs mit
             # Projektquoten). Wo sie fehlt, faellt der Start damit aus -- dann
@@ -738,6 +824,23 @@ class Sandbox:
         self.touch()
         return done
 
+    def addon_helper(
+        self, *args: str, timeout: int = 1800
+    ) -> subprocess.CompletedProcess[str]:
+        """Ruft den Add-on-Installer in der Werkstatt auf -- feste Argumente, keine Shell.
+
+        Laenger als ein gewoehnlicher Befehl darf er: Blender ist gut 350 MB gross.
+        """
+        name = self.ensure()
+        runtime = self.runtime
+        assert runtime is not None
+        return _runs(
+            runtime.binary,
+            "exec", "--user", RUN_AS, "--workdir", WORKDIR, name,
+            "aquaticy-addons", *args,
+            timeout=max(10, int(timeout)),
+        )
+
     def screenshot(
         self, *, grid: bool = False, mark: tuple[int, int] | None = None, start: bool = True
     ) -> bytes:
@@ -858,7 +961,8 @@ class Sandbox:
                 return
             try:
                 self._lock_network()
-                self._start_desktop()
+                if not self.headless:
+                    self._start_desktop()
             except Exception:
                 self._destroy_locked("Netzsperre nach dem Neustart nicht wiederhergestellt")
 
@@ -1076,6 +1180,7 @@ class Sandbox:
         return {
             "running": True,
             "user_mode": self.user_mode,
+            "addons": sorted(ziel.rsplit("/", 1)[-1] for ziel in self.addon_mounts.values()),
             "runtime": self.runtime.label if self.runtime else "",
             "image": self.image,
             "cpus": self.cpus,
@@ -1152,6 +1257,7 @@ def shared(settings: Any = None, on_event: Any = _KEEP) -> Sandbox:
                 ),
                 user_mode=user_mode,
                 browser_agent=browser_agent(settings) if user_mode else "",
+                addon_mounts=_addon_mounts(settings) if user_mode else None,
                 idle_minutes=int(
                     getattr(settings, "vm_idle_minutes", IDLE_MINUTES) or IDLE_MINUTES
                 ),
@@ -1163,6 +1269,18 @@ def shared(settings: Any = None, on_event: Any = _KEEP) -> Sandbox:
         if on_event is not _KEEP:
             box.on_event = on_event
         return box
+
+
+def _addon_mounts(settings: Any) -> dict[str, str]:
+    """Die Datentraeger der eingeschalteten Add-ons dieses Kontos."""
+    if settings is None:
+        return {}
+    try:
+        from aquaticy import addons
+
+        return addons.mounts(settings)
+    except Exception:
+        return {}
 
 
 def browser_agent(settings: Any = None) -> str:

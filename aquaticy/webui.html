@@ -1017,6 +1017,59 @@ input:focus,select:focus{border-color:var(--accent)}
 .step .shot{display:block;margin-top:6px;max-width:260px;width:100%;border-radius:8px;
   border:1px solid var(--line-2)}
 .account-grid{display:grid;grid-template-columns:1fr auto;gap:8px 18px;align-items:center}
+/* ============================== Add-ons ================================= */
+/* Der zweite Knopf neben dem User mode, darunter die Login-Apps. */
+.usermode-row{align-items:flex-start}
+.usermode-row label{flex:1;min-width:0}
+.addon-btn{flex:none;padding:7px 12px;font-size:13px;white-space:nowrap}
+.pro-tag{font:600 10px/1 var(--mono);letter-spacing:.06em;color:var(--accent-text);
+  background:var(--accent-soft);border-radius:5px;padding:3px 5px;vertical-align:1px}
+.login-apps{display:flex;gap:12px;align-items:center;margin:-4px 0 12px 51px;
+  font-size:12.5px;color:var(--text-2)}
+.login-apps .btn{flex:none;padding:7px 12px;font-size:13px}
+#addonbox{z-index:90}#screenbox{z-index:95}
+.addon-sheet{max-width:44rem}
+.addon-list{display:flex;flex-direction:column;gap:10px;margin-top:12px}
+.addon-group{font-size:11px;letter-spacing:.08em;text-transform:uppercase;color:var(--text-3);
+  margin:10px 0 0}
+.addon{background:var(--surface);border:1px solid var(--line-2);border-radius:13px;
+  padding:12px 14px;animation:rise var(--t-mid) var(--ease-out) both}
+.addon.an{border-color:var(--accent)}
+.addon-head{display:flex;gap:12px;align-items:flex-start}
+.addon-icon{font-size:22px;line-height:1.1;flex:none;width:28px;text-align:center}
+.addon-body{flex:1;min-width:0}
+.addon-name{font-weight:600;font-size:15px}
+.addon-badge{font:600 10px/1 var(--mono);letter-spacing:.06em;text-transform:uppercase;
+  color:var(--text-3);border:1px solid var(--line-2);border-radius:5px;padding:3px 5px;
+  margin-left:6px;vertical-align:2px}
+.addon-summary{font-size:13.5px;color:var(--text-2);margin-top:3px;line-height:1.45}
+.addon-head .schalter{width:40px;height:24px;margin-top:2px}
+.addon-head .schalter::after{width:20px;height:20px}
+.addon-head .schalter:checked::after{transform:translateX(16px)}
+.addon-row{display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-top:10px}
+.addon-row .btn{padding:7px 13px;font-size:13px}
+.addon-row .note{margin:0}
+.addon-login{margin-top:10px;padding-top:10px;border-top:1px dashed var(--line-2)}
+.addon-login .how{font-size:12.5px;color:var(--text-2);line-height:1.5}
+.addon-login input[type=password]{max-width:24rem}
+.addon-login textarea{border:1px solid var(--line-2);border-radius:10px;background:var(--bg);
+  padding:8px 10px;font:12.5px var(--mono);min-height:5.5em;resize:vertical;margin-top:6px}
+.addon-hint{font-size:12px;color:var(--text-3);margin-top:8px;line-height:1.45}
+.addon-status.bad{color:var(--err)}.addon-status.ok{color:var(--accent-text)}
+.screen-live{position:relative;margin:6px 0 10px}
+.screen-live img{display:block;width:100%;height:auto;border-radius:10px;cursor:crosshair;
+  border:1px solid var(--line-2);background:var(--surface-2);min-height:120px}
+.screen-leer{padding:28px 14px;text-align:center;color:var(--text-3);font-size:14px;
+  border:1px dashed var(--line-2);border-radius:10px}
+.screen-open,.screen-type{display:flex;gap:8px;margin-top:8px}
+.screen-open input,.screen-type input{flex:1;min-width:0}
+.screen-keys{display:flex;gap:6px;flex-wrap:wrap;margin-top:8px}
+.screen-keys .btn,.screen-type .btn,.screen-open .btn{padding:7px 11px;font-size:13px;flex:none}
+@media (max-width:560px){
+  .usermode-row{flex-wrap:wrap}
+  .addon-btn{margin-left:51px}
+  .login-apps{flex-direction:column;align-items:flex-start;margin-left:0}
+}
 </style>
 </head>
 <body class="start">
@@ -1320,6 +1373,59 @@ input:focus,select:focus{border-color:var(--accent)}
   </div>
 </div>
 
+<div class="overlay" id="addonbox">
+  <div class="sheet addon-sheet" role="dialog" aria-modal="true" aria-labelledby="addon-title">
+    <h2 id="addon-title">Add-ons</h2>
+    <p class="lead">Konten und Programme, die du Aquaticy dazugeben kannst. Jedes lässt sich
+      installieren, ein- und ausschalten und wieder deinstallieren. Anmelden tust du dich
+      selbst — Aquaticy nie. Aus dem Chat heraus lässt sich hier nichts ändern.</p>
+    <div class="note" id="addon-note" role="status" aria-live="polite"></div>
+    <div class="addon-list" id="addon-list"></div>
+    <div class="actions">
+      <button type="button" class="btn primary" id="addon-close">Fertig</button>
+    </div>
+  </div>
+</div>
+
+<div class="overlay" id="screenbox">
+  <div class="sheet addon-sheet" role="dialog" aria-modal="true" aria-labelledby="screen-title">
+    <h2 id="screen-title">Selbst anmelden</h2>
+    <p class="lead" id="screen-lead">Der Bildschirm der Werkstatt. Klick hinein, um etwas
+      anzuklicken (doppelt: Doppelklick), und schreib unten, was in das angeklickte Feld
+      soll. Das geht nur an die Werkstatt — nicht ins Protokoll und nicht an das Modell.</p>
+    <div class="screen-live">
+      <img id="screen-img" alt="Bildschirm der Werkstatt — klicken, um dort zu klicken">
+      <div class="screen-leer" id="screen-leer" hidden></div>
+    </div>
+    <div class="screen-open" id="screen-open">
+      <input type="text" id="screen-url" placeholder="https://… — im Werkstatt-Browser öffnen"
+             autocomplete="off" aria-label="Adresse im Werkstatt-Browser öffnen">
+      <button type="button" class="btn" id="screen-go">Öffnen</button>
+    </div>
+    <div class="screen-type">
+      <input type="password" id="screen-text" autocomplete="off" spellcheck="false"
+             placeholder="Text für das angeklickte Feld" aria-label="Text zum Tippen">
+      <button type="button" class="btn" id="screen-show" title="Text zeigen oder verbergen"
+              aria-pressed="false">👁</button>
+      <button type="button" class="btn primary" id="screen-send">Tippen</button>
+    </div>
+    <div class="screen-keys" role="group" aria-label="Tasten">
+      <button type="button" class="btn" data-key="Return">Enter ⏎</button>
+      <button type="button" class="btn" data-key="Tab">Tab ⇥</button>
+      <button type="button" class="btn" data-key="BackSpace">⌫</button>
+      <button type="button" class="btn" data-key="Escape">Esc</button>
+      <button type="button" class="btn" data-key="Up">↑</button>
+      <button type="button" class="btn" data-key="Down">↓</button>
+      <button type="button" class="btn" data-key="ctrl+a">Strg+A</button>
+    </div>
+    <div class="actions">
+      <span class="note" id="screen-note" role="status" aria-live="polite"></span>
+      <button type="button" class="btn" id="screen-done" hidden>Ich bin angemeldet</button>
+      <button type="button" class="btn primary" id="screen-close">Schließen</button>
+    </div>
+  </div>
+</div>
+
 <div class="overlay" id="membox">
   <div class="sheet merk-sheet" role="dialog" aria-modal="true" aria-labelledby="merk-title">
     <h2 id="merk-title">Was Aquaticy über dich weiß</h2>
@@ -1427,16 +1533,25 @@ input:focus,select:focus{border-color:var(--accent)}
         <div class="note">Normal reicht für die meisten Programmieraufgaben. Plus lohnt sich für
           alles, was mehr Rechenleistung braucht — zum Beispiel, wenn Aquaticy im Code-Modus mit
           Blender ein 3D-Design erstellen oder rendern soll.</div>
-        <div class="check">
+        <div class="check usermode-row">
           <input type="checkbox" role="switch" class="schalter" id="usermode"
                  name="AQUATICY_VM_USER_MODE">
           <label for="usermode" style="margin:0">User mode — Aquaticy bedient die Werkstatt
-            wie ein Mensch
+            wie ein Mensch <span class="pro-tag">Pro</span>
             <span class="why">Die Werkstatt wird ein kleiner Desktop mit Internet: Aquaticy
               sieht den Bildschirm, klickt, tippt und nutzt Programme wie Browser, Office und
               Bildbearbeitung. Das Heimnetz bleibt gesperrt. Absenden, Kaufen und Löschen nur
               nach deiner Zustimmung; Anmelden, Passwörter, Zahlungsdaten, Captchas und
               „Alle akzeptieren“ nie.</span></label>
+          <button type="button" class="btn addon-btn" id="btn-addons"
+                  title="Add-ons: GitHub, WhatsApp Web, Signal, Blender …">🧩 Add-ons</button>
+        </div>
+        <div class="login-apps" id="login-apps">
+          <div><b>Login-Apps</b> — hier meldest du dich selbst an: Du siehst den Bildschirm
+            der Werkstatt, klickst hinein und schreibst Namen, Passwörter und Codes direkt in
+            die App. Aquaticy tippt nie ein Passwort; was du hier schreibst, geht nur an die
+            Werkstatt — nicht ins Protokoll, nicht ans Modell.</div>
+          <button type="button" class="btn" id="btn-loginapps">⌨ Selbst anmelden</button>
         </div>
         <div class="note" id="usermode-note">Braucht ein Vision-Modell (Abschnitt Modell) und
           einmalig das Desktop-Abbild:
@@ -1800,7 +1915,7 @@ input:focus,select:focus{border-color:var(--accent)}
 const $ = (s) => document.querySelector(s);
 const thread = $("#thread"), main = $("#main"), input = $("#input"), send = $("#send");
 let busy = false;
-const aquaticyVersion = window.__AQUATICY_VERSION__ || "9.5.8";
+const aquaticyVersion = window.__AQUATICY_VERSION__ || "9.5.9";
 $("#version").textContent = "v" + aquaticyVersion;
 document.title = `Aquaticy AI ${aquaticyVersion}`;
 
@@ -3617,6 +3732,8 @@ document.addEventListener("keydown", (e) => {
   if (e.key !== "Escape") return;
   if (asking) return;              // die Rueckfrage liegt obenauf
   if (guardBox.classList.contains("open")) { guardSchliessen(false); return; }
+  if (screenBox.classList.contains("open")) { bildschirmSchliessen(); return; }
+  if (addonBox.classList.contains("open")) { addonsSchliessen(); return; }
   if (pickerOpen()) { closePicker(); return; }
   if (vmBox.classList.contains("open")) { closeOverlay(vmBox); return; }
   if (memBox.classList.contains("open")) { closeOverlay(memBox); return; }
@@ -3808,6 +3925,365 @@ $("#legalguard").addEventListener("click", async (e) => {
     cancel: "Abbrechen",
   });
   if (weiter) schalter.checked = false;
+});
+
+// User mode: nur mit Pro. Der Schalter sieht bei jedem Konto gleich aus;
+// beim normalen Konto sagt ein Klick freundlich, warum er nicht geht.
+$("#usermode").addEventListener("click", async (e) => {
+  if (kontoPro || !e.currentTarget.checked) return;
+  e.preventDefault();
+  await guardDialog({
+    title: "Diese Funktion ist leider nicht für das normale Konto verfügbar.",
+    text: "Der User mode — die Werkstatt als Desktop mit Internet — gehört zu Pro. "
+      + "Die Add-ons ohne Werkstatt (GitHub, Wetter, RSS-Feeds) kannst du trotzdem nutzen.",
+    ok: "Verstanden",
+  });
+});
+
+/* ---------- Add-ons ---------- */
+const addonBox = $("#addonbox"), screenBox = $("#screenbox");
+let addonDaten = null, addonTakt = null;
+
+async function addonsLaden(){
+  try { addonDaten = await (await api("/api/addons")).json(); }
+  catch { $("#addon-note").textContent = "Die Add-ons ließen sich nicht laden."; return; }
+  zeigeAddons();
+}
+
+async function addonTun(body, knopf){
+  if (knopf) knopf.disabled = true;
+  const note = $("#addon-note");
+  note.className = "note";
+  note.textContent = "Einen Moment …";
+  try {
+    const res = await api("/api/addons", {
+      method:"POST", headers:{"Content-Type":"application/json"}, body: JSON.stringify(body),
+    });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok || !data.ok){
+      note.className = "note bad";
+      note.textContent = data.error || "Das hat nicht geklappt.";
+      return null;
+    }
+    note.className = "note ok";
+    note.textContent = data.message || "";
+    addonDaten = data;
+    zeigeAddons();
+    return data;
+  } catch {
+    note.className = "note bad";
+    note.textContent = "Der Server antwortet nicht.";
+    return null;
+  } finally { if (knopf) knopf.disabled = false; }
+}
+
+function knopf(text, klasse, tun){
+  const b = document.createElement("button");
+  b.type = "button"; b.className = "btn" + (klasse ? " " + klasse : "");
+  b.textContent = text;
+  b.addEventListener("click", () => tun(b));
+  return b;
+}
+
+function addonKarte(a){
+  const karte = document.createElement("div");
+  karte.className = "addon" + (a.installed && a.enabled ? " an" : "");
+  karte.dataset.id = a.id;
+  const kopf = document.createElement("div");
+  kopf.className = "addon-head";
+  kopf.innerHTML = '<span class="addon-icon" aria-hidden="true"></span><div class="addon-body">'
+    + '<div><span class="addon-name"></span></div><div class="addon-summary"></div></div>';
+  kopf.querySelector(".addon-icon").textContent = a.icon;
+  kopf.querySelector(".addon-name").textContent = a.name;
+  if (a.vorschlag){
+    const badge = document.createElement("span");
+    badge.className = "addon-badge"; badge.textContent = "Vorschlag";
+    kopf.querySelector(".addon-name").after(badge);
+  }
+  if (a.werkstatt){
+    const badge = document.createElement("span");
+    badge.className = "addon-badge"; badge.textContent = "User mode";
+    kopf.querySelector(".addon-name").parentNode.appendChild(badge);
+  }
+  kopf.querySelector(".addon-summary").textContent = a.summary;
+  if (a.installed){
+    const schalter = document.createElement("input");
+    schalter.type = "checkbox"; schalter.className = "schalter"; schalter.role = "switch";
+    schalter.checked = a.enabled;
+    schalter.setAttribute("aria-label", `${a.name} ein- oder ausschalten`);
+    schalter.addEventListener("change", async () => {
+      const ok = await addonTun({ action: schalter.checked ? "enable" : "disable", id: a.id },
+                                schalter);
+      if (!ok) schalter.checked = !schalter.checked;
+    });
+    kopf.appendChild(schalter);
+  }
+  karte.appendChild(kopf);
+
+  // Installieren / Deinstallieren -- bei jedem Add-on, auch ohne Download.
+  const zeile = document.createElement("div");
+  zeile.className = "addon-row";
+  const laeuft = a.status === "installiert gerade";
+  if (laeuft){
+    const st = document.createElement("span");
+    st.className = "note addon-status"; st.textContent = a.message || "Wird installiert …";
+    zeile.appendChild(st);
+  } else if (!a.installed){
+    zeile.appendChild(knopf("Installieren", "primary", (b) => {
+      if (a.werkstatt && !addonDaten.pro){
+        guardDialog({
+          title: "Diese Funktion ist leider nicht für das normale Konto verfügbar.",
+          text: `${a.name} läuft in der Werkstatt im User mode — und der gehört zu Pro.`,
+          ok: "Verstanden",
+        });
+        return;
+      }
+      addonTun({ action: "install", id: a.id }, b);
+    }));
+  } else {
+    zeile.appendChild(knopf("Deinstallieren", "", async (b) => {
+      const weiter = await guardDialog({
+        title: `${a.name} wirklich deinstallieren?`,
+        text: a.werkstatt
+          ? "Programm und Anmeldung werden gelöscht. Eine laufende Werkstatt startet dafür neu."
+          : "Die Einrichtung und die Anmeldung werden gelöscht.",
+        ok: "Deinstallieren", cancel: "Abbrechen",
+      });
+      if (weiter) addonTun({ action: "uninstall", id: a.id }, b);
+    }));
+    if (a.version){
+      const v = document.createElement("span");
+      v.className = "note"; v.textContent = "Version " + a.version;
+      zeile.appendChild(v);
+    }
+  }
+  if (a.status === "fehler" && a.message){
+    const st = document.createElement("span");
+    st.className = "note addon-status bad"; st.textContent = a.message;
+    zeile.appendChild(st);
+  }
+  if (!a.usable && a.reason){
+    const st = document.createElement("span");
+    st.className = "note"; st.textContent = a.reason;
+    zeile.appendChild(st);
+  }
+  karte.appendChild(zeile);
+
+  // Darunter: anmelden -- so, wie es der Dienst vorsieht.
+  if (a.installed && !laeuft) karte.appendChild(addonAnmeldung(a));
+  if (a.hinweis){
+    const h = document.createElement("div");
+    h.className = "addon-hint"; h.textContent = a.hinweis;
+    karte.appendChild(h);
+  }
+  return karte;
+}
+
+function addonAnmeldung(a){
+  const box = document.createElement("div");
+  box.className = "addon-login";
+  const wie = document.createElement("div");
+  wie.className = "how";
+  box.appendChild(wie);
+  const zeile = document.createElement("div");
+  zeile.className = "addon-row";
+  const angemeldet = a.login.state === "angemeldet";
+  if (a.login_kind === "keine"){
+    wie.textContent = a.anmelden || "Keine Anmeldung nötig.";
+    return box;
+  }
+  if (a.login_kind === "token"){
+    if (angemeldet && a.login.token_set){
+      wie.textContent = `Angemeldet als ${a.login.who || "…"}.`;
+      zeile.appendChild(knopf("Abmelden", "", (b) => addonTun({ action: "logout", id: a.id }, b)));
+    } else {
+      wie.textContent = a.anmelden;
+      const feld = document.createElement("input");
+      feld.type = "password"; feld.autocomplete = "off"; feld.placeholder = "ghp_… oder github_pat_…";
+      feld.setAttribute("aria-label", "GitHub-Token");
+      zeile.appendChild(feld);
+      zeile.appendChild(knopf("Anmelden", "primary", async (b) => {
+        const token = feld.value.trim();
+        feld.value = "";                      // nicht im Formular stehen lassen
+        if (token) await addonTun({ action: "token", id: a.id, token }, b);
+      }));
+    }
+  } else if (a.login_kind === "feeds"){
+    wie.textContent = a.anmelden;
+    const feld = document.createElement("textarea");
+    feld.rows = 4; feld.value = (a.feeds || []).join("\n");
+    feld.placeholder = "https://www.tagesschau.de/index~rss2.xml";
+    feld.setAttribute("aria-label", "Feed-Adressen, eine je Zeile");
+    box.appendChild(feld);
+    zeile.appendChild(knopf("Feeds speichern", "primary", (b) =>
+      addonTun({ action: "feeds", id: a.id, feeds: feld.value.split("\n") }, b)));
+  } else {
+    wie.textContent = angemeldet
+      ? `Angemeldet (${a.login.who || "laut dir"}).`
+      : a.anmelden;
+    zeile.appendChild(knopf(angemeldet ? "Öffnen" : "Anmelden", angemeldet ? "" : "primary",
+      async (b) => {
+        if (!a.usable){
+          guardDialog({ title: `${a.name} ist gerade nicht nutzbar.`, text: a.reason,
+                        ok: "Verstanden" });
+          return;
+        }
+        if (!a.enabled){
+          guardDialog({ title: `${a.name} ist ausgeschaltet.`,
+                        text: "Schalte es oben rechts in der Karte ein.", ok: "Verstanden" });
+          return;
+        }
+        $("#addon-note").textContent = "Die Werkstatt startet — das dauert beim ersten Mal "
+          + "etwas …";
+        const ok = await addonTun({ action: "login", id: a.id }, b);
+        if (ok) bildschirmOeffnen(angemeldet ? null : a);
+      }));
+    if (angemeldet){
+      zeile.appendChild(knopf("Abmelden", "", async (b) => {
+        const weiter = await guardDialog({
+          title: `Von ${a.name} abmelden?`,
+          text: "Die Anmeldung in der Werkstatt wird gelöscht. Eine laufende Werkstatt startet "
+            + "dafür neu.",
+          ok: "Abmelden", cancel: "Abbrechen",
+        });
+        if (weiter) addonTun({ action: "logout", id: a.id }, b);
+      }));
+    }
+  }
+  box.appendChild(zeile);
+  return box;
+}
+
+function zeigeAddons(){
+  const liste = $("#addon-list");
+  liste.innerHTML = "";
+  let gruppe = "";
+  for (const a of addonDaten?.addons || []){
+    if (a.group !== gruppe){
+      gruppe = a.group;
+      const titel = document.createElement("div");
+      titel.className = "addon-group"; titel.textContent = gruppe;
+      liste.appendChild(titel);
+    }
+    liste.appendChild(addonKarte(a));
+  }
+  stagger(liste.querySelectorAll(".addon"), 18);
+  // Solange etwas installiert wird, alle zwei Sekunden nachsehen.
+  clearTimeout(addonTakt);
+  const laeuft = (addonDaten?.addons || []).some(a => a.status === "installiert gerade");
+  if (laeuft && addonBox.classList.contains("open")) addonTakt = setTimeout(addonsLaden, 2000);
+}
+
+function addonsSchliessen(){ clearTimeout(addonTakt); closeOverlay(addonBox); }
+$("#btn-addons").addEventListener("click", () => {
+  $("#addon-note").textContent = "";
+  openOverlay(addonBox);
+  addonsLaden();
+});
+$("#addon-close").addEventListener("click", addonsSchliessen);
+addonBox.addEventListener("click", (e) => { if (e.target === addonBox) addonsSchliessen(); });
+
+/* ---------- Login-Apps: die Werkstatt selbst bedienen ---------- */
+// Ein frisches Foto alle anderthalb Sekunden -- kein Video. Klicks und Text
+// gehen an /api/werkstatt/eingabe und von dort nur an die Werkstatt.
+let bildTakt = null, bildAddon = null;
+
+function bildNeu(){
+  const bild = $("#screen-img"), leer = $("#screen-leer");
+  bild.onload = () => { leer.hidden = true; bild.hidden = false; };
+  bild.onerror = () => {
+    bild.hidden = true; leer.hidden = false;
+    leer.textContent = "Die Werkstatt läuft gerade nicht. Öffne oben eine Adresse — oder "
+      + "starte eine Login-App über 🧩 Add-ons → Anmelden.";
+  };
+  bild.src = "/api/werkstatt/bildschirm?leise=1&t=" + Date.now();
+}
+
+function bildschirmOeffnen(addon){
+  bildAddon = addon;
+  $("#screen-title").textContent = addon ? `${addon.name}: selbst anmelden` : "Selbst anmelden";
+  $("#screen-done").hidden = !addon;
+  $("#screen-open").hidden = !!addon;
+  $("#screen-note").textContent = "";
+  openOverlay(screenBox);
+  bildNeu();
+  clearInterval(bildTakt);
+  bildTakt = setInterval(() => {
+    if (!document.hidden && screenBox.classList.contains("open")) bildNeu();
+  }, 1500);
+}
+
+function bildschirmSchliessen(){
+  clearInterval(bildTakt);
+  $("#screen-text").value = "";
+  closeOverlay(screenBox);
+}
+
+async function eingabe(body){
+  const note = $("#screen-note");
+  try {
+    const res = await api("/api/werkstatt/eingabe", {
+      method:"POST", headers:{"Content-Type":"application/json"}, body: JSON.stringify(body),
+    });
+    const data = await res.json().catch(() => ({}));
+    note.className = "note" + (data.ok ? "" : " bad");
+    note.textContent = data.ok ? "" : (data.error || "Das hat nicht geklappt.");
+    setTimeout(bildNeu, 350);
+    return !!data.ok;
+  } catch { note.className = "note bad"; note.textContent = "Der Server antwortet nicht."; }
+  return false;
+}
+
+// Klick ins Bild -> Klick an dieselbe Stelle der Werkstatt (1280 x 800).
+let letzterKlick = 0;
+$("#screen-img").addEventListener("click", (e) => {
+  const bild = e.currentTarget, rahmen = bild.getBoundingClientRect();
+  const x = Math.round((e.clientX - rahmen.left) * 1280 / rahmen.width);
+  const y = Math.round((e.clientY - rahmen.top) * 800 / rahmen.height);
+  const doppelt = Date.now() - letzterKlick < 350;
+  letzterKlick = Date.now();
+  eingabe({ art: "click", x, y, double: doppelt });
+});
+$("#screen-send").addEventListener("click", async () => {
+  const feld = $("#screen-text"), text = feld.value;
+  if (!text) return;
+  if (await eingabe({ art: "type", text })) feld.value = "";
+});
+$("#screen-text").addEventListener("keydown", (e) => {
+  if (e.key === "Enter"){ e.preventDefault(); $("#screen-send").click(); }
+});
+$("#screen-show").addEventListener("click", (e) => {
+  const feld = $("#screen-text"), zeigen = feld.type === "password";
+  feld.type = zeigen ? "text" : "password";
+  e.currentTarget.setAttribute("aria-pressed", String(zeigen));
+});
+for (const taste of document.querySelectorAll(".screen-keys [data-key]")){
+  taste.addEventListener("click", () => eingabe({ art: "key", key: taste.dataset.key }));
+}
+$("#screen-go").addEventListener("click", async () => {
+  const url = $("#screen-url").value.trim();
+  if (!url) return;
+  $("#screen-note").className = "note";
+  $("#screen-note").textContent = "Die Werkstatt öffnet die Seite …";
+  if (await eingabe({ art: "open", url })) $("#screen-note").textContent = "";
+});
+$("#screen-done").addEventListener("click", async () => {
+  if (!bildAddon) return;
+  await addonTun({ action: "login_done", id: bildAddon.id }, $("#screen-done"));
+  bildschirmSchliessen();
+});
+$("#screen-close").addEventListener("click", bildschirmSchliessen);
+screenBox.addEventListener("click", (e) => { if (e.target === screenBox) bildschirmSchliessen(); });
+$("#btn-loginapps").addEventListener("click", async () => {
+  if (!kontoPro){
+    await guardDialog({
+      title: "Diese Funktion ist leider nicht für das normale Konto verfügbar.",
+      text: "Login-Apps laufen in der Werkstatt im User mode — und der gehört zu Pro.",
+      ok: "Verstanden",
+    });
+    return;
+  }
+  bildschirmOeffnen(null);
 });
 
 $("#account-logout").addEventListener("click", async () => {

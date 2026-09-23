@@ -321,6 +321,8 @@ class Settings:
     ha_url: str = ""
     #: Langlebiges Zugriffstoken aus dem Home-Assistant-Profil.
     ha_token: str = ""
+    #: GitHub-Token fuer das Add-on "GitHub" (nur lesend, siehe aquaticy/addons.py).
+    github_token: str = ""
     #: Darf aquaticy im Haus auch SCHALTEN, oder nur nachsehen? Aus gutem Grund
     #: standardmaessig aus: eine missverstandene Nebenbemerkung soll nicht das
     #: Licht ausmachen.
@@ -593,6 +595,7 @@ def get_settings() -> Settings:
         subagent_parallel=_env_int("AQUATICY_SUBAGENT_PARALLEL", 0),
         ha_url=_env_str("AQUATICY_HA_URL"),
         ha_token=_env_str("HA_TOKEN") or _env_str("AQUATICY_HA_TOKEN"),
+        github_token=_env_str("AQUATICY_GITHUB_TOKEN"),
         ha_control=_env_bool("AQUATICY_HA_CONTROL", False),
         memory_enabled=_env_bool("AQUATICY_MEMORY", True),
         memory_key=_env_str("AQUATICY_MEMORY_KEY"),

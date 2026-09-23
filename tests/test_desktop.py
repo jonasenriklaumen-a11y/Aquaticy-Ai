@@ -517,7 +517,28 @@ def test_an_account_reads_its_switch(tmp_path: Path) -> None:
     profil = tmp_path / "konto"
     profil.mkdir()
     (profil / ".env").write_text("AQUATICY_VM_USER_MODE=true\n", encoding="utf-8")
-    assert web._profile_settings(profil, "normal").vm_user_mode is True
+    assert web._profile_settings(profil, "pro").vm_user_mode is True
+    # 9.5.9: der User mode gehoert zu Pro -- ein "an" in der .env eines
+    # normalen Kontos zaehlt nicht.
+    assert web._profile_settings(profil, "normal").vm_user_mode is False
+
+
+def test_a_normal_account_cannot_switch_the_user_mode_on(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from aquaticy import web
+
+    konto = type("Konto", (), {"plan": "normal", "username": "n"})()
+    profil = tmp_path / "konto"
+    profil.mkdir()
+    frisch = web.ChatSession(account=konto, profile=profil)
+    monkeypatch.setattr(web, "SESSION", frisch)
+    with pytest.raises(ValueError, match="Pro"):
+        web.save_values({"AQUATICY_VM_USER_MODE": "true"})
+    assert not (profil / ".env").exists() or "USER_MODE=true" not in (
+        profil / ".env").read_text()
+    # Ausschalten geht immer.
+    web.save_values({"AQUATICY_VM_USER_MODE": "false"})
 
 
 # -- Der Bildschirm im Web --------------------------------------------------------

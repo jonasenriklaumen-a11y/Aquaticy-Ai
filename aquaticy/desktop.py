@@ -19,8 +19,10 @@ an, was dadurch passieren wuerde, und ordnet es einer Art zu:
 * *senden*, *kaufen*, *loeschen* -- etwas geht an andere, kostet Geld oder
   verschwindet ausserhalb der Werkstatt: **nur nach Rueckfrage beim Nutzer**.
   Ohne jemanden, der antworten kann, gar nicht.
-* *anmelden* -- Anmelden, Registrieren, Passwoerter: **nie**. Aquaticy hat in
-  der Werkstatt keine Konten und bekommt keine.
+* *anmelden* -- Anmelden, Registrieren, Passwoerter: **nie**. Aquaticy meldet
+  sich nirgends an. Konten gibt es in der Werkstatt nur, wenn der Nutzer selbst
+  ein Add-on installiert und sich darin angemeldet hat (aquaticy/addons.py) --
+  getippt hat das dann der Mensch, nicht Aquaticy.
 * *captcha* -- Captchas, "Ich bin kein Roboter", Altersnachweise: **nie**.
   Eine Seite, die wissen will, ob ein Mensch da ist, bekommt keine
   vorgetaeuschte Antwort. Das bleibt beim Menschen.
@@ -34,7 +36,8 @@ nicht eindeutig zu erkennen, wird wie bei *senden* nachgefragt.
 **Was das nicht ist:** unfehlbar. Das Vision-Modell kann sich irren. Deshalb
 stehen die harten Grenzen zusaetzlich an anderer Stelle: kein Heimnetz (die
 Netzsperre der Werkstatt), keine Konten und keine Daten des Nutzers in der
-Werkstatt (nichts wird hineingereicht), und der Browser gibt sich als
+Werkstatt (nichts wird hineingereicht -- ausser den Add-ons, die der Nutzer
+selbst eingeschaltet und angemeldet hat), und der Browser gibt sich als
 KI-gesteuert zu erkennen.
 """
 
@@ -59,7 +62,16 @@ APPS: dict[str, str] = {
     "dateien": "Dateimanager",
     "terminal": "Terminal",
     "grafik": "Bildbearbeitung (GIMP)",
+    # Add-ons -- nur oeffenbar, wenn installiert und eingeschaltet
+    # (aquaticy/addons.py). Sonst sind sie in der Werkstatt gar nicht da.
+    "whatsapp": "WhatsApp Web (Add-on)",
+    "telegram": "Telegram Web (Add-on)",
+    "signal": "Signal Desktop (Add-on)",
+    "blender": "Blender (Add-on)",
 }
+
+#: Die Programme, die von einem Add-on kommen.
+ADDON_APPS = frozenset({"whatsapp", "telegram", "signal", "blender"})
 
 #: Die Arten, die das Vision-Modell vergeben kann.
 KINDS = ("harmlos", "senden", "kaufen", "loeschen", "anmelden", "captcha", "alle_akzeptieren")
@@ -76,9 +88,10 @@ CONFIRM: dict[str, str] = {
 REFUSE: dict[str, tuple[str, str]] = {
     "anmelden": (
         "login",
-        "Anmelden, Registrieren und Passwoerter uebernimmt Aquaticy nicht -- in der "
-        "Werkstatt gibt es keine Konten, und es kommen keine hinein. Sag dem Nutzer, "
-        "dass hier eine Anmeldung noetig ist.",
+        "Anmelden, Registrieren und Passwoerter uebernimmt Aquaticy nicht. Sag dem "
+        "Nutzer, dass hier eine Anmeldung noetig ist -- die macht er selbst: "
+        "Einstellungen -> Werkstatt -> 'Selbst anmelden' (Login-Apps) oder im "
+        "Add-on-Fenster.",
     ),
     "captcha": (
         "captcha",
@@ -635,6 +648,18 @@ class Desktop:
         if app not in APPS:
             return {"error": f"Programme: {', '.join(f'{k} ({v})' for k, v in APPS.items())}."}
         ziel = str(target or "").strip()
+        if app in ADDON_APPS:
+            from aquaticy.addons import desktop_apps
+
+            if app not in desktop_apps(self.settings):
+                return {"error": (
+                    f"{APPS[app]} ist nicht installiert oder ausgeschaltet. Das macht der "
+                    "Nutzer selbst: Einstellungen -> Werkstatt -> Add-ons."
+                )}
+            if ziel and app != "blender":
+                # Eine Web-App oeffnet nur ihre eigene Seite -- sonst waere das
+                # angemeldete Profil ein Browser fuer alles.
+                return {"error": f"{APPS[app]} oeffnet sich ohne target."}
         if ziel:
             if app == "browser":
                 if not URL_RE.match(ziel):

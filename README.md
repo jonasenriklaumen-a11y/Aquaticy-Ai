@@ -137,7 +137,7 @@ aquaticy "welche Bahnstrecken in NRW sind gerade gesperrt?"
 $ aquaticy --location "Mönchengladbach" --lang de
 
 ╭──────────────────────────────────────────────────────╮
-│ Aquaticy AI 9.5.8                                      │
+│ Aquaticy AI 9.5.9                                      │
 │ Modell mistral/mistral-large-latest · Suche duckduckgo │
 │ Frag einfach los. /help zeigt die Befehle.           │
 ╰──────────────────────────────────────────────────────╯
@@ -666,8 +666,12 @@ laufen live mit, die Antwort wird Wort für Wort gestreamt.
   Ohne dieses Abbild versucht Aquaticy es trotzdem — `blender_run` meldet dann
   ganz gewöhnlich „command not found", keinen Sonderfehler, und sagt dir das.
 
-  **User mode — die Werkstatt bedienen wie ein Mensch.** In den Einstellungen unter
-  *Werkstatt* lässt sich der *User mode* einschalten (aus dem Chat heraus nie). Die
+  **User mode — die Werkstatt bedienen wie ein Mensch (nur Pro).** In den Einstellungen unter
+  *Werkstatt* lässt sich der *User mode* einschalten (aus dem Chat heraus nie). Seit
+  9.5.9 gehört er zu Pro: Beim normalen Konto ist der Schalter nicht ausgegraut, ein Klick
+  zeigt aber „Diese Funktion ist leider nicht für das normale Konto verfügbar", und der
+  Server setzt ihn für normale Konten immer auf aus — auch wenn jemand am Formular vorbei
+  „an" schickt oder es in der `.env` steht. Die
   Werkstatt ist dann ein kleiner Linux-Desktop (1280×800) mit Internet, und Aquaticy
   bedient ihn so, wie du es tun würdest: Bildschirm ansehen, klicken, tippen, Tasten
   drücken, Programme öffnen — auch solche, die es nur mit Oberfläche gibt. An Bord:
@@ -724,12 +728,14 @@ laufen live mit, die Antwort wird Wort für Wort gestreamt.
   *Ehrlich im Netz:* Der Browser meldet sich bei jeder Seite als
   `aquaticy-usermode/… (KI-gesteuert; +Projektadresse)`. In der Werkstatt gibt es
   keine Konten und keine Daten von dir — nichts wird hineingereicht außer dem, was du
-  anhängst. Paywalls und Login-Schranken umgeht Aquaticy auch hier nicht, und für
+  anhängst, und den Anmeldungen der Add-ons, die du selbst installiert, eingeschaltet und
+  angemeldet hast (siehe unten). Paywalls und Login-Schranken umgeht Aquaticy auch hier nicht, und für
   Recherche nimmt er weiter Suche und Seitenabruf statt Seiten im Browser abzugrasen.
 
   *Was der User mode nicht ist:* unfehlbar. Das Vision-Modell kann sich verklicken
   oder eine Art falsch einschätzen — deshalb liegen die harten Grenzen zusätzlich
-  woanders (Netzsperre, keine Konten, keine Zahlungsdaten). Emoji und andere Zeichen
+  woanders (Netzsperre, keine Konten außer den Add-ons, die du selbst anmeldest, keine
+  Zahlungsdaten). Emoji und andere Zeichen
   jenseits der Unicode-Grundebene kann die Werkstatt nicht eintippen (sie kämen
   verstümmelt an); Aquaticy sagt das, statt Falsches zu tippen. Die Chromium-eigene
   Sandbox des Browsers ist in der Werkstatt aus, weil sie ohne Fähigkeiten nicht
@@ -737,6 +743,65 @@ laufen live mit, die Antwort wird Wort für Wort gestreamt.
   (`./aquaticy-sandbox`) braucht der User mode zusätzlich `/dev/net/tun` — in
   `compose.sandbox.yaml` steht die Freigabe als Kommentar bereit; ohne sie sagt
   Aquaticy genau das.
+
+  **Add-ons und Login-Apps (9.5.9).** Direkt neben dem User-mode-Schalter sitzt der Knopf
+  **🧩 Add-ons**. Er öffnet ein Fenster mit Konten und Programmen, die man Aquaticy
+  dazugeben kann. Jedes Add-on hat **Installieren** und **Deinstallieren** — auch die, die
+  nichts herunterladen müssen — und nach dem Installieren einen **Ein/Aus-Schalter**.
+  Darunter meldest du dich an, so wie es der jeweilige Dienst vorsieht:
+
+  | Add-on | Was es kann | Anmelden | Braucht |
+  |---|---|---|---|
+  | GitHub | Repos, Issues, Pull Requests, Dateien, Commits lesen — **nur lesend** | persönliches Token (am besten „Fine-grained", nur Leserechte), wird bei GitHub geprüft | — |
+  | WhatsApp Web | Chats lesen, Antworten vorbereiten | QR-Code mit dem Handy (Verknüpfte Geräte) | User mode (Pro) |
+  | Signal | wie oben — es gibt kein „Signal Web", deshalb **Signal Desktop** (offiziell) | QR-Code mit dem Handy (Gekoppelte Geräte) | User mode (Pro), x86_64 |
+  | Blender | 3D mit Oberfläche im Desktop und für `blender_run` | keine | User mode (Pro) |
+  | Telegram Web *(Vorschlag)* | wie WhatsApp | QR-Code oder Nummer + Code selbst eintippen | User mode (Pro) |
+  | Wetter *(Vorschlag)* | Wetter und Vorhersage bis 7 Tage, Open-Meteo (u. a. DWD-Daten), ohne Schlüssel | keine | — |
+  | RSS-Feeds *(Vorschlag)* | deine eigenen Nachrichtenquellen lesen und zusammenfassen | Feed-Adressen eintragen | — |
+
+  *Was „Installieren" heißt:* Programme — Firefox ESR für die Web-Apps, Signal Desktop,
+  Blender — liegen nicht im Abbild. Sie werden erst beim Klick geladen, und zwar **nur von
+  den offiziellen Servern** (mozilla.org, updates.signal.org, blender.org) über HTTPS und
+  **gegen die Prüfsumme, die der Hersteller selbst veröffentlicht** (SHA256SUMS,
+  Paketliste, `.sha256`). Passt sie nicht, wird nichts ausgepackt, und eine schon
+  funktionierende Installation bleibt stehen. Das Laden und Auspacken passiert in einer
+  eigenen, abgesperrten Wegwerf-Werkstatt (Heimnetz gesperrt, kein root, nichts außerhalb
+  des Add-on-Datenträgers beschreibbar), nie auf dem Rechner selbst. Jedes Add-on bekommt
+  je Konto einen **eigenen Datenträger** (`aquaticy-addon-<konto>-<name>`). In die
+  Werkstatt eingehängt werden nur die eingeschalteten — ausgeschaltet kommt Aquaticy weder
+  an das Programm noch an die Anmeldung. **Deinstallieren löscht den Datenträger** samt
+  Anmeldung; die Web-Apps teilen sich ein Firefox, das mit der letzten Web-App geht.
+
+  *Wer sich anmeldet: immer du, nie Aquaticy.* Der Knopf **⌨ Selbst anmelden** unter dem
+  User mode (die „Login-Apps") zeigt den Bildschirm der Werkstatt. Du klickst hinein und
+  schreibst Namen, Passwörter und Codes direkt in die App — oder öffnest eine Adresse im
+  Werkstatt-Browser, um dich dort selbst anzumelden. Was du dort tippst, geht **nur an die
+  Werkstatt**: nicht in den Verlauf, nicht ins Protokoll, nicht an das Modell. Aquaticy
+  selbst tippt weiterhin nie ein Passwort und löst nie ein Captcha. Beim QR-Code kann
+  Aquaticy nicht selbst prüfen, ob dein Handy gekoppelt hat — es merkt sich „angemeldet
+  (laut dir)", wenn du „Ich bin angemeldet" drückst. „Abmelden" löscht die Anmeldung in der
+  Werkstatt; das gekoppelte Gerät entfernst du zusätzlich auf dem Handy.
+
+  *Was Aquaticy mit den Add-ons darf:* Werkzeuge und Programme sieht das Modell nur, wenn
+  ein Add-on installiert **und** eingeschaltet ist (GitHub zusätzlich: angemeldet; Feeds:
+  mindestens ein Feed eingetragen). Eine Nachricht abschicken ist „senden" und geht **nur
+  nach deinem Ja**; ohne jemanden, der zustimmen kann, gar nicht. Namen, Nummern und
+  Inhalte aus Chats oder privaten Repos kommen nie in eine Websuche. GitHub nutzt nur
+  GET-Aufrufe — auch wenn das Token mehr dürfte (Aquaticy warnt dann). Das Token liegt in
+  der `.env` des Kontos und geht nie an den Browser. Feeds werden höflich geholt
+  (robots.txt, eine Anfrage je Sekunde und Server, ehrliche Kennung, nie aus dem Heimnetz,
+  auch nicht über eine Umleitung). Aus dem Chat heraus lässt sich kein Add-on installieren,
+  schalten oder anmelden.
+
+  *Worauf du achten solltest:* WhatsApp erlaubt automatisierte Nutzung nicht ausdrücklich —
+  nutze es für dich, nie für Massennachrichten, sonst droht eine Sperre. Was Aquaticy in
+  einem Messenger liest, geht an dein Modell; bei Ende-zu-Ende-verschlüsselten Chats solltest
+  du das bewusst entscheiden. WhatsApp Web, Telegram Web und Signal sind mit echten
+  Konten nicht automatisch getestet (die Server sind in der Testumgebung nicht erreichbar);
+  getestet sind Laden, Prüfsummen, Auspacken, Einhängen, Starten und Löschen — mit einem
+  nachgestellten Hersteller-Server, auch im echten Behälter. Nach einer Änderung am
+  Abbild einmal neu bauen (`docker build -f docker/workshop-desktop.Dockerfile …`).
 
   **Eigene VM als zusätzliche Grenze.** Aquaticy erstellt keine virtuelle Maschine
   für den Rechner selbst. Läuft Aquaticy aber in einer eigenen VM, arbeitet die
@@ -935,7 +1000,7 @@ er erreichbar ist — im heimischen Netz und über Tailscale:
 
 ```
 ╭───────────────────────────────────────────────────────────────────╮
-│ Aquaticy AI 9.5.8                                                   │
+│ Aquaticy AI 9.5.9                                                   │
 │ Diese Adresse im Browser oeffnen:                                 │
 │   http://192.168.1.44:8765/    im heimischen Netz                 │
 │   http://100.81.120.100:8765/  ueber Tailscale                    │
@@ -1961,7 +2026,8 @@ Alle Werte kommen aus der `.env` (siehe [`.env.example`](.env.example)):
 | `AQUATICY_ENABLE_PLAYWRIGHT` | Stufe-3-Fallback erlauben | `true` |
 | `AQUATICY_VM_SIZE` | Größe der Werkstatt: `normal` oder `plus` (Plus nur mit Pro-Konto) | `normal` |
 | `AQUATICY_VM_IMAGE` | Abbild für die Werkstatt (z. B. mit Blender) | `python:3.12-slim` |
-| `AQUATICY_VM_USER_MODE` | User mode: Werkstatt als Desktop mit Internet (Heimnetz gesperrt), bedient wie von einem Menschen | `false` |
+| `AQUATICY_VM_USER_MODE` | User mode: Werkstatt als Desktop mit Internet (Heimnetz gesperrt), bedient wie von einem Menschen — nur Pro | `false` |
+| `AQUATICY_GITHUB_TOKEN` | Token des Add-ons GitHub (setzt das Add-on-Fenster, nur lesend genutzt) | leer |
 | `AQUATICY_VM_DESKTOP_IMAGE` | Abbild für den User mode | `aquaticy-werkstatt-desktop:local` |
 | `AQUATICY_VM_IDLE_MINUTES` | Werkstatt löschen nach so vielen Minuten Ruhe | `20` |
 | `AQUATICY_VM_CPUS` / `_MEMORY_MB` / `_DISK_GB` | Grenzen von Hand statt der Größe | aus `AQUATICY_VM_SIZE` |
@@ -2203,7 +2269,8 @@ ihn vor dem Start mit `AQUATICY_PRO_CODE`.
 Normale Konten können recherchieren, chatten und ihre eigenen Einstellungen und Daten
 nutzen. Nach insgesamt 150.000 Token nehmen sie keine weiteren Modellanfragen an. Der
 Zähler lässt sich nicht zurücksetzen. Pro-Konten haben kein Tokenlimit und können
-zusätzlich die LAN-Suche, Home Assistant und die Lagerverwaltung verwenden. Nur Pro-Konten
+zusätzlich die LAN-Suche, Home Assistant, die Lagerverwaltung, den User mode und die
+Werkstatt-Add-ons (WhatsApp Web, Signal, Telegram Web, Blender) verwenden. Nur Pro-Konten
 können unter **Dev settings** die Rechts-Leitplanken abschalten (siehe unten).
 
 ```bash
@@ -2319,6 +2386,7 @@ aquaticy/
   uistate.py     # der Zustand der Oberfläche -- auf dem Server, geprüft
   sandbox.py     # die Werkstatt: abgeschotteter Behälter für den Code-Modus
   desktop.py     # User mode: sehen, klicken, tippen -- jede Handlung vorher geprüft
+  addons.py      # Add-ons: installieren, schalten, anmelden; GitHub, Wetter, Feeds
   jobs.py        # Aufträge: Fragen, die sich von selbst stellen
   usage.py       # der Token-Zähler (drei Zeichen sind ein Token)
   auth.py        # Konten, Passwort-Hashes, Sitzungen und Limits
@@ -2335,7 +2403,8 @@ aquaticy/
 
 Dockerfile       # zwei Ziele: slim (ohne Browser) und browser (mit Chromium)
 docker/workshop-desktop.Dockerfile  # Werkstatt-Abbild fuer den User mode (Desktop)
-docker/desktop/  # aquaticy-desktop (sehen, klicken, tippen) und aquaticy-netz (Sperre)
+docker/desktop/  # aquaticy-desktop (sehen, klicken, tippen), aquaticy-netz (Sperre),
+                 # aquaticy-addons (Add-ons laden, gegen die Pruefsumme, abgesperrt)
 compose.yaml     # aquaticy plus optionales SearXNG
 aquaticy-box       # Wrapper: ./aquaticy-box "deine Frage"
 ```

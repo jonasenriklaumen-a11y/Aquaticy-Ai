@@ -369,6 +369,7 @@ _STRING_SETTINGS = {
     "AQUATICY_COUNTRY": "country",
     "AQUATICY_HA_URL": "ha_url",
     "HA_TOKEN": "ha_token",
+    "AQUATICY_GITHUB_TOKEN": "github_token",
     "AQUATICY_LAN_SUBNET": "lan_subnet",
     "AQUATICY_STORAGE_URL": "storage_url",
     "AQUATICY_STORAGE_ACCESS": "storage_access",
@@ -446,6 +447,10 @@ def _profile_settings(profile: Path, plan: str) -> Settings:
         # eingetragen, aus einer Zeit als Pro-Konto, oder vom Server geerbt
         # --, gilt hier trotzdem "an".
         settings.legal_guard = True
+        # Der User mode gibt der Werkstatt Internet und einen Desktop -- das
+        # gehoert zu Pro. Ein "an" in der .env eines normalen Kontos zaehlt
+        # hier nicht.
+        settings.vm_user_mode = False
     settings.data_dir.mkdir(parents=True, exist_ok=True)
     return settings
 
@@ -1330,6 +1335,13 @@ def save_values(payload: dict[str, Any]) -> Path:
             "Die Rechts-Leitplanken (Grundgesetz und BGB) lassen sich nur mit einem "
             "Pro-Konto abschalten."
         )
+    user_mode_on = "AQUATICY_VM_USER_MODE" in payload and str(
+        payload.get("AQUATICY_VM_USER_MODE", "")
+    ).strip().lower() in {"1", "true", "yes", "on", "ja"}
+    if user_mode_on and not session.pro:
+        raise ValueError(
+            "Der User mode (Werkstatt mit Desktop und Internet) braucht ein Pro-Konto."
+        )
     values = {
         key: str(payload.get(key, "")).strip() for key in SETTING_KEYS if key in payload
     }
@@ -1388,6 +1400,190 @@ def save_values(payload: dict[str, Any]) -> Path:
         secure_file(written)
     session.reload()
     return written
+
+
+#: Was es im Add-on-Fenster zu tun gibt.
+ADDON_ACTIONS = frozenset({
+    "install", "uninstall", "enable", "disable", "token", "login", "login_done", "logout",
+    "feeds",
+})
+
+#: Aktionen, bei denen die laufende Werkstatt neu aufgebaut werden muss --
+#: sie haelt die Datentraeger der Add-ons fest.
+_RESTARTS_WORKSHOP = frozenset({"uninstall", "enable", "disable", "logout"})
+
+
+def addon_action(payload: dict[str, Any]) -> tuple[dict[str, Any], int]:
+    """Installieren, Schalten, Anmelden -- alles aus dem Add-on-Fenster.
+
+    Returns: (Antwort, HTTP-Status).
+    """
+    from aquaticy import addons
+
+    session = SESSION.current() if isinstance(SESSION, SessionProxy) else SESSION
+    settings = session.settings()
+    action = str(payload.get("action") or "").strip().lower()
+    addon_id = str(payload.get("id") or "").strip().lower()
+    if action not in ADDON_ACTIONS:
+        return {"ok": False, "error": "Unbekannte Aktion."}, 400
+    try:
+        addon = addons.get(addon_id)
+        if action in _RESTARTS_WORKSHOP and addon.programm and session.busy():
+            return {"ok": False, "error": (
+                "Gerade arbeitet Aquaticy noch — die Werkstatt muss dafür neu starten. "
+                "Bitte gleich noch einmal."
+            )}, 409
+        hinweis = ""
+        if action == "install":
+            addons.install(settings, addon.id, session.pro, on_done=session.reload)
+            if not addon.programm:
+                session.reload()
+            hinweis = "Wird installiert …" if addon.programm else "Installiert und eingeschaltet."
+        elif action == "uninstall":
+            if addon.programm:
+                session.reload()          # die Werkstatt laesst den Datentraeger los
+            addons.uninstall(session.settings(), addon.id)
+            session.reload()
+            hinweis = "Deinstalliert — Programm und Anmeldung sind gelöscht."
+        elif action in ("enable", "disable"):
+            addons.set_enabled(settings, addon.id, action == "enable", session.pro)
+            session.reload()
+            hinweis = "Eingeschaltet." if action == "enable" else "Ausgeschaltet."
+        elif action == "token":
+            if addon.login != "token":
+                raise addons.AddOnError(f"{addon.name} meldet sich nicht mit einem Token an.")
+            ergebnis = addons.github_login(settings, str(payload.get("token") or ""))
+            session.reload()
+            hinweis = f"Angemeldet als {ergebnis['who']}." + (
+                f" {ergebnis['warning']}" if ergebnis["warning"] else "")
+        elif action == "login":
+            hinweis = _addon_login(session, addon)
+        elif action == "login_done":
+            addons.mark_login(settings, addon.id, "angemeldet")
+            hinweis = "Gemerkt: angemeldet."
+        elif action == "logout":
+            if addon.programm:
+                session.reload()
+            addons.logout(session.settings(), addon.id)
+            session.reload()
+            hinweis = "Abgemeldet." + (
+                " Entferne die Werkstatt auf dem Handy auch unter „Verknüpfte Geräte“."
+                if addon.login == "qr" else "")
+        else:  # feeds
+            feeds = addons.set_feeds(settings, payload.get("feeds") or [])
+            session.reload()
+            hinweis = f"{len(feeds)} Feeds gespeichert."
+    except addons.AddOnError as exc:
+        return {"ok": False, "error": str(exc)}, 400
+    except Exception as exc:
+        return {"ok": False, "error": f"{type(exc).__name__}: {exc}"}, 500
+    view = addons.public_view(session.settings(), session.pro)
+    return {"ok": True, "message": hinweis, **view}, 200
+
+
+def _addon_login(session: Any, addon: Any) -> str:
+    """Oeffnet das Programm in der Werkstatt -- anmelden tut sich der Nutzer selbst."""
+    from aquaticy import addons
+    from aquaticy import sandbox as werkstatt
+
+    settings = session.settings()
+    if addon.login != "qr":
+        raise addons.AddOnError(f"{addon.name} braucht keine Anmeldung in der Werkstatt.")
+    ok, warum = addons.usable(addon, settings, session.pro)
+    if not ok:
+        raise addons.AddOnError(warum)
+    if not addons.active(settings, addon.id, session.pro):
+        raise addons.AddOnError(f"{addon.name} ist nicht installiert oder ausgeschaltet.")
+    box = werkstatt.shared(settings)
+    fertig = box.desktop("open", addons.APP_OF[addon.id], timeout=90)
+    if fertig.returncode != 0:
+        raise addons.AddOnError(
+            f"{addon.name} ließ sich nicht öffnen: "
+            + (fertig.stderr.decode("utf-8", "replace").strip() or "keine Meldung")[:300]
+        )
+    return (
+        f"{addon.name} ist in der Werkstatt offen. Scanne den QR-Code unten mit deinem Handy "
+        "und drück dann „Ich bin angemeldet“."
+    )
+
+
+#: Tasten, die man im Werkstatt-Bildschirm selbst druecken kann.
+INPUT_KEYS = frozenset({
+    "Return", "Tab", "BackSpace", "Escape", "Delete", "Up", "Down", "Left", "Right",
+    "Home", "End", "Page_Up", "Page_Down", "ctrl+a", "ctrl+c", "ctrl+v", "ctrl+l", "shift+Tab",
+    "F5",
+})
+
+#: So viel tippt man auf einmal selbst.
+MAX_INPUT_CHARS = 1000
+
+
+def workshop_input(payload: dict[str, Any]) -> tuple[dict[str, Any], int]:
+    """Der Nutzer bedient die Werkstatt selbst: klicken, tippen, Tasten.
+
+    Das ist der Weg fuer Anmeldungen ("Login-Apps"): Passwoerter und Codes
+    tippt der Mensch, nicht Aquaticy. Deshalb laeuft das bewusst NICHT durch
+    die Pruefungen aus aquaticy/desktop.py -- die gelten fuer die KI. Und
+    deshalb wird der Text nirgends abgelegt: nicht im Verlauf, nicht im
+    Protokoll, nicht beim Modell. Er geht einmal an die Werkstatt, fertig.
+    """
+    from aquaticy import sandbox as werkstatt
+    from aquaticy.desktop import HEIGHT, WIDTH
+
+    session = SESSION.current() if isinstance(SESSION, SessionProxy) else SESSION
+    if not session.pro:
+        return {"ok": False, "error": "Der User mode gehört zu Pro."}, 403
+    settings = session.settings()
+    if not getattr(settings, "vm_user_mode", False):
+        return {"ok": False, "error": "Der User mode ist aus."}, 400
+    box = werkstatt.shared(settings)
+    art = str(payload.get("art") or "").strip().lower()
+    if art == "open":
+        # Der einzige Weg, der eine Werkstatt starten darf: der Nutzer will
+        # sich selbst irgendwo anmelden und oeffnet dafuer eine Adresse.
+        from aquaticy.desktop import URL_RE
+
+        adresse = str(payload.get("url") or "").strip()
+        if not URL_RE.match(adresse) or len(adresse) > 2000:
+            return {"ok": False, "error": "Bitte eine Adresse mit https:// (oder http://)."}, 400
+        try:
+            fertig = box.desktop("open", "browser", adresse, timeout=90)
+        except Exception as exc:
+            return {"ok": False, "error": f"Die Werkstatt startet nicht: {exc}"}, 502
+        if fertig.returncode != 0:
+            return {"ok": False, "error": fertig.stderr.decode("utf-8", "replace")[:200]}, 400
+        return {"ok": True}, 200
+    if not box.alive or not box.user_mode:
+        return {"ok": False, "error": "Es läuft gerade keine Werkstatt im User mode."}, 404
+    try:
+        if art == "click":
+            x, y = int(payload.get("x")), int(payload.get("y"))
+            if not (0 <= x < WIDTH and 0 <= y < HEIGHT):
+                return {"ok": False, "error": "Die Stelle liegt nicht auf dem Bildschirm."}, 400
+            args = ["click", str(x), str(y)]
+            if payload.get("double") is True:
+                args.append("--double")
+            fertig = box.desktop(*args, timeout=20, start=False)
+        elif art == "type":
+            text = str(payload.get("text") or "")
+            if not text or len(text) > MAX_INPUT_CHARS:
+                return {"ok": False, "error": f"1 bis {MAX_INPUT_CHARS} Zeichen."}, 400
+            fertig = box.desktop("type", stdin=text.encode("utf-8"), timeout=60, start=False)
+        elif art == "key":
+            taste = str(payload.get("key") or "")
+            if taste not in INPUT_KEYS:
+                return {"ok": False, "error": "Diese Taste gibt es hier nicht."}, 400
+            fertig = box.desktop("key", taste, timeout=20, start=False)
+        else:
+            return {"ok": False, "error": "art: open, click, type oder key."}, 400
+    except (TypeError, ValueError):
+        return {"ok": False, "error": "x und y bitte als Zahlen."}, 400
+    except Exception as exc:
+        return {"ok": False, "error": f"Die Werkstatt antwortet nicht: {type(exc).__name__}"}, 502
+    if fertig.returncode != 0:
+        meldung = fertig.stderr.decode("utf-8", "replace").strip()[:200]
+        return {"ok": False, "error": meldung or "Das hat nicht geklappt."}, 400
+    return {"ok": True}, 200
 
 
 def _prune_uploads(folder: Path) -> None:
@@ -1925,6 +2121,13 @@ class Handler(BaseHTTPRequestHandler):
 
         box = werkstatt.shared(SESSION.settings())
         if not box.alive or not box.user_mode:
+            if "leise=1" in self.path:
+                # Das Login-Fenster fragt alle anderthalb Sekunden -- "nichts
+                # da" ist dort der Normalfall, kein Fehler fuer die Konsole.
+                self.send_response(204)
+                self.send_header("Cache-Control", "no-store")
+                self.end_headers()
+                return
             self._json({"error": "Es laeuft gerade keine Werkstatt im User mode."}, 404)
             return
         try:
@@ -2101,6 +2304,10 @@ class Handler(BaseHTTPRequestHandler):
             )
         elif route == "/api/werkstatt/datei":
             self._workshop_file()
+        elif route == "/api/addons":
+            from aquaticy import addons
+
+            self._json(addons.public_view(SESSION.settings(), SESSION.pro))
         elif route == "/api/werkstatt/bildschirm":
             self._workshop_screen()
         elif route == "/api/jobs":
@@ -2285,6 +2492,12 @@ class Handler(BaseHTTPRequestHandler):
                 self._json({"ok": False, "error": "Die Lagerverwaltung braucht Pro."}, 403)
                 return
             self._json(self._storage_probe(self._read_json()))
+        elif route == "/api/addons":
+            antwort, status = addon_action(self._read_json())
+            self._json(antwort, status)
+        elif route == "/api/werkstatt/eingabe":
+            antwort, status = workshop_input(self._read_json())
+            self._json(antwort, status)
         elif route == "/api/chat-edit":
             self._json(self._chat_edit(self._read_json()))
         elif route == "/api/jobs":
