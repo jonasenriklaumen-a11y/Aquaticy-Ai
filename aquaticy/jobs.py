@@ -103,6 +103,12 @@ MONITORING = ("visual", "price", "image")
 #: hat. Solche Auftraege schaltet der Planer ab.
 GUARD_STATE = "abgelehnt nach Rechtsrahmen"
 
+#: Der Zustand eines Auftrags, dessen Konto sein Tokenlimit erreicht hat. Der
+#: Zaehler laesst sich nicht zuruecksetzen -- der Auftrag kaeme also nie
+#: wieder dran und wuerde doch alle zwanzig Sekunden einen Lauf eintragen.
+#: Auch ihn schaltet der Planer deshalb ab.
+TOKEN_LIMIT_STATE = "Tokenlimit erreicht"
+
 
 def _number(value: str) -> float | None:
     """Eine Zahl aus einem Preis oder einer Preisgrenze.
@@ -553,7 +559,7 @@ def run_job(job: Job, settings: Any, *, token_limit: int | None = None) -> tuple
     from aquaticy.usage import UsageLog
 
     if token_limit is not None and UsageLog(settings.db_path).total_tokens() >= token_limit:
-        return ("Tokenlimit erreicht", "")
+        return (TOKEN_LIMIT_STATE, "")
 
     cache = Cache(settings.db_path, settings.cache_ttl_hours)
     monitoring = job.kind in MONITORING
@@ -725,7 +731,10 @@ class Scheduler:
             except Exception as exc:
                 state, chat = (f"Fehler: {type(exc).__name__}", "")
             store.note_run(job.id, state, chat)
-            if state == "erfüllt" or state.startswith(GUARD_STATE):
+            if (
+                state in ("erfüllt", TOKEN_LIMIT_STATE)
+                or state.startswith(GUARD_STATE)
+            ):
                 store.set_enabled(job.id, False)
             gelaufen += 1
             if self._on_run:

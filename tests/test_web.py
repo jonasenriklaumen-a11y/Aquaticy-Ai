@@ -3649,7 +3649,20 @@ def test_a_run_does_not_grow_without_end() -> None:
     lauf = web.Run("x", "Frage")
     for _ in range(web.MAX_RUN_EVENTS + 500):
         lauf.add({"type": "chunk", "text": "x"})
-    assert len(lauf.events) == web.MAX_RUN_EVENTS
+    # Die Grenze plus ein einziger Hinweis, dass hier gekuerzt wurde.
+    assert len(lauf.events) == web.MAX_RUN_EVENTS + 1
+    assert lauf.events[-1]["type"] == "note" and "gekürzt" in lauf.events[-1]["text"]
+
+
+def test_the_end_of_a_run_gets_past_the_limit() -> None:
+    """Frueher fiel nach dem Ausreisser auch das "done" weg -- und die
+    Oberflaeche stand fuer immer bei "laeuft noch"."""
+    lauf = web.Run("x", "Frage")
+    for _ in range(web.MAX_RUN_EVENTS + 10):
+        lauf.add({"type": "step", "text": "x"})
+    lauf.add({"type": "done"})
+    assert lauf.events[-1] == {"type": "done"}
+    assert sum(1 for e in lauf.events if e["type"] == "note") == 1
 
 
 def test_the_chat_answer_lands_in_the_run(

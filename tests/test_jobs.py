@@ -698,3 +698,24 @@ def test_a_thousands_price_is_no_bargain() -> None:
     for preis in ("1.299", "1,299.00", "1.299,00"):
         teil = Product(name="N", url="https://shop.example/p", price=preis)
         assert price_condition_met(frage, [teil]) is False, preis
+
+
+def test_a_job_at_the_token_limit_switches_itself_off(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Der Zaehler eines normalen Kontos laesst sich nicht zuruecksetzen. Ein
+    Auftrag am Limit kaeme also nie wieder dran -- frueher lief er trotzdem
+    alle zwanzig Sekunden an und trug jedes Mal einen Lauf ein."""
+    store = JobStore(tmp_path / "j.db")
+    job = store.add("Frage")
+    with store._connect() as conn:
+        conn.execute("UPDATE jobs SET next_run = 1 WHERE id = ?", (job.id,))
+    monkeypatch.setattr(
+        auftraege, "run_job",
+        lambda auftrag, settings, **kw: (auftraege.TOKEN_LIMIT_STATE, ""),
+    )
+    settings = type("S", (), {"db_path": tmp_path / "j.db", "cache_ttl_hours": 1})()
+    assert Scheduler(lambda: settings).tick() == 1
+    danach = store.get(job.id)
+    assert not danach.enabled
+    assert danach.last_state == "Tokenlimit erreicht"

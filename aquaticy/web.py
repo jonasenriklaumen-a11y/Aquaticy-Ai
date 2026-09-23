@@ -69,6 +69,12 @@ HEARTBEAT_SECONDS = 10.0
 #: gegen den Alltag.
 MAX_RUN_EVENTS = 20_000
 
+#: Was auch ueber die Grenze hinaus noch in den Lauf kommt. Ohne "done"
+#: bliebe die Oberflaeche nach einem Ausreisser fuer immer bei "laeuft noch"
+#: stehen, obwohl die Antwort laengst fertig ist. Es kommt einmal je Lauf --
+#: die Grenze bleibt also eine Grenze.
+PAST_THE_LIMIT = frozenset({"done"})
+
 #: So lange kann man einen fertigen Lauf noch abholen, den niemand zu Ende
 #: gesehen hat. Danach steht die Antwort ohnehin in den letzten Chats.
 RESUME_WINDOW = 15 * 60
@@ -100,11 +106,24 @@ class Run:
         #: beim naechsten Laden noch abzuholen.
         self.delivered = False
         self._cond = threading.Condition()
+        #: Wurde schon gesagt, dass die Anzeige gekuerzt ist? Einmal reicht.
+        self._clipped = False
 
     def add(self, event: dict[str, Any]) -> None:
         with self._cond:
-            if len(self.events) < MAX_RUN_EVENTS:
+            if len(self.events) < MAX_RUN_EVENTS or event.get("type") in PAST_THE_LIMIT:
                 self.events.append(event)
+            elif not self._clipped:
+                # Einmal sagen, warum die Anzeige hier aufhoert -- die ganze
+                # Antwort steht trotzdem im Verlauf.
+                self._clipped = True
+                self.events.append(
+                    {
+                        "type": "note",
+                        "text": "Die Anzeige ist hier gekürzt — die vollständige Antwort "
+                        "steht in den letzten Chats.",
+                    }
+                )
             self._cond.notify_all()
 
     def finish(self) -> None:
