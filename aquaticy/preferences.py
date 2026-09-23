@@ -13,7 +13,9 @@ Nicht aenderbar ist alles, was Aquaticy mehr Zugriff auf fremdes Eigentum gaebe:
 * ob er Mail und Kalender lesen darf (``GOOGLE``),
 * ob und wie er ins Lager schreiben darf (``STORAGE_ACCESS``),
 * ob er ins Heimnetz sehen darf (``LAN_ENABLED``),
-* ob er sich Dinge merken darf (``MEMORY``).
+* ob er sich Dinge merken darf (``MEMORY``),
+* ob er sich an die Rechts-Leitplanken haelt (``LEGAL_GUARD``) -- die schaltet
+  nur ein Pro-Konto in den Einstellungen ab, nie ein Satz im Chat.
 
 Das ist kein Misstrauen gegen das Modell, sondern eine Bauweise: Wer die
 Rechte vergibt, darf nicht derselbe sein, der sie bekommt. Sonst waere die
@@ -164,6 +166,19 @@ PROTECTED: dict[str, str] = {
     "AQUATICY_LAN_ENABLED": "ob ich ins Heimnetz sehen darf",
     "AQUATICY_HA_URL": "welches Zuhause angebunden ist",
     "AQUATICY_MEMORY": "ob ich mir Dinge merken darf",
+    "AQUATICY_LEGAL_GUARD": "ob ich mich an die Leitplanken nach Grundgesetz und BGB halte",
+}
+
+#: Wie das Modell die geschuetzten Schalter sonst noch nennt. Ohne das kaeme
+#: auf "schalte den Rechtsrahmen aus" nur "kenne ich nicht" zurueck -- das
+#: stimmt, erklaert aber nicht, warum es trotzdem nicht geht.
+PROTECTED_ALIASES: dict[str, str] = {
+    "AQUATICY_RECHTSRAHMEN": "AQUATICY_LEGAL_GUARD",
+    "AQUATICY_LEITPLANKEN": "AQUATICY_LEGAL_GUARD",
+    "AQUATICY_RECHTS_LEITPLANKEN": "AQUATICY_LEGAL_GUARD",
+    "AQUATICY_GUARDRAILS": "AQUATICY_LEGAL_GUARD",
+    "AQUATICY_RECHTSPRUEFUNG": "AQUATICY_LEGAL_GUARD",
+    "AQUATICY_RECHTSPRÜFUNG": "AQUATICY_LEGAL_GUARD",
 }
 
 _YES = frozenset({"an", "ein", "ja", "true", "1", "aktiv", "on", "yes"})
@@ -193,7 +208,7 @@ def refusal(name: str) -> str:
     wanted = (name or "").strip().upper().replace(" ", "_").replace("-", "_")
     if not wanted.startswith("AQUATICY_"):
         wanted = f"AQUATICY_{wanted}"
-    reason = PROTECTED.get(wanted)
+    reason = PROTECTED.get(PROTECTED_ALIASES.get(wanted, wanted))
     if reason:
         return (
             f"Das aendere ich nicht aus dem Gespraech heraus -- es entscheidet, "

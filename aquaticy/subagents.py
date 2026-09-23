@@ -582,6 +582,20 @@ def _run_one(
     if angle.strip():
         rollentext = f"\nDein Auftrag im Team: {angle.strip()}\n{rollentext}"
     auftrag = prompt or SUBAGENT_PROMPT % {"task": task, "role": rollentext}
+    if getattr(settings, "legal_guard", True):
+        from aquaticy.guardrails import subagent_note
+
+        # Hinter die Rolle, vor alles andere: wer er ist, steht weiter im
+        # ersten Satz, und der Auftrag bleibt das Letzte, was er liest --
+        # daran haengt, dass er ihn nicht aus den Augen verliert.
+        rolle, _, rest = auftrag.partition("\n\n")
+        regeln = subagent_note().strip()
+        auftrag = f"{rolle}\n\n{regeln}\n\n{rest}" if rest else f"{regeln}\n\n{auftrag}"
+        guard = getattr(box, "guard", None)
+        if guard is not None and not guard.topic:
+            # Ein frischer Werkzeugkasten kennt die Frage des Nutzers nicht --
+            # fuer ihn ist der Auftrag der Anlass.
+            guard.topic = task
     messages: list[dict[str, Any]] = [{"role": "user", "content": auftrag}]
     budget = max(1, int(budget) or settings.subagent_budget)
     used = 0

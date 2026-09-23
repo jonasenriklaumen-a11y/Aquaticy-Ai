@@ -137,7 +137,7 @@ aquaticy "welche Bahnstrecken in NRW sind gerade gesperrt?"
 $ aquaticy --location "Mönchengladbach" --lang de
 
 ╭──────────────────────────────────────────────────────╮
-│ Aquaticy AI 9.5.5                                      │
+│ Aquaticy AI 9.5.7                                      │
 │ Modell mistral/mistral-large-latest · Suche duckduckgo │
 │ Frag einfach los. /help zeigt die Befehle.           │
 ╰──────────────────────────────────────────────────────╯
@@ -863,7 +863,7 @@ er erreichbar ist — im heimischen Netz und über Tailscale:
 
 ```
 ╭───────────────────────────────────────────────────────────────────╮
-│ Aquaticy AI 9.5.5                                                   │
+│ Aquaticy AI 9.5.7                                                   │
 │ Diese Adresse im Browser oeffnen:                                 │
 │   http://192.168.1.44:8765/    im heimischen Netz                 │
 │   http://100.81.120.100:8765/  ueber Tailscale                    │
@@ -2129,7 +2129,8 @@ ihn vor dem Start mit `AQUATICY_PRO_CODE`.
 Normale Konten können recherchieren, chatten und ihre eigenen Einstellungen und Daten
 nutzen. Nach insgesamt 150.000 Token nehmen sie keine weiteren Modellanfragen an. Der
 Zähler lässt sich nicht zurücksetzen. Pro-Konten haben kein Tokenlimit und können
-zusätzlich die LAN-Suche, Home Assistant und die Lagerverwaltung verwenden.
+zusätzlich die LAN-Suche, Home Assistant und die Lagerverwaltung verwenden. Nur Pro-Konten
+können unter **Dev settings** die Rechts-Leitplanken abschalten (siehe unten).
 
 ```bash
 aquaticy list       # Nutzername, E-Mail, Kontotyp, Token- und Speicherverbrauch
@@ -2149,6 +2150,78 @@ geltenden Textfassung gespeichert.
 Aquaticy enthält keine Werbe- oder Tracking-SDKs, veröffentlicht keine
 Nutzerbewertungen und verarbeitet selbst keine Zahlungen. Verlangt ein Betreiber Geld für den
 Zugang, muss er Preise, Kündigung und Erstattung vor dem Kauf selbst klar ausweisen.
+
+## Rechtsrahmen: Leitplanken nach Grundgesetz und BGB
+
+Aquaticy hält sich an elf Regeln, jede mit ihrer Rechtsgrundlage. Sie stehen in
+`aquaticy/guardrails.py` und in den Einstellungen unter **Dev settings → Welche Regeln
+gelten?**:
+
+| Regel | Rechtsgrundlage |
+|---|---|
+| Menschenwürde | Art. 1 Abs. 1 GG |
+| Persönlichkeitsrecht, informationelle Selbstbestimmung | Art. 2 Abs. 1 i. V. m. Art. 1 Abs. 1 GG, § 823 Abs. 1 BGB |
+| Gleichbehandlung | Art. 3 Abs. 3 GG |
+| Brief-, Post- und Fernmeldegeheimnis | Art. 10 Abs. 1 GG |
+| Unverletzlichkeit der Wohnung | Art. 13 Abs. 1 GG |
+| Eigentum und Besitz | Art. 14 Abs. 1 GG, §§ 858, 903, 1004 BGB |
+| Namensrecht | § 12 BGB |
+| Ehre und Kreditwürdigkeit | § 823 Abs. 1 BGB, § 824 BGB |
+| Sittenwidrige Schädigung | § 826 BGB, § 830 Abs. 2 BGB |
+| Gesetzliches Verbot und Wucher | §§ 134, 138 BGB |
+| Gewaltfreie Erziehung | § 1631 Abs. 2 BGB |
+
+Dazu die Gegenseite, damit nicht zu viel abgelehnt wird: Meinung, Kritik, Satire, Presse,
+Kunst, Wissenschaft und Recherche bleiben frei (Art. 5 GG). Ein Thema zu erklären — auch
+diese Regeln selbst —, über Personen des öffentlichen Lebens in ihrer öffentlichen Rolle zu
+berichten und über sich selbst zu recherchieren, ist immer erlaubt.
+
+**Wo geprüft wird — drei Stellen, eine Liste:**
+
+1. **Jede Anfrage**, bevor irgendetwas läuft: ein Rechtsprüfer (das schnelle Modell, bei
+   Ausfall das Hauptmodell) liest sie zusammen mit dem Gesprächsverlauf davor. Lehnt er ab,
+   startet keine Suche, kein Agent, kein Werkzeug. Die Antwort nennt Regel,
+   Rechtsgrundlage und was stattdessen geht. Grüße kosten keine Prüfung.
+2. **Jeder Schritt, der Menschen oder private Räume berührt** — Profilsuche zu einem Namen,
+   ein Kamera- oder Straßenbild öffnen, ein Mail-Entwurf — wird einzeln geprüft, zusammen
+   mit der Anfrage, aus der er kommt. So kommt auch eine Recherche, die unterwegs abbiegt
+   (etwa weil eine gelesene Seite dazu auffordert), nicht vorbei. Das gilt für den
+   Hauptagenten, jeden Subagenten und jeden Prüfer.
+3. **Im Systemtext** jedes Agenten stehen dieselben Regeln, damit das Modell sie kennt.
+
+**Warum ein Prüfer und keine Wortliste:** Eine Liste verbotener Wörter trifft das Harmlose
+und verfehlt alles, was anders formuliert ist. Ob etwas Rechte verletzt, hängt am Sinn der
+Bitte und am Gespräch davor.
+
+**Im Zweifel nein.** Gibt der Prüfer keine lesbare Antwort — etwa weil jemand ihn mit einer
+Anweisung im Text aus dem Takt bringen will —, gilt die Anfrage als abgelehnt. Antwortet
+gar kein Modell, wird ebenfalls nichts bearbeitet. Ein Auftrag, dessen Frage abgelehnt
+wird, schaltet sich selbst ab, statt jede Minute ins selbe Nein zu laufen.
+
+**Abschalten kann nur Pro**, und nur in den Einstellungen unter **Dev settings**. Beim
+Ausschalten fragt die Oberfläche noch einmal nach. Bei normalen Konten ist der Schalter
+gesperrt, und der Server setzt ihn auf „an", egal was in deren `.env` steht oder was am
+Formular vorbei geschickt wird. Aus dem Chat heraus lässt er sich nie umstellen — auch nicht
+als „Rechtsrahmen", „Leitplanken" oder „Guardrails". In der `.env` schaltet nur ein
+ausdrückliches `AQUATICY_LEGAL_GUARD=false` (oder `0`, `aus`, `nein`, `off`, `no`) ab; ein
+Tippfehler lässt die Leitplanken an.
+
+**Was dieser Schalter nicht berührt:** die festen Grenzen. Paywalls, Logins und Captchas
+werden nie umgangen, robots.txt gilt, ins Heimnetz wird nur privat gesehen, im Haus nur mit
+Rückfrage geschaltet, bei Google nie gesendet und nie gelöscht. Das bleibt auch mit
+ausgeschalteten Leitplanken so.
+
+**Ehrlich zu den Grenzen:**
+
+- Der Prüfer ist ein Sprachmodell. Er entscheidet gut, aber nicht unfehlbar — in beide
+  Richtungen. Im Zweifel formuliert man die Bitte anders oder sagt, wofür man es braucht.
+- Websuche und Seitenabruf werden nicht einzeln geprüft: sie laufen dutzendfach je Frage,
+  und die Anfrage, aus der sie kommen, ist bereits geprüft.
+- Bei sehr langen Texten liest der Prüfer Anfang und Ende (je 2.000 Zeichen).
+- Jede Anfrage kostet einen zusätzlichen, kurzen Modellaufruf — bei einem lokalen Modell
+  ein, zwei Sekunden, bei NVIDIA einen der 40 Aufrufe pro Minute.
+- Aquaticy ist keine Rechtsberatung. Die Leitplanken entscheiden nur, was Aquaticy selbst
+  tut. Für den eigenen Einzelfall: Anwaltskanzlei oder Verbraucherzentrale.
 
 ## Aufbau
 
@@ -2175,6 +2248,7 @@ aquaticy/
   memory.py      # der verschlüsselte Speicher
   google.py      # Gmail und Kalender, lesend und (auf Wunsch) ändernd
   subagents.py   # parallele Rechercheaufträge samt Rollen und Prüfern
+  guardrails.py  # Rechtsrahmen: Leitplanken nach Grundgesetz und BGB, der Rechtsprüfer
   master.py      # der Master: beauftragt, bewertet, schickt nach (Pro-Modus)
   places.py      # die Karte: kleine Läden, die keine Suchmaschine kennt
   local_model.py # lokale Modelle per Ollama einrichten

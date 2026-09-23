@@ -93,6 +93,20 @@ def _env_bool(name: str, default: bool) -> bool:
     return raw in {"1", "true", "yes", "on", "ja"}
 
 
+#: Die einzigen Werte, mit denen sich die Rechts-Leitplanken abschalten.
+_GUARD_OFF = frozenset({"0", "false", "no", "off", "nein", "aus"})
+
+
+def guard_on(raw: str | None) -> bool:
+    """Liest den Schalter der Rechts-Leitplanken.
+
+    Anders als bei allen anderen Schaltern schaltet nur ein ausdrueckliches
+    "aus" ab. Ein Tippfehler ("an", "True ", "jaa") darf die Leitplanken nicht
+    still verschwinden lassen -- bei `_env_bool` waere alles Unbekannte aus.
+    """
+    return (raw or "").strip().lower() not in _GUARD_OFF
+
+
 def provider_of(model: str) -> str:
     """`mistral/mistral-large-latest` -> `mistral`."""
     return model.split("/", 1)[0].lower() if "/" in model else model.split("-", 1)[0].lower()
@@ -329,6 +343,11 @@ class Settings:
     storage_access: str = "read"
     #: Darf aquaticy das eigene Netz durchsuchen?
     lan_enabled: bool = True
+    #: Leitplanken nach Grundgesetz und BGB (siehe aquaticy/guardrails.py).
+    #: Immer an -- abschalten kann sie nur ein Pro-Konto in den Einstellungen,
+    #: nie ein Satz im Chat. Bei normalen Konten setzt der Server sie
+    #: zwangsweise wieder auf an, egal was in deren `.env` steht.
+    legal_guard: bool = True
     #: Netz, das dabei durchsucht wird. Leer = das eigene automatisch erkennen.
     lan_subnet: str = ""
     fetch_timeout: float = 15.0
@@ -568,6 +587,7 @@ def get_settings() -> Settings:
         memory_enabled=_env_bool("AQUATICY_MEMORY", True),
         memory_key=_env_str("AQUATICY_MEMORY_KEY"),
         lan_enabled=_env_bool("AQUATICY_LAN_ENABLED", True),
+        legal_guard=guard_on(_env_str("AQUATICY_LEGAL_GUARD")),
         lan_subnet=_env_str("AQUATICY_LAN_SUBNET"),
         fetch_timeout=float(_env_int("AQUATICY_FETCH_TIMEOUT", 15)),
         cache_ttl_hours=_env_int("AQUATICY_CACHE_TTL_HOURS", 24),

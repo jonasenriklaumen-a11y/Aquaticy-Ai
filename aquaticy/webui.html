@@ -1729,6 +1729,26 @@ input:focus,select:focus{border-color:var(--accent)}
         </div>
       </fieldset>
 
+      <fieldset id="dev-settings"><legend>Dev settings</legend>
+        <div class="pro-lock" id="dev-lock" hidden>🔒 Die Dev settings gehören zu Pro.
+          Mit einem normalen Konto bleiben die Rechts-Leitplanken immer eingeschaltet.</div>
+        <div class="check">
+          <input type="checkbox" role="switch" class="schalter" id="legalguard"
+                 name="AQUATICY_LEGAL_GUARD">
+          <label for="legalguard" style="margin:0">Rechts-Leitplanken nach Grundgesetz und BGB
+            <span class="why">Aquaticy prüft jede Anfrage — und jede Profilsuche zu einem
+              Namen, jedes Kamerabild und jeden Mail-Entwurf — gegen die Regeln unten,
+              bevor etwas passiert. Aus dem Chat heraus lässt sich das nie
+              abschalten.</span></label>
+        </div>
+        <details class="note" id="legal-rules"><summary>Welche Regeln gelten?</summary>
+          <ul id="legal-rule-list"></ul></details>
+        <div class="note">An diesem Schalter hängen nur die Rechts-Leitplanken. Die festen
+          Grenzen bleiben immer: keine Paywalls, Logins oder Captchas umgehen, robots.txt
+          achten, ins Heimnetz nur privat sehen, im Haus nur mit Rückfrage schalten, bei
+          Google nie senden und nie löschen.</div>
+      </fieldset>
+
       <div class="actions">
         <button type="button" class="btn" id="cancel">Abbrechen</button>
         <button type="submit" class="btn primary">Speichern</button>
@@ -1742,7 +1762,7 @@ input:focus,select:focus{border-color:var(--accent)}
 const $ = (s) => document.querySelector(s);
 const thread = $("#thread"), main = $("#main"), input = $("#input"), send = $("#send");
 let busy = false;
-const aquaticyVersion = window.__AQUATICY_VERSION__ || "9.5.5";
+const aquaticyVersion = window.__AQUATICY_VERSION__ || "9.5.7";
 $("#version").textContent = "v" + aquaticyVersion;
 document.title = `Aquaticy AI ${aquaticyVersion}`;
 
@@ -2731,6 +2751,14 @@ async function verfolge(hole, steps, bubble, text){
         step(steps, "[Karte]", `${ev.hits} ${ev.hits === 1 ? "Ort" : "Orte"}`); break;
       case "note":
         step(steps, "[Hinweis]", ev.text, "warn"); break;
+      case "guard":
+        // Die Absage selbst steht in der Antwort. Hier steht, WAS abgelehnt
+        // wurde -- die ganze Anfrage oder ein einzelner Schritt unterwegs.
+        step(steps, "[Rechtsrahmen]",
+          `${ev.stage === "werkzeug" ? "Schritt" : "Anfrage"} abgelehnt — `
+          + `${ev.title || "Rechtsrahmen"}${ev.basis ? " (" + ev.basis + ")" : ""}`,
+          "warn");
+        break;
       case "checkers":
         step(steps, "[Prüfer]",
           `${ev.count} prüfen mit, während die anderen noch suchen`); break;
@@ -3597,6 +3625,7 @@ $("#btn-settings").addEventListener("click", async () => {
   showGoogle(cfg.google);
   $("#lager-note").textContent = ""; $("#lager-note").className = "note";
   $("#ha-hint").textContent = cfg.ha_connected ? "(gesetzt)" : "";
+  showLegalRules(cfg.legal_rules || []);
   $("#savenote").textContent = ""; $("#savenote").className = "note";
   $("#ha-note").textContent = ""; $("#ha-note").className = "note";
   openOverlay(overlay);
@@ -3622,6 +3651,13 @@ async function loadAccount(account){
     $("#showload").checked = false;
     $("#usage-note").innerHTML = "";
   }
+  // Dev settings: nur Pro darf die Rechts-Leitplanken abschalten. Der Server
+  // prueft das ohnehin -- das hier sagt es, bevor man es versucht.
+  const dev = $("#dev-settings");
+  dev.classList.toggle("locked-feature", !pro);
+  $("#dev-lock").hidden = pro;
+  dev.querySelectorAll("input").forEach(field => { field.disabled = !pro; });
+  if (!pro) $("#legalguard").checked = true;
   const plus = form.elements["AQUATICY_VM_SIZE"].querySelector('option[value="plus"]');
   plus.disabled = !pro;
   $("#vm-plus-lock").hidden = pro;
@@ -3634,6 +3670,28 @@ async function loadAccount(account){
       : `${kurz(data.tokens_used)} von ${kurz(data.token_limit)}`;
   } catch { $("#account-tokens").textContent = "nicht verfügbar"; }
 }
+
+function showLegalRules(rules){
+  const list = $("#legal-rule-list");
+  list.innerHTML = "";
+  for (const rule of rules){
+    const item = document.createElement("li");
+    const title = document.createElement("strong");
+    title.textContent = rule.title;
+    item.append(title, ` (${rule.basis}) — ${rule.text}`);
+    list.appendChild(item);
+  }
+}
+// Ausschalten ist eine bewusste Entscheidung -- ein verrutschter Finger
+// soll sie nicht treffen. Einschalten fragt nicht nach.
+$("#legalguard").addEventListener("change", (e) => {
+  if (e.target.checked) return;
+  const ok = confirm("Rechts-Leitplanken wirklich ausschalten?\n\n"
+    + "Aquaticy prüft Anfragen dann nicht mehr gegen Grundgesetz und BGB. "
+    + "Die festen Grenzen (Paywalls, Heimnetz, Schalten, Google) bleiben. "
+    + "Gilt erst nach dem Speichern.");
+  if (!ok) e.target.checked = true;
+});
 
 $("#account-logout").addEventListener("click", async () => {
   await api("/api/auth/logout", {method:"POST"});

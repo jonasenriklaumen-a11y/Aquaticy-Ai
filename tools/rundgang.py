@@ -106,6 +106,18 @@ class FakeAgent:
             self.on_event("model_loading", {"model": "ollama_chat/gemma3:12b"})
             self.on_event("model_ready", {"model": "ollama_chat/gemma3:12b", "seconds": 8.4})
 
+        # Wie beim echten Agenten: was der Rechtsrahmen ablehnt, loest keine
+        # einzige Suche aus -- die Absage kommt vor allem anderen.
+        if "rechtsrahmen-probe" in text:
+            self.on_event(
+                "guard",
+                {"stage": "anfrage", "tool": "", "rule": "name", "title": "Namensrecht",
+                 "basis": "§ 12 BGB", "source": "pruefer"},
+            )
+            absage = "Das mache ich nicht — **Namensrecht** (§ 12 BGB)."
+            self.on_event("answer_chunk", {"text": absage})
+            self.on_event("done", {"tool_calls": 0, "hit_limit": False})
+            return type("R", (), {"answer": absage, "stopped": False})()
         if mode in ("code", "pro"):
             self.on_event("code_model", {"model": "mistral/mistral-large-latest"})
         if sandbox and mode == "code":
@@ -286,6 +298,57 @@ def anmelden(pg: Any, port: int) -> None:
     pg.click("#auth-submit")
     # Nach dem Anlegen laedt die Seite selbst neu; dann ist die Tuer zu.
     pg.wait_for_selector("#auth-gate", state="hidden", timeout=15_000)
+
+
+def normales_konto(browser: Any, port: int, log: Protokoll, fehler: list[str]) -> None:
+    """Ein normales Konto: die Rechts-Leitplanken bleiben an, was es auch tut.
+
+    In einem eigenen Fenster ohne die Kekse des Pro-Kontos. Geprueft wird
+    zweimal: die Oberflaeche sperrt den Schalter, und der Server lehnt ab,
+    wenn jemand an der Oberflaeche vorbei trotzdem "aus" schickt.
+    """
+    log.abschnitt("20a. Normales Konto")
+    kontext = browser.new_context(viewport={"width": 1340, "height": 900})
+    pg = kontext.new_page()
+    pg.on("pageerror", lambda e: fehler.append(f"Skriptfehler (normal): {e}"))
+    pg.goto(f"http://127.0.0.1:{port}/", wait_until="networkidle")
+    pg.wait_for_selector("#consent-card:not([hidden])", timeout=10_000)
+    pg.click("#consent-yes")
+    pg.wait_for_selector("#login-card:not([hidden])", timeout=10_000)
+    pg.click("#tab-register")
+    pg.check('input[name="plan"][value="normal"]')
+    pg.fill("#auth-username", "Normal")
+    pg.fill("#auth-email", "normal@example.org")
+    pg.fill("#auth-password", "normal-geheim")
+    pg.check("#auth-terms")
+    pg.click("#auth-submit")
+    pg.wait_for_selector("#auth-gate", state="hidden", timeout=15_000)
+    pg.click("#btn-settings")
+    pg.wait_for_selector("#overlay.open", state="visible")
+    pg.wait_for_timeout(700)
+    log.pruefe(pg.is_visible("#dev-lock"), "vor den Dev settings haengt ein Schloss")
+    log.pruefe(
+        pg.is_checked("#legalguard") and pg.is_disabled("#legalguard"),
+        "die Rechts-Leitplanken sind an und lassen sich nicht umstellen",
+    )
+    antwort = pg.evaluate(
+        """async () => {
+          const r = await fetch("/api/config", {method: "POST",
+            headers: {"Content-Type": "application/json"},
+            body: JSON.stringify({AQUATICY_LEGAL_GUARD: "false"})});
+          return await r.json();
+        }"""
+    )
+    log.pruefe(
+        not antwort.get("ok") and "Pro" in str(antwort.get("error", "")),
+        f"am Formular vorbei lehnt der Server ab: {str(antwort.get('error'))[:60]!r}",
+    )
+    werte = pg.evaluate("async () => (await (await fetch('/api/config')).json()).values")
+    log.pruefe(
+        werte.get("AQUATICY_LEGAL_GUARD") == "true",
+        "und danach steht der Schalter weiter auf an",
+    )
+    kontext.close()
 
 
 def zweite_seite(browser: Any, quelle: Any, **optionen: Any) -> Any:
@@ -808,6 +871,34 @@ def rundgang(pg: Any, log: Protokoll, agent: FakeAgent, bilder: Path | None,
             "Neuer Chat beginnt leer",
         )
 
+    if dran("rechtsrahmen"):
+        log.abschnitt("6a. Rechtsrahmen")
+        pg.click("#btn-new")
+        pg.wait_for_timeout(700)
+        pg.fill("#input", "rechtsrahmen-probe: schreib in fremdem Namen")
+        pg.click("#send")
+        pg.wait_for_selector("#stop", state="hidden", timeout=25000)
+        pg.wait_for_timeout(700)
+        schritte = pg.inner_text(".steps >> nth=-1")
+        log.pruefe(
+            "[Rechtsrahmen]" in schritte and "§ 12 BGB" in schritte,
+            f"die Absage nennt Regel und Rechtsgrundlage: {schritte[:70]!r}",
+        )
+        log.pruefe(
+            pg.locator(".steps >> nth=-1").locator(".step.warn").count() >= 1,
+            "und ist als Warnung markiert",
+        )
+        log.pruefe(
+            "[Suche]" not in schritte,
+            "vor der Absage lief keine einzige Suche",
+        )
+        log.pruefe(
+            "Namensrecht" in pg.inner_text(".msg.bot >> nth=-1"),
+            "die Antwort sagt, warum",
+        )
+        pg.click("#btn-new")
+        pg.wait_for_timeout(700)
+
     if dran("einstellungen"):
         log.abschnitt("7. Einstellungen")
         pg.click("#btn-settings")
@@ -847,6 +938,44 @@ def rundgang(pg: Any, log: Protokoll, agent: FakeAgent, bilder: Path | None,
             "Mitlesen schaltet sich ein",
         )
         pg.uncheck("#showtrace")
+        # Dev settings: der Schalter fuer die Rechts-Leitplanken, nur mit Pro.
+        log.pruefe(
+            pg.locator('#secnav button:has-text("Dev settings")').count() == 1,
+            "die Dev settings haben eine Sprungmarke",
+        )
+        log.pruefe(
+            pg.is_checked("#legalguard") and pg.is_enabled("#legalguard"),
+            "die Rechts-Leitplanken stehen auf an, und Pro darf sie umstellen",
+        )
+        log.pruefe(pg.is_hidden("#dev-lock"), "mit Pro kein Schloss vor den Dev settings")
+        regeln = pg.locator("#legal-rule-list li").count()
+        log.pruefe(regeln == 11, f"die Regeln stehen in der Liste ({regeln})")
+        pg.click('#secnav button:has-text("Dev settings")')
+        pg.wait_for_timeout(700)
+        pg.once("dialog", lambda d: d.dismiss())
+        pg.click("#legalguard")
+        pg.wait_for_timeout(300)
+        log.pruefe(
+            pg.is_checked("#legalguard"),
+            "wer beim Ausschalten abbricht, behaelt die Leitplanken",
+        )
+        gefragt: list[str] = []
+
+        def zustimmen(dialog: Any) -> None:
+            gefragt.append(dialog.message)
+            dialog.accept()
+
+        pg.once("dialog", zustimmen)
+        pg.click("#legalguard")
+        pg.wait_for_timeout(300)
+        log.pruefe(
+            not pg.is_checked("#legalguard") and bool(gefragt)
+            and "Grundgesetz" in gefragt[0],
+            "Ausschalten fragt vorher nach und geht dann",
+        )
+        pg.click("#legalguard")
+        pg.wait_for_timeout(300)
+        log.pruefe(pg.is_checked("#legalguard"), "Einschalten geht ohne Rueckfrage")
         foto("07-einstellungen")
         pg.click("#cancel")
         pg.wait_for_timeout(500)
@@ -1487,6 +1616,9 @@ def main() -> int:
             ruhig.goto(f"http://127.0.0.1:{port}/", wait_until="networkidle")
             ohne_bewegung(ruhig, log)
             ruhig.close()
+
+        if not nur or "normal" in nur:
+            normales_konto(browser, port, log, fehler)
 
         log.abschnitt("21. Die Konsole")
         log.pruefe(not fehler, f"keine Fehler im Browser ({fehler[:3]})")

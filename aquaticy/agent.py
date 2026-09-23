@@ -19,6 +19,14 @@ from typing import Any
 
 from aquaticy.cache import Cache
 from aquaticy.config import Settings, selected_vision_model
+from aquaticy.guardrails import (
+    GENERIC,
+    UNAVAILABLE,
+    Guard,
+    event_payload,
+    refusal_text,
+    rules_prompt,
+)
 from aquaticy.models import Product
 from aquaticy.pace import paced
 from aquaticy.storage import normalize_access as storage_access
@@ -1005,6 +1013,9 @@ class AgentResult:
     #: Es lief eine zweite Runde mit anderen Quellen.
     rechecked: bool = False
     error: str = ""
+    #: Die Anfrage wurde nach dem Rechtsrahmen abgelehnt -- die Kennung der
+    #: Regel (siehe aquaticy/guardrails.py). Leer heisst: nicht abgelehnt.
+    guarded: str = ""
 
     def meta(self) -> dict[str, Any]:
         return {
@@ -1089,6 +1100,13 @@ class Agent:
             spec_extractor=self.extract_specs,
             visual_inspector=self.inspect_public_visual,
         )
+        #: Der Rechtspruefer -- derselbe wie im Werkzeugkasten, damit Anfrage
+        #: und Werkzeugaufrufe gegen dieselbe Stelle laufen. Ein fremder
+        #: Werkzeugkasten (Tests) hat vielleicht keinen; dann baut der Agent
+        #: seinen eigenen, denn die Einstellung gilt trotzdem.
+        self.guard: Guard | None = getattr(self.toolbox, "guard", None)
+        if self.guard is None and settings.legal_guard:
+            self.guard = Guard(settings)
         # Erst der Werkzeugkasten, dann der Text: ob Rueckfragen moeglich sind,
         # steht am Werkzeugkasten und gehoert in den Systemtext.
         self.messages: list[dict[str, Any]] = [
@@ -1226,15 +1244,21 @@ class Agent:
             context = f"[Ortsfilter: {self.settings.location}]\n{context}".strip()
         return context
 
-    def _recent_context(self, turns: int = 2) -> str:
+    def _recent_context(self, turns: int = 2, *, include_last: bool = False) -> str:
         """Die letzten Wortmeldungen -- damit Nachfragen verstaendlich bleiben.
 
         Interne Zwischennachrichten (Vorrecherche-Ergebnisse, Budget-Hinweis)
         gehoeren nicht hinein: der Planer soll das Gespraech sehen, nicht
         unsere Regie-Anweisungen.
+
+        Args:
+            include_last: Die letzte Nachricht mitnehmen. Der Planer laeuft,
+                wenn die neue Frage schon im Verlauf steht -- die laesst er
+                weg. Der Rechtspruefer laeuft davor; bei ihm ist die letzte
+                Nachricht die vorige Antwort, und die gehoert dazu.
         """
         parts: list[str] = []
-        for message in self.messages[1:-1]:
+        for message in self.messages[1:] if include_last else self.messages[1:-1]:
             role = message.get("role")
             if role not in ("user", "assistant"):
                 continue
@@ -1756,6 +1780,8 @@ class Agent:
             text += OFFLINE_PROMPT
         elif self.visual_sources and clean_mode(self.mode) != "code":
             text += VISUAL_SOURCES_PROMPT
+        if self.settings.legal_guard:
+            text += rules_prompt()
         return text + self._person_prompt()
 
     def _person_prompt(self) -> str:
@@ -2128,6 +2154,10 @@ class Agent:
             result.answer = ""
             return result
 
+        abgelehnt = self._legal_check(question)
+        if abgelehnt is not None:
+            return abgelehnt
+
         if self.workshop_on:
             self._touch_workshop()
         if clean_mode(self.mode) in ("code", "pro"):
@@ -2260,6 +2290,43 @@ class Agent:
         if not result.stopped:
             self._fallback_visual(result)
         return self._finish(result, question)
+
+    def _legal_check(self, question: str) -> AgentResult | None:
+        """Prueft die Anfrage gegen den Rechtsrahmen, bevor irgendetwas laeuft.
+
+        Vor Planung, Agenten und Werkzeugen: was hier abgelehnt wird, hat
+        noch keine einzige Suche ausgeloest. Ein Gruss kostet keine Pruefung.
+
+        Returns:
+            Das fertige Ergebnis mit der Absage -- oder `None`, wenn es
+            weitergehen darf.
+        """
+        if self.guard is None:
+            return None
+        # Auch ohne Pruefung: die Werkzeugaufrufe dieses Turns gehoeren zu
+        # dieser Frage, nicht mehr zur vorigen.
+        self.guard.topic = question
+        if SMALL_TALK_RE.match(question):
+            return None
+        # Der Pruefer spricht als Erster mit dem Modell. Muss es erst geladen
+        # werden, faellt die Wartezeit hier an -- dann soll das auch dastehen.
+        self._tell_if_loading()
+        verdict = self.guard.check_request(
+            question, self._recent_context(include_last=True)
+        )
+        self._model_ready()
+        if verdict.allowed:
+            return None
+        antwort = refusal_text(verdict)
+        self._emit("guard", **event_payload(verdict, "anfrage"))
+        self.messages.append({"role": "user", "content": question})
+        self.messages.append({"role": "assistant", "content": antwort})
+        self._emit("answer_chunk", text=antwort)
+        if verdict.source == "ausfall":
+            ergebnis = AgentResult(answer=antwort, error=UNAVAILABLE)
+        else:
+            ergebnis = AgentResult(answer=antwort, guarded=(verdict.rule or GENERIC).id)
+        return self._finish(ergebnis, question)
 
     def _second_round(self, result: AgentResult, *, question: str, stream: bool) -> None:
         """Sucht noch einmal, mit anderen Quellen, und schreibt die Antwort neu.

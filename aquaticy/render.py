@@ -103,6 +103,21 @@ class ChatRenderer:
             )
         )
 
+    def _on_guard(self, payload: dict[str, Any]) -> None:
+        """Eine Absage nach dem Rechtsrahmen -- mit Regel und Rechtsgrundlage."""
+        self._flush_reading()
+        wo = "Werkzeug " + str(payload.get("tool") or "") if payload.get("tool") else "Anfrage"
+        self.console.print(
+            Text.assemble(
+                ("  [Rechtsrahmen] ", "bold yellow"),
+                (
+                    f"{wo} abgelehnt -- {payload.get('title', '')} "
+                    f"({payload.get('basis', '')})",
+                    "white",
+                ),
+            )
+        )
+
     def _on_search(self, payload: dict[str, Any]) -> None:
         self._flush_reading()
         self.console.print(

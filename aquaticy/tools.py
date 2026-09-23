@@ -22,6 +22,7 @@ from aquaticy.cache import Cache, cache_key
 from aquaticy.config import Settings
 from aquaticy.extract import extract_product, has_spec_heading
 from aquaticy.fetch import Fetcher, load_rules
+from aquaticy.guardrails import SENSITIVE_TOOLS, Guard, event_payload, tool_refusal
 from aquaticy.models import PageResult, Product, SearchResult, domain_of
 from aquaticy.queries import MAX_VARIANTS, keywords, mentions_place, variants, with_place
 from aquaticy.search import (
@@ -1162,6 +1163,13 @@ class Toolbox:
         #: Wird gerufen, wenn sich eine Einstellung geaendert hat. Die
         #: Oberflaeche baut daraufhin den Agenten fuer die naechste Frage neu.
         self.on_settings_changed: Any = None
+        #: Der Rechtspruefer (aquaticy/guardrails.py). Er sitzt hier und nicht
+        #: im Agenten: durch diesen Werkzeugkasten laufen auch die Subagenten,
+        #: die Pruefer und die Notloesung fuer Bilder -- keiner davon kommt so
+        #: an ihm vorbei.
+        self.guard: Guard | None = (
+            Guard(settings) if getattr(settings, "legal_guard", True) else None
+        )
 
     def close(self, *, close_fetcher: bool = True) -> None:
         """Gibt eigene Ressourcen frei.
@@ -1968,6 +1976,11 @@ class Toolbox:
 
     def call(self, name: str, arguments: dict[str, Any]) -> dict[str, Any]:
         """Fuehrt den Tool-Call *name* mit *arguments* aus."""
+        if self.guard is not None and name in SENSITIVE_TOOLS:
+            verdict = self.guard.check_call(name, arguments)
+            if not verdict.allowed:
+                self._emit("guard", **event_payload(verdict, "werkzeug", name))
+                return tool_refusal(verdict)
         if name == "web_search":
             more = arguments.get("queries") or []
             return self.web_search(

@@ -99,6 +99,10 @@ KINDS = ("research", "visual", "price", "image")
 #: eingetreten ist. Bis dahin laufen sie still.
 MONITORING = ("visual", "price", "image")
 
+#: Womit der Zustand eines Auftrags beginnt, den der Rechtsrahmen abgelehnt
+#: hat. Solche Auftraege schaltet der Planer ab.
+GUARD_STATE = "abgelehnt nach Rechtsrahmen"
+
 
 def _number(value: str) -> float | None:
     """Eine Zahl aus einem Preis oder einer Preisgrenze.
@@ -545,6 +549,7 @@ def run_job(job: Job, settings: Any, *, token_limit: int | None = None) -> tuple
     """
     from aquaticy.agent import Agent
     from aquaticy.cache import Cache
+    from aquaticy.guardrails import UNAVAILABLE
     from aquaticy.usage import UsageLog
 
     if token_limit is not None and UsageLog(settings.db_path).total_tokens() >= token_limit:
@@ -616,6 +621,16 @@ def run_job(job: Job, settings: Any, *, token_limit: int | None = None) -> tuple
         )
         antwort = str(getattr(result, "answer", "") or "").strip()
         chat = str(getattr(agent, "session_id", ""))
+        if str(getattr(result, "error", "") or "") == UNAVAILABLE:
+            # Nicht geprueft ist nicht abgelehnt: der Auftrag bleibt an und
+            # versucht es beim naechsten Takt wieder.
+            return (UNAVAILABLE, "")
+        regel = str(getattr(result, "guarded", "") or "")
+        if regel:
+            # Dieselbe Frage wird beim naechsten Takt wieder abgelehnt. Der
+            # Planer schaltet den Auftrag deshalb ab (siehe Scheduler) --
+            # sonst liefe er ewig ins selbe Nein.
+            return (f"{GUARD_STATE}: {regel}", "")
         if not antwort:
             return ("ohne Antwort", chat)
         if monitoring:
@@ -710,7 +725,7 @@ class Scheduler:
             except Exception as exc:
                 state, chat = (f"Fehler: {type(exc).__name__}", "")
             store.note_run(job.id, state, chat)
-            if state == "erfüllt":
+            if state == "erfüllt" or state.startswith(GUARD_STATE):
                 store.set_enabled(job.id, False)
             gelaufen += 1
             if self._on_run:

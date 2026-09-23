@@ -43,6 +43,7 @@ from aquaticy.config import (
     base_fits,
     find_env_file,
     get_settings,
+    guard_on,
     load_env,
     reset_settings_cache,
     resolve_model,
@@ -50,6 +51,7 @@ from aquaticy.config import (
     suggest_model,
     write_env_file,
 )
+from aquaticy.guardrails import rules_overview
 from aquaticy.legal import LEGAL_ROUTES, LEGAL_VERSION, legal_page
 
 UI_FILE = Path(__file__).with_name("webui.html")
@@ -227,6 +229,7 @@ SETTING_KEYS: tuple[str, ...] = (
     "AQUATICY_LAN_SUBNET",
     "AQUATICY_MEMORY",
     "AQUATICY_VM_SIZE",
+    "AQUATICY_LEGAL_GUARD",
 )
 
 #: Zahlenfelder mit dem Bereich, in dem sie sinnvoll sind. Geprueft wird
@@ -394,6 +397,9 @@ def _profile_settings(profile: Path, plan: str) -> Settings:
         if key in raw:
             with contextlib.suppress(ValueError):
                 setattr(settings, attr, int(raw[key]))
+    if "AQUATICY_LEGAL_GUARD" in raw:
+        # Nicht ueber _BOOL_SETTINGS: dort waere jeder Tippfehler "aus".
+        settings.legal_guard = guard_on(raw["AQUATICY_LEGAL_GUARD"])
     for key in ("MISTRAL_API_KEY", "NVIDIA_NIM_API_KEY", "AQUATICY_API_KEY"):
         if raw.get(key):
             settings.api_keys[key] = raw[key]
@@ -411,6 +417,11 @@ def _profile_settings(profile: Path, plan: str) -> Settings:
         settings.vm_cpus = 1
         settings.vm_memory_mb = 1024
         settings.vm_disk_gb = 4
+        # Die Rechts-Leitplanken lassen sich nur mit Pro abschalten. Steht in
+        # der .env eines normalen Kontos trotzdem "aus" -- von Hand
+        # eingetragen, aus einer Zeit als Pro-Konto, oder vom Server geerbt
+        # --, gilt hier trotzdem "an".
+        settings.legal_guard = True
     settings.data_dir.mkdir(parents=True, exist_ok=True)
     return settings
 
@@ -1168,6 +1179,7 @@ def current_values() -> dict[str, str]:
         "AQUATICY_LAN_SUBNET": settings.lan_subnet,
         "AQUATICY_MEMORY": "true" if settings.memory_enabled else "false",
         "AQUATICY_VM_SIZE": settings.vm_size,
+        "AQUATICY_LEGAL_GUARD": "true" if settings.legal_guard else "false",
     }
 
 
@@ -1285,9 +1297,21 @@ def save_values(payload: dict[str, Any]) -> Path:
             "LAN-Suche, Home Assistant, Lagerverwaltung und die Plus-Werkstatt "
             "brauchen ein Pro-Konto."
         )
+    guard_off = "AQUATICY_LEGAL_GUARD" in payload and not guard_on(
+        str(payload.get("AQUATICY_LEGAL_GUARD", ""))
+    )
+    if guard_off and not session.pro:
+        raise ValueError(
+            "Die Rechts-Leitplanken (Grundgesetz und BGB) lassen sich nur mit einem "
+            "Pro-Konto abschalten."
+        )
     values = {
         key: str(payload.get(key, "")).strip() for key in SETTING_KEYS if key in payload
     }
+    if "AQUATICY_LEGAL_GUARD" in values:
+        # Eindeutig speichern -- ein "an" in der Datei liest sonst jeder
+        # andere Leser anders.
+        values["AQUATICY_LEGAL_GUARD"] = "false" if guard_off else "true"
     beanstandung = check_values(values)
     if beanstandung:
         raise ValueError(beanstandung)
@@ -1972,6 +1996,7 @@ class Handler(BaseHTTPRequestHandler):
                         strong_models(1, purpose="code") or [{}]
                     )[0].get("id", ""),
                     "google": google_state(settings),
+                    "legal_rules": rules_overview(),
                 }
             )
         elif route == "/api/run":
