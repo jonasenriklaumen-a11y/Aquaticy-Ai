@@ -128,3 +128,39 @@ def test_uninstall_deletes_the_volume(volume: str) -> None:
     assert werkstatt.remove_addon_volume(runtime, volume)
     assert _docker("volume", "inspect", volume).returncode != 0
     assert werkstatt.remove_addon_volume(runtime, volume), "zweimal loeschen ist kein Fehler"
+
+
+def test_messenger_rights_recognise_the_real_window(tmp_path) -> None:
+    """9.5.10: vorn ein Fenster mit der Klasse eines Messengers -- Nur lesen greift.
+
+    Statt Firefox (nicht im Abbild) traegt ein xterm die Klasse, die das Add-on
+    WhatsApp seinem Firefox gibt. Erkannt wird es an der echten Fensterklasse.
+    """
+    import json as _json
+
+    from aquaticy import addons
+    from aquaticy.config import Settings
+    from aquaticy.desktop import Desktop
+
+    konto = Settings(data_dir=tmp_path, vm_user_mode=True)
+    addons._update(konto, "whatsapp", installed=True, enabled=True)
+    box = werkstatt.Sandbox(user_mode=True, browser_agent=werkstatt.browser_agent())
+    box.runtime = werkstatt.find_runtime()
+    box.ensure()
+    try:
+        box.run("nohup xterm -class aquaticy-whatsapp -T WhatsApp -e sleep 600 "
+                ">/dev/null 2>&1 &", timeout=10)
+        for _ in range(40):
+            info = _json.loads(box.desktop("windows").stdout)
+            if "aquaticy-whatsapp" in info.get("aktiv_klasse", ""):
+                break
+            time.sleep(0.25)
+        assert "aquaticy-whatsapp" in info["aktiv_klasse"], info
+        getippt: list[str] = []
+        desktop = Desktop(box, konto, vision=lambda bild, prompt: getippt.append(prompt) or "{}")
+        antwort = desktop.type("Hallo")
+        assert antwort["skipped_reason"] == "messenger_read_only"
+        assert getippt == [], "nicht einmal das Bildmodell wurde gefragt"
+        assert desktop.key("Page_Down")["gedrueckt"] == ["Page_Down"]
+    finally:
+        box.stop("Test")

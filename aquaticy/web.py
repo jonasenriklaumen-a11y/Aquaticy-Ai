@@ -250,6 +250,7 @@ SETTING_KEYS: tuple[str, ...] = (
     "AQUATICY_VM_SIZE",
     "AQUATICY_VM_USER_MODE",
     "AQUATICY_LEGAL_GUARD",
+    "AQUATICY_AUTO_MODEL",
 )
 
 #: Zahlenfelder mit dem Bereich, in dem sie sinnvoll sind. Geprueft wird
@@ -385,6 +386,7 @@ _BOOL_SETTINGS = {
     "AQUATICY_LAN_ENABLED": "lan_enabled",
     "AQUATICY_MEMORY": "memory_enabled",
     "AQUATICY_VM_USER_MODE": "vm_user_mode",
+    "AQUATICY_AUTO_MODEL": "auto_model",
 }
 _INT_SETTINGS = {
     "AQUATICY_SEARCH_VARIANTS": "search_variants",
@@ -1210,6 +1212,7 @@ def current_values() -> dict[str, str]:
         "AQUATICY_VM_SIZE": settings.vm_size,
         "AQUATICY_VM_USER_MODE": "true" if settings.vm_user_mode else "false",
         "AQUATICY_LEGAL_GUARD": "true" if settings.legal_guard else "false",
+        "AQUATICY_AUTO_MODEL": "true" if settings.auto_model else "false",
     }
 
 
@@ -1405,7 +1408,7 @@ def save_values(payload: dict[str, Any]) -> Path:
 #: Was es im Add-on-Fenster zu tun gibt.
 ADDON_ACTIONS = frozenset({
     "install", "uninstall", "enable", "disable", "token", "login", "login_done", "logout",
-    "feeds",
+    "feeds", "rights",
 })
 
 #: Aktionen, bei denen die laufende Werkstatt neu aufgebaut werden muss --
@@ -1469,6 +1472,12 @@ def addon_action(payload: dict[str, Any]) -> tuple[dict[str, Any], int]:
             hinweis = "Abgemeldet." + (
                 " Entferne die Werkstatt auf dem Handy auch unter „Verknüpfte Geräte“."
                 if addon.login == "qr" else "")
+        elif action == "rights":
+            # Wirkt sofort: Werkzeuge und Desktop lesen die Rechte bei jedem
+            # Aufruf, der Systemtext wird vor der naechsten Frage erneuert.
+            # Kein Neuaufbau -- die Werkstatt laeuft weiter.
+            neu = addons.set_rights(settings, addon.id, payload.get("rechte"))
+            hinweis = "Gespeichert: " + addons.rights_text(addon.id, neu) + "."
         else:  # feeds
             feeds = addons.set_feeds(settings, payload.get("feeds") or [])
             session.reload()

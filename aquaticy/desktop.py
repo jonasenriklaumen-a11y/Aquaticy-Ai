@@ -70,6 +70,17 @@ APPS: dict[str, str] = {
     "blender": "Blender (Add-on)",
 }
 
+#: Diese Adressen oeffnet der gewoehnliche Browser nicht: Messenger laufen nur
+#: ueber ihr Add-on -- mit den Rechten, die der Nutzer dort eingestellt hat.
+MESSENGER_HOSTS = frozenset({"web.whatsapp.com", "web.telegram.org"})
+
+#: Tasten, die in einem Messenger mit "Nur lesen" gehen: blaettern, nichts
+#: schreiben, nichts abschicken.
+READ_ONLY_KEYS = frozenset({
+    "Up", "Down", "Left", "Right", "Page_Up", "Page_Down", "Home", "End", "Escape", "Tab",
+    "shift+Tab", "ctrl+Tab", "ctrl+shift+Tab", "alt+Up", "alt+Down", "ctrl+Home", "ctrl+End",
+})
+
 #: Die Programme, die von einem Add-on kommen.
 ADDON_APPS = frozenset({"whatsapp", "telegram", "signal", "blender"})
 
@@ -103,6 +114,23 @@ REFUSE: dict[str, tuple[str, str]] = {
         "consent",
         "'Alle akzeptieren' klickt Aquaticy nie. Nimm 'Ablehnen', 'Nur notwendige' "
         "oder schliess das Banner.",
+    ),
+    "messenger_lesen": (
+        "messenger_read_only",
+        "In diesem Messenger darf Aquaticy nur lesen -- tippen und senden hat der Nutzer "
+        "nicht erlaubt (Add-on-Fenster -> Rechte). Sag ihm, was du schreiben wolltest; "
+        "abschicken muss er selbst.",
+    ),
+    "messenger_gruppe": (
+        "messenger_no_groups",
+        "Schreiben ist hier nur in Einzelchats erlaubt -- das hier ist eine Gruppe (oder "
+        "es war nicht sicher zu erkennen, dass es keine ist). Geaendert wird das im "
+        "Add-on-Fenster -> Rechte.",
+    ),
+    "messenger_browser": (
+        "messenger_via_addon",
+        "Messenger nur ueber ihr Add-on (desktop_open app=whatsapp/telegram/signal) -- "
+        "dort gelten die Rechte, die der Nutzer eingestellt hat.",
     ),
     "zahlung": (
         "payment",
@@ -303,6 +331,18 @@ def key_prompt(key: str) -> str:
     )
 
 
+def chat_prompt() -> str:
+    return (
+        "Das Bild zeigt einen Messenger (WhatsApp, Signal oder Telegram).\n"
+        'Antworte nur mit JSON: {"chat": "Name des gerade geoeffneten Chats, oder leer", '
+        '"gruppe": true oder false oder null}\n'
+        "gruppe = true, wenn der geoeffnete Chat eine Gruppe, ein Kanal oder eine "
+        "Community ist (mehrere Teilnehmer, Gruppenname, Mitgliederzahl, Namen vor den "
+        "Nachrichten). false nur, wenn es sicher ein Einzelchat mit genau einer Person "
+        "ist. Bist du nicht sicher oder ist kein Chat offen: null."
+    )
+
+
 def type_prompt(text: str) -> str:
     probe = text.strip()[:200]
     return (
@@ -457,6 +497,39 @@ class Desktop:
             "was": what,
         }
 
+    # -- Messenger-Rechte (9.5.10) ------------------------------------------
+    def _messenger(self) -> tuple[str, dict[str, str]]:
+        """Ist vorn ein Messenger? Returns: (Name, Rechte) oder ("", {})."""
+        from aquaticy.addons import messenger_of, messenger_rights
+
+        try:
+            info = self._helper("windows", timeout=20)
+        except (DesktopError, OSError, ValueError):
+            return "", {}
+        name = messenger_of(str(info.get("aktiv_klasse") or ""), str(info.get("aktiv") or ""))
+        return (name, messenger_rights(self.settings, name)) if name else ("", {})
+
+    def _messenger_gate(
+        self, name: str, rechte: dict[str, str], handlung: str, art: str, was: str
+    ) -> tuple[dict[str, Any] | None, str]:
+        """Die Rechte eines Messengers -- vor der allgemeinen Pruefung.
+
+        Returns: (Ablehnung oder None, Name des Chats fuer die Rueckfrage).
+        """
+        schreibt = handlung == "tippen" or art in ("senden", "loeschen", "kaufen", "unklar")
+        if not schreibt:
+            return None, ""
+        if rechte.get("zugriff") != "schreiben":
+            return self._refuse("messenger_lesen", f"{name}: {was}"), ""
+        if rechte.get("wo") == "alle":
+            return None, ""
+        antwort = parse_object(self._see(self.box.screenshot(), chat_prompt())) or {}
+        chat = str(antwort.get("chat") or "").strip()[:80]
+        if antwort.get("gruppe") is not False:
+            # Nicht sicher ein Einzelchat -- dann wie eine Gruppe behandeln.
+            return self._refuse("messenger_gruppe", f"{name}: {chat or 'unklarer Chat'}"), ""
+        return None, chat
+
     @staticmethod
     def _coordinate(value: Any, upper: int) -> int | None:
         try:
@@ -531,6 +604,16 @@ class Desktop:
                                              point_prompt()))
             art = kind_of(antwort.get("art")) if antwort else "unklar"
             was = str((antwort or {}).get("was") or f"Stelle {px},{py}")[:200]
+        # Nur wo ein Klick etwas schicken koennte, lohnt der Blick aufs Fenster.
+        messenger, rechte = (
+            self._messenger() if art in ("senden", "loeschen", "kaufen", "unklar") else ("", {})
+        )
+        if messenger:
+            verweigert, chat = self._messenger_gate(messenger, rechte, "klick", art, was)
+            if verweigert is not None:
+                return verweigert
+            if chat:
+                was = f"{was} (Einzelchat: {chat})"
         verweigert = self._gate(art, was, f"auf '{was}' klicken")
         if verweigert is not None:
             return verweigert
@@ -566,6 +649,13 @@ class Desktop:
                     "und oeffne ihn im Programm."
                 )
             }
+        messenger, rechte = self._messenger()
+        if messenger:
+            verweigert, _chat = self._messenger_gate(
+                messenger, rechte, "tippen", "harmlos", f"{len(text)} Zeichen tippen"
+            )
+            if verweigert is not None:
+                return verweigert
         antwort = parse_object(self._see(self.box.screenshot(), type_prompt(text)))
         feld = str((antwort or {}).get("feld") or "").strip().lower()
         art = kind_of((antwort or {}).get("art")) if antwort else "unklar"
@@ -608,12 +698,28 @@ class Desktop:
         falsch = [taste for taste in liste if not KEY_RE.match(taste)]
         if falsch:
             return {"error": f"Das sind keine Tastennamen: {', '.join(falsch)}"}
+        # Blaettern geht immer -- erst bei anderen Tasten zaehlt, was vorn ist.
+        messenger, rechte = (
+            self._messenger() if any(t not in READ_ONLY_KEYS for t in liste) else ("", {})
+        )
+        if messenger and rechte.get("zugriff") != "schreiben":
+            # Nur lesen: blaettern ja, alles andere nicht -- kein Enter, kein
+            # Einfuegen, kein Tastenkuerzel, das etwas abschickt.
+            fremd = [taste for taste in liste if taste not in READ_ONLY_KEYS]
+            if fremd:
+                return self._refuse("messenger_lesen", f"{messenger}: {' '.join(fremd)}")
         ausloeser = [taste for taste in liste if taste.split("+")[-1] in TRIGGER_KEYS]
         if ausloeser:
             antwort = parse_object(self._see(self.box.screenshot(),
                                              key_prompt(ausloeser[0])))
             art = kind_of(antwort.get("art")) if antwort else "unklar"
             was = str((antwort or {}).get("was") or ausloeser[0])[:200]
+            if messenger:
+                verweigert, chat = self._messenger_gate(messenger, rechte, "taste", art, was)
+                if verweigert is not None:
+                    return verweigert
+                if chat:
+                    was = f"{was} (Einzelchat: {chat})"
             verweigert = self._gate(art, was, f"{ausloeser[0]} druecken ({was})")
             if verweigert is not None:
                 return verweigert
@@ -664,6 +770,11 @@ class Desktop:
             if app == "browser":
                 if not URL_RE.match(ziel):
                     return {"error": "Der Browser oeffnet nur Adressen mit http:// oder https://."}
+                from urllib.parse import urlsplit
+
+                host = (urlsplit(ziel).hostname or "").lower()
+                if host in MESSENGER_HOSTS:
+                    return self._refuse("messenger_browser", ziel[:120])
             else:
                 try:
                     ziel = safe_path(ziel)

@@ -356,6 +356,9 @@ class Settings:
     #: nie ein Satz im Chat. Bei normalen Konten setzt der Server sie
     #: zwangsweise wieder auf an, egal was in deren `.env` steht.
     legal_guard: bool = True
+    #: Das Hauptmodell je Nachricht automatisch waehlen (Dev settings, fuer jedes
+    #: Konto; siehe aquaticy/router.py). Die Agenten bleiben dabei unveraendert.
+    auto_model: bool = False
     #: Netz, das dabei durchsucht wird. Leer = das eigene automatisch erkennen.
     lan_subnet: str = ""
     fetch_timeout: float = 15.0
@@ -601,6 +604,7 @@ def get_settings() -> Settings:
         memory_key=_env_str("AQUATICY_MEMORY_KEY"),
         lan_enabled=_env_bool("AQUATICY_LAN_ENABLED", True),
         legal_guard=guard_on(_env_str("AQUATICY_LEGAL_GUARD")),
+        auto_model=_env_bool("AQUATICY_AUTO_MODEL", False),
         lan_subnet=_env_str("AQUATICY_LAN_SUBNET"),
         fetch_timeout=float(_env_int("AQUATICY_FETCH_TIMEOUT", 15)),
         cache_ttl_hours=_env_int("AQUATICY_CACHE_TTL_HOURS", 24),

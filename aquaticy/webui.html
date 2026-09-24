@@ -400,6 +400,7 @@ body:not(.start) .hint{display:none}
 .result-card.visual img{object-fit:cover}
 .result-card .body{padding:11px 13px}
 .result-card .title{font-weight:600;line-height:1.35;color:var(--text)}
+.result-card .meta{font-size:12.5px;color:var(--text-2);margin-top:5px;line-height:1.45}
 .result-card .price{color:var(--accent-text);font-weight:700;margin-top:5px}
 .result-card dl{display:grid;grid-template-columns:auto 1fr;gap:3px 9px;margin:9px 0 0;
   font-size:12.5px;color:var(--text-2)}
@@ -1055,6 +1056,17 @@ input:focus,select:focus{border-color:var(--accent)}
 .addon-login textarea{border:1px solid var(--line-2);border-radius:10px;background:var(--bg);
   padding:8px 10px;font:12.5px var(--mono);min-height:5.5em;resize:vertical;margin-top:6px}
 .addon-hint{font-size:12px;color:var(--text-3);margin-top:8px;line-height:1.45}
+.addon-rechte{margin-top:10px;padding-top:10px;border-top:1px dashed var(--line-2)}
+.recht{display:flex;gap:10px;align-items:center;justify-content:space-between;
+  flex-wrap:wrap;margin-top:7px}
+.recht-name{font-size:13px;color:var(--text-2)}
+.seg{display:inline-flex;border:1px solid var(--line-2);border-radius:10px;overflow:hidden;
+  background:var(--bg)}
+.seg button{background:none;border:0;padding:6px 11px;font:inherit;font-size:12.5px;
+  color:var(--text-2);cursor:pointer}
+.seg button+button{border-left:1px solid var(--line-2)}
+.seg button.on{background:var(--accent-soft);color:var(--accent-text);font-weight:600}
+.seg button:focus-visible{outline:2px solid var(--accent);outline-offset:-2px}
 .addon-status.bad{color:var(--err)}.addon-status.ok{color:var(--accent-text)}
 .screen-live{position:relative;margin:6px 0 10px}
 .screen-live img{display:block;width:100%;height:auto;border-radius:10px;cursor:crosshair;
@@ -1894,6 +1906,16 @@ input:focus,select:focus{border-color:var(--accent)}
               bevor etwas passiert. Aus dem Chat heraus lässt sich das nie
               abschalten.</span></label>
         </div>
+        <div class="check">
+          <input type="checkbox" role="switch" class="schalter" id="automodel"
+                 name="AQUATICY_AUTO_MODEL">
+          <label for="automodel" style="margin:0">Modell automatisch wählen
+            <span class="why">Du schreibst einfach — Aquaticy sucht für jede Nachricht selbst
+              das passende Hauptmodell aus: fürs Programmieren das Code-Modell, für „erstelle
+              mir ein Bild“ eines, das Bilder malen kann, für ein „Hallo“ das schnelle. Die
+              Agenten bleiben dabei immer dieselben. Die Wahl dauert keine Millisekunde
+              (kein zusätzlicher Modellaufruf) und steht im Verlauf. Für jedes Konto.</span></label>
+        </div>
         <details class="note" id="legal-rules"><summary>Welche Regeln gelten?</summary>
           <ul id="legal-rule-list"></ul></details>
         <div class="note">An diesem Schalter hängen nur die Rechts-Leitplanken. Die festen
@@ -1915,7 +1937,7 @@ input:focus,select:focus{border-color:var(--accent)}
 const $ = (s) => document.querySelector(s);
 const thread = $("#thread"), main = $("#main"), input = $("#input"), send = $("#send");
 let busy = false;
-const aquaticyVersion = window.__AQUATICY_VERSION__ || "9.5.9";
+const aquaticyVersion = window.__AQUATICY_VERSION__ || "9.5.10";
 $("#version").textContent = "v" + aquaticyVersion;
 document.title = `Aquaticy AI ${aquaticyVersion}`;
 
@@ -2361,7 +2383,7 @@ function safeHttpUrl(raw){
 }
 function resultImage(url, alt, mediaId = ""){
   const safe = safeHttpUrl(url);
-  const stored = /^[0-9]{13}-[0-9a-f]{16}\.(jpg|png|webp|gif)$/.test(String(mediaId || ""));
+  const stored = /^[0-9]{13}-[0-9a-f]{16}(-fest)?\.(jpg|png|webp|gif)$/.test(String(mediaId || ""));
   if (!safe && !stored) return null;
   const image = document.createElement("img");
   image.src = "/api/media?url=" + encodeURIComponent(safe);
@@ -2387,16 +2409,31 @@ function renderResultMedia(bubble, products = [], visuals = []){
   (Array.isArray(visuals) ? visuals : []).slice(0, 6).forEach(visual => {
     // Ein Bildschirmfoto der Werkstatt hat keine Webadresse -- nur das
     // gespeicherte Bild. Gezeigt wird dann auch keine "Bildquelle".
-    if (visual?.kind === "desktop"){
+    // Ebenso ein Bild, das Aquaticy selbst erstellt hat -- dort steht statt
+    // einer Quelle, dass es KI-erstellt ist, und die Beschreibung dazu.
+    if (visual?.kind === "desktop" || visual?.kind === "erstellt"){
+      const erstellt = visual.kind === "erstellt";
+      const standard = erstellt ? "KI-Bild" : "Bildschirm der Werkstatt";
       const id = String(visual.media_id || "");
       if (!id || seen.has(id)) return; seen.add(id);
-      const image = resultImage("", visual.title || "Bildschirm der Werkstatt", id);
+      const image = resultImage("", visual.caption || visual.title || standard, id);
       if (!image) return;
       const card = document.createElement("article"); card.className = "result-card visual";
       card.appendChild(image);
       const body = document.createElement("div"); body.className = "body";
       const title = document.createElement("div"); title.className = "title";
-      title.textContent = visual.title || "Bildschirm der Werkstatt"; body.appendChild(title);
+      title.textContent = visual.title || standard; body.appendChild(title);
+      if (erstellt && visual.caption){
+        const text = document.createElement("div"); text.className = "meta";
+        text.textContent = "KI-erstellt · " + visual.caption; body.appendChild(text);
+      }
+      if (erstellt){
+        const holen = document.createElement("a");
+        holen.className = "source"; holen.textContent = "Herunterladen";
+        holen.href = "/api/media?id=" + encodeURIComponent(id);
+        holen.download = "aquaticy-ki-bild" + id.slice(id.lastIndexOf("."));
+        body.appendChild(holen);
+      }
       card.appendChild(body); grid.appendChild(card);
       return;
     }
@@ -2974,6 +3011,14 @@ async function verfolge(hole, steps, bubble, text){
         }
         break;
       }
+      case "model_auto":
+        step(steps, "[Modell]",
+             `automatisch: ${String(ev.model || "").split("/").pop()} — ${ev.grund || ""}`
+             + (ev.bild ? ` · Bild: ${ev.bild}` : "")); break;
+      case "image_create": step(steps, "[Bild]", "wird erstellt …"); break;
+      case "image_created":
+        step(steps, "[Bild]", ev.error ? ev.error : `erstellt mit ${ev.modell}`,
+             ev.error ? "warn" : ""); break;
       case "code_model":
         // Im Code- wie im Pro-Modus zaehlt das staerkste Modell, nicht das
         // eingestellte. Die Marke sagt, aus welchem der beiden Gruende --
@@ -4071,6 +4116,9 @@ function addonKarte(a){
 
   // Darunter: anmelden -- so, wie es der Dienst vorsieht.
   if (a.installed && !laeuft) karte.appendChild(addonAnmeldung(a));
+  // Und was Aquaticy damit darf -- je Add-on ein, zwei einfache Fragen.
+  if (a.installed && !laeuft && (a.rechte_katalog || []).length)
+    karte.appendChild(addonRechte(a));
   if (a.hinweis){
     const h = document.createElement("div");
     h.className = "addon-hint"; h.textContent = a.hinweis;
@@ -4151,6 +4199,40 @@ function addonAnmeldung(a){
     }
   }
   box.appendChild(zeile);
+  return box;
+}
+
+function addonRechte(a){
+  const box = document.createElement("div");
+  box.className = "addon-rechte";
+  const kopf = document.createElement("div");
+  kopf.className = "how"; kopf.innerHTML = "<b>Rechte</b> — was Aquaticy hier darf";
+  box.appendChild(kopf);
+  for (const recht of a.rechte_katalog){
+    if (recht.nur_wenn && a.rechte[recht.nur_wenn[0]] !== recht.nur_wenn[1]) continue;
+    const zeile = document.createElement("div");
+    zeile.className = "recht";
+    const name = document.createElement("span");
+    name.className = "recht-name"; name.textContent = recht.label;
+    const gruppe = document.createElement("div");
+    gruppe.className = "seg"; gruppe.setAttribute("role", "radiogroup");
+    gruppe.setAttribute("aria-label", `${a.name}: ${recht.label}`);
+    for (const option of recht.options){
+      const b = document.createElement("button");
+      b.type = "button"; b.textContent = option.label;
+      b.setAttribute("role", "radio");
+      const an = a.rechte[recht.key] === option.value;
+      b.setAttribute("aria-checked", String(an));
+      if (an) b.classList.add("on");
+      b.addEventListener("click", () => {
+        if (an) return;
+        addonTun({ action: "rights", id: a.id, rechte: { [recht.key]: option.value } }, b);
+      });
+      gruppe.appendChild(b);
+    }
+    zeile.append(name, gruppe);
+    box.appendChild(zeile);
+  }
   return box;
 }
 
@@ -5160,7 +5242,11 @@ async function kopfNeuZeichnen(){
       : mode === "pro"
         ? (cfg.strong_model || cfg.values.AQUATICY_MODEL || "")
         : (cfg.values.AQUATICY_MODEL || "");
-    flash($("#model-name"), currentModel.split("/").pop() || "Modell wählen");
+    // Automatische Wahl: welches Modell antwortet, entscheidet sich erst an
+    // der Nachricht -- oben steht dann "Auto" vor dem Grundmodell.
+    const auto = cfg.values.AQUATICY_AUTO_MODEL === "true" && mode === "normal";
+    flash($("#model-name"),
+          (auto ? "Auto · " : "") + (currentModel.split("/").pop() || "Modell wählen"));
     // Links steht, womit gearbeitet wird -- der Modellname hat oben in der
     // Mitte seinen eigenen Platz und muss hier nicht doppelt stehen.
     const bits = [cfg.values.AQUATICY_LOCATION || "kein Ortsfilter"];

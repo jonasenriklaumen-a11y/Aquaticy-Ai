@@ -7,7 +7,6 @@ Settings). Danach gibt er den Zwischenstand aus.
 
 from __future__ import annotations
 
-import contextlib
 import json
 import re
 import threading
@@ -37,6 +36,7 @@ from aquaticy.tools import (
     GOOGLE_WRITE_SCHEMAS,
     HA_CALL_SCHEMA,
     HA_STATES_SCHEMA,
+    IMAGE_SCHEMA,
     LAN_HOST_SCHEMA,
     LAN_SCHEMA,
     MAIL_READ_SCHEMA,
@@ -1216,6 +1216,11 @@ class Agent:
         # und nur mit Web, denn alle drei fragen einen Dienst im Internet.
         if self.online:
             extra.extend(addon_schemas_for(self.settings))
+            # Bilder erstellen -- nur, wenn ein Anbieter dafuer erreichbar ist.
+            from aquaticy.images import available as image_backends
+
+            if image_backends(self.settings):
+                extra.append(IMAGE_SCHEMA)
         # Subagenten bekommen diese Liste nie -- sie arbeiten mit TOOL_SCHEMAS
         # allein. Einstellungen aendert also nur der Hauptagent, und das ist
         # genau richtig so.
@@ -1681,6 +1686,10 @@ class Agent:
         """
         if clean_mode(self.mode) in ("code", "pro"):
             return self._strongest_model() or self.settings.model
+        if getattr(self, "_auto_pick", ""):
+            # Automatische Modellwahl (Dev settings): gilt nur fuer diesen
+            # Turn und nur fuer den Master -- die Agenten bleiben, wie sie sind.
+            return self._auto_pick
         return self.settings.model
 
     @property
@@ -1827,11 +1836,8 @@ class Agent:
             }
             if user_mode:
                 text += USER_MODE_PROMPT
-        if self.online:
-            with contextlib.suppress(Exception):  # ohne Add-ons geht es auch
-                from aquaticy.addons import prompt_for
-
-                text += prompt_for(self.settings)
+        self._addon_prompt_seen = self._addon_prompt()
+        text += self._addon_prompt_seen
         if not self.online:
             text += OFFLINE_PROMPT
         elif self.visual_sources and clean_mode(self.mode) != "code":
@@ -1866,6 +1872,47 @@ class Agent:
             "beruecksichtigen ohne es aufzuzaehlen):\n"
             + "\n".join(f"- {line}" for line in lines[:8])
         )
+
+    def _auto_choose(self, question: str) -> None:
+        """Automatische Modellwahl -- ohne Modellaufruf, vor der ersten Runde.
+
+        Im Code- und im Pro-Modus nimmt Aquaticy ohnehin das staerkste Modell;
+        dort bleibt es dabei. Sonst entscheidet der Router (aquaticy/router.py)
+        an der Nachricht, und das Ergebnis steht im Verlauf.
+        """
+        self._auto_pick = ""
+        self.toolbox.image_model = ""
+        if not getattr(self.settings, "auto_model", False):
+            return
+        if clean_mode(self.mode) in ("code", "pro"):
+            return
+        from aquaticy.router import choose
+
+        try:
+            wahl = choose(self.settings, question, clean_mode(self.mode))
+        except Exception:
+            return
+        if wahl.model and wahl.model != self.settings.model:
+            self._auto_pick = wahl.model
+        self.toolbox.image_model = wahl.bild_modell
+        self._emit(
+            "model_auto",
+            model=wahl.model or self.settings.model,
+            kategorie=wahl.kategorie,
+            grund=wahl.grund,
+            bild=wahl.bild_label,
+        )
+
+    def _addon_prompt(self) -> str:
+        """Was das Modell ueber die Add-ons und ihre Rechte wissen muss."""
+        if not self.online:
+            return ""
+        try:
+            from aquaticy.addons import prompt_for
+
+            return prompt_for(self.settings)
+        except Exception:  # ohne Add-ons geht es auch
+            return ""
 
     def _refresh_system(self) -> None:
         """Schreibt die Systemnachricht neu -- fuer die jetzige Lage."""
@@ -2191,8 +2238,12 @@ class Agent:
         # Der Systemtext haengt an beidem. Nur neu schreiben, wenn sich etwas
         # geaendert hat: er sitzt am Anfang des Verlaufs, und wer ihn bei jeder
         # Frage anfasst, wirft beim Anbieter den zwischengespeicherten Prefix weg.
+        # Rechte der Add-ons koennen sich zwischen zwei Fragen aendern (Add-on-
+        # Fenster). Durchgesetzt werden sie ohnehin im Code; der Systemtext
+        # soll trotzdem stimmen, sonst plant das Modell mit alten Rechten.
         if (self.mode, self.structured, self.online, self.workshop_on,
-                self.visual_sources) != before:
+                self.visual_sources) != before or (
+                self._addon_prompt() != getattr(self, "_addon_prompt_seen", "")):
             self._refresh_system()
         self.max_run = bool(gewuenscht_max) and self.pro_mode
         if gewuenscht_max and not self.pro_mode:
@@ -2216,6 +2267,7 @@ class Agent:
 
         if self.workshop_on:
             self._touch_workshop()
+        self._auto_choose(question)
         if clean_mode(self.mode) in ("code", "pro"):
             picked = self._strongest_model()
             if picked and picked != self.settings.model:
@@ -2845,6 +2897,8 @@ class Agent:
                 answer=result.answer,
                 meta=result.meta(),
             )
+        # Die automatische Wahl gilt genau fuer diesen einen Turn.
+        self._auto_pick = ""
         return result
 
     def _with_context(self, question: str) -> str:

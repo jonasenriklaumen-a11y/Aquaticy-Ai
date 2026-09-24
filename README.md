@@ -137,7 +137,7 @@ aquaticy "welche Bahnstrecken in NRW sind gerade gesperrt?"
 $ aquaticy --location "Mönchengladbach" --lang de
 
 ╭──────────────────────────────────────────────────────╮
-│ Aquaticy AI 9.5.9                                      │
+│ Aquaticy AI 9.5.10                                     │
 │ Modell mistral/mistral-large-latest · Suche duckduckgo │
 │ Frag einfach los. /help zeigt die Befehle.           │
 ╰──────────────────────────────────────────────────────╯
@@ -794,6 +794,25 @@ laufen live mit, die Antwort wird Wort für Wort gestreamt.
   auch nicht über eine Umleitung). Aus dem Chat heraus lässt sich kein Add-on installieren,
   schalten oder anmelden.
 
+  *Rechte je Add-on (9.5.10).* Unter jedem installierten Add-on steht **Rechte** — ein, zwei
+  einfache Fragen mit Knöpfen zum Antippen. Durchgesetzt wird das im Code, nicht nur im Prompt:
+
+  | Add-on | Rechte | Standard | Was es bewirkt |
+  |---|---|---|---|
+  | WhatsApp, Signal, Telegram | **Nur lesen** / Lesen und schreiben | Nur lesen | *Nur lesen:* Aquaticy tippt nichts, drückt kein Enter, fügt nichts ein und klickt nichts an, was senden, löschen oder kaufen würde — es wird nicht einmal gefragt. Blättern und Chats öffnen geht. |
+  | | Schreiben in: **Nur Einzelchats** / Einzelchats und Gruppen | Nur Einzelchats | *Nur Einzelchats:* vor dem Tippen und vor jedem Senden prüft das Bildmodell den offenen Chat. Nur bei „sicher ein Einzelchat" geht es weiter — Gruppen, Kanäle und alles Unklare werden abgelehnt. Senden fragt weiterhin immer dich, mit dem Namen des Chats in der Frage. |
+  | GitHub | Nur öffentliche / **Auch private** Repos · Nur Übersicht / **Auch Inhalte lesen** | Auch private, Inhalte | *Nur öffentliche:* private Repos fehlen in Listen und Suche; ein privates Repo direkt zu lesen wird abgelehnt — geprüft bei GitHub, nicht am Namen. *Nur Übersicht:* Ordner, Issues und Listen ja, Dateiinhalte nein. |
+  | Blender | Nur Skripte / **Skripte und Oberfläche** | Skripte und Oberfläche | *Nur Skripte:* `blender_run` ja, das Programmfenster öffnet Aquaticy nicht. |
+  | Wetter | **Jeder Ort** / Nur mein Ort | Jeder Ort | *Nur mein Ort:* es gilt immer der Ortsfilter aus den Einstellungen. |
+  | RSS-Feeds | Einträge je Abruf: 10 / **20** / 40 | 20 | Obergrenze, egal was Aquaticy anfragt. |
+
+  Welches Programm vorn ist, erkennt Aquaticy an der Fensterklasse, die das Add-on selbst
+  setzt (und hilfsweise am Titel). Ein Messenger-Fenster ohne eingeschaltetes Add-on — etwa
+  WhatsApp Web im gewöhnlichen Browser — bekommt die strengsten Rechte, und der gewöhnliche
+  Browser öffnet `web.whatsapp.com` und `web.telegram.org` gar nicht erst. Rechte ändern
+  startet die Werkstatt nicht neu; sie gelten ab dem nächsten Handgriff. Aus dem Chat heraus
+  lassen sie sich nicht ändern.
+
   *Worauf du achten solltest:* WhatsApp erlaubt automatisierte Nutzung nicht ausdrücklich —
   nutze es für dich, nie für Massennachrichten, sonst droht eine Sperre. Was Aquaticy in
   einem Messenger liest, geht an dein Modell; bei Ende-zu-Ende-verschlüsselten Chats solltest
@@ -1000,7 +1019,7 @@ er erreichbar ist — im heimischen Netz und über Tailscale:
 
 ```
 ╭───────────────────────────────────────────────────────────────────╮
-│ Aquaticy AI 9.5.9                                                   │
+│ Aquaticy AI 9.5.10                                                  │
 │ Diese Adresse im Browser oeffnen:                                 │
 │   http://192.168.1.44:8765/    im heimischen Netz                 │
 │   http://100.81.120.100:8765/  ueber Tailscale                    │
@@ -2027,6 +2046,7 @@ Alle Werte kommen aus der `.env` (siehe [`.env.example`](.env.example)):
 | `AQUATICY_VM_SIZE` | Größe der Werkstatt: `normal` oder `plus` (Plus nur mit Pro-Konto) | `normal` |
 | `AQUATICY_VM_IMAGE` | Abbild für die Werkstatt (z. B. mit Blender) | `python:3.12-slim` |
 | `AQUATICY_VM_USER_MODE` | User mode: Werkstatt als Desktop mit Internet (Heimnetz gesperrt), bedient wie von einem Menschen — nur Pro | `false` |
+| `AQUATICY_AUTO_MODEL` | Hauptmodell je Nachricht automatisch wählen (Dev settings, jedes Konto) | `false` |
 | `AQUATICY_GITHUB_TOKEN` | Token des Add-ons GitHub (setzt das Add-on-Fenster, nur lesend genutzt) | leer |
 | `AQUATICY_VM_DESKTOP_IMAGE` | Abbild für den User mode | `aquaticy-werkstatt-desktop:local` |
 | `AQUATICY_VM_IDLE_MINUTES` | Werkstatt löschen nach so vielen Minuten Ruhe | `20` |
@@ -2292,6 +2312,42 @@ Aquaticy enthält keine Werbe- oder Tracking-SDKs, veröffentlicht keine
 Nutzerbewertungen und verarbeitet selbst keine Zahlungen. Verlangt ein Betreiber Geld für den
 Zugang, muss er Preise, Kündigung und Erstattung vor dem Kauf selbst klar ausweisen.
 
+## Modell automatisch wählen (Dev settings)
+
+Unter **Einstellungen → Dev settings** gibt es den Schalter **„Modell automatisch wählen"** —
+für jedes Konto, auch für normale. Ist er an, schreibst du einfach; Aquaticy sucht für jede
+Nachricht selbst das passende **Hauptmodell** aus:
+
+| Nachricht | Beispiel | Hauptmodell |
+|---|---|---|
+| Bild erstellen | „Erstelle mir ein Bild von einem Leuchtturm" | das starke Arbeitsmodell **plus ein Bildmodell** (FLUX.1 schnell bei NVIDIA oder die Bildgenerierung von Mistral) |
+| Programmieren | „Schreib mir eine Python-Funktion …", ein Traceback, ein Codeblock | das Code-Modell (Codestral, Qwen-Coder oder dein eingetragenes) |
+| Kurze Unterhaltung | „Hallo", „Danke dir" | das schnelle kleine Modell |
+| Texte schreiben | „Schreib einen Brief an …", „Übersetze …" | das starke Arbeitsmodell |
+| alles andere | Recherche und Fragen | das starke Arbeitsmodell |
+
+- **Die Agenten bleiben immer dieselben.** Gewählt wird nur der Master; Vorrecherche,
+  Planung und Subagenten laufen weiter mit dem eingestellten Modell bzw. dessen schnellem.
+- **Möglichst schnell:** Die Wahl braucht keinen zusätzlichen Modellaufruf. Ein paar
+  Muster über der Nachricht, unter einer Millisekunde; die Liste der erreichbaren Modelle
+  merkt sich Aquaticy für eine halbe Minute.
+- **Im Verlauf sichtbar:** `[Modell] automatisch: codestral-latest — Programmieren`. Oben
+  steht „Auto · …". Die Wahl gilt genau für diese eine Nachricht; deine Einstellung bleibt.
+- Im Code- und im Pro-Modus nimmt Aquaticy ohnehin das stärkste Modell — dort ändert der
+  Schalter nichts.
+- Passt eine Nachricht in keine Schublade, gilt das stärkste Arbeitsmodell — nie ein
+  schwächeres als ohne den Schalter.
+
+**Bilder erstellen** (`create_image`) geht, sobald ein Schlüssel für NVIDIA oder Mistral
+hinterlegt ist, auch ohne die automatische Wahl. Zur Beschreibung: nur sie geht an den
+Anbieter, und vorher prüft sie der Rechtsrahmen (keine Bilder, die echte Menschen bloßstellen,
+keine Fälschungen, die als echt gelten sollen). Jedes Bild ist als **KI-erstellt**
+beschriftet, liegt im Datenordner des Kontos und wird nicht weggeräumt; unter der Antwort
+gibt es „Herunterladen". Lokal über Ollama kann Aquaticy keine Bilder malen — dann sagt es
+das. *Ehrlich:* Die beiden Bildschnittstellen sind nach den Anleitungen der Anbieter gebaut
+und mit nachgestellten Antworten getestet; mit echten Schlüsseln ließen sie sich in der
+Testumgebung nicht ausprobieren.
+
 ## Rechtsrahmen: Leitplanken nach Grundgesetz und BGB
 
 Aquaticy hält sich an elf Regeln, jede mit ihrer Rechtsgrundlage. Sie stehen in
@@ -2386,7 +2442,9 @@ aquaticy/
   uistate.py     # der Zustand der Oberfläche -- auf dem Server, geprüft
   sandbox.py     # die Werkstatt: abgeschotteter Behälter für den Code-Modus
   desktop.py     # User mode: sehen, klicken, tippen -- jede Handlung vorher geprüft
-  addons.py      # Add-ons: installieren, schalten, anmelden; GitHub, Wetter, Feeds
+  addons.py      # Add-ons: installieren, schalten, anmelden, Rechte; GitHub, Wetter, Feeds
+  router.py      # automatische Modellwahl: welches Hauptmodell passt zur Nachricht
+  images.py      # Bilder erstellen (FLUX.1 schnell bei NVIDIA, Mistral)
   jobs.py        # Aufträge: Fragen, die sich von selbst stellen
   usage.py       # der Token-Zähler (drei Zeichen sind ein Token)
   auth.py        # Konten, Passwort-Hashes, Sitzungen und Limits

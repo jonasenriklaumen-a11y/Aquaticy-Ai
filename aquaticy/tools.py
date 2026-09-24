@@ -1259,6 +1259,31 @@ def addon_schemas_for(settings: Any, pro: bool = True) -> list[dict[str, Any]]:
     return schemas
 
 
+IMAGE_SCHEMA: dict[str, Any] = {
+    "type": "function",
+    "function": {
+        "name": "create_image",
+        "description": (
+            "Erstellt ein neues Bild aus einer Beschreibung (KI-Bildmodell bei NVIDIA oder "
+            "Mistral). Nur, wenn der Nutzer ein Bild, Logo, eine Illustration o. ae. "
+            "ERSTELLT haben will -- zum Finden vorhandener Bilder nimm die Suche. "
+            "Schreib die Beschreibung auf Englisch, konkret: Motiv, Stil, Licht, "
+            "Bildaufbau. Keine echten Personen blossstellen, keine Faelschungen, die als "
+            "echt gelten sollen, keine geschuetzten Figuren/Marken nachbauen. Das Bild "
+            "steht danach unter deiner Antwort -- beschreib es nicht noch einmal lang."
+        ),
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "prompt": {"type": "string", "description": "Die Bildbeschreibung."},
+                "format": {"type": "string", "description": "quadrat, quer oder hoch."},
+            },
+            "required": ["prompt"],
+        },
+    },
+}
+
+
 # ---------------------------------------------------------------------------
 # Einstellungen aus dem Gespraech heraus
 # ---------------------------------------------------------------------------
@@ -1323,6 +1348,7 @@ class ToolStats:
     #: Aufrufe in der Werkstatt -- ausfuehren, schreiben, lesen.
     vm_calls: int = 0
     addon_calls: int = 0
+    images_created: int = 0
 
     @property
     def tool_calls(self) -> int:
@@ -1343,6 +1369,8 @@ class ToolStats:
             + self.storage_writes
             + self.settings_changed
             + self.vm_calls
+            + self.addon_calls
+            + self.images_created
         )
 
     def reset(self) -> None:
@@ -1366,6 +1394,8 @@ class ToolStats:
         self.storage_writes = 0
         self.settings_changed = 0
         self.vm_calls = 0
+        self.addon_calls = 0
+        self.images_created = 0
 
 
 class Toolbox:
@@ -1431,6 +1461,9 @@ class Toolbox:
         )
         #: Ersetzt im User mode das Vision-Modell (Tests). None = das echte.
         self.screen_reader: Callable[[bytes, str], str] | None = None
+        #: Welches Bildmodell create_image nimmt -- setzt die automatische
+        #: Modellwahl je Nachricht. Leer = das passendste verfuegbare.
+        self.image_model = ""
 
     def close(self, *, close_fetcher: bool = True) -> None:
         """Gibt eigene Ressourcen frei.
@@ -2240,6 +2273,44 @@ class Toolbox:
                 )
         return answer
 
+    def create_image(self, prompt: str, fmt: str = "quadrat") -> dict[str, Any]:
+        """Erstellt ein Bild und legt es wie jedes Bild im Chat ab -- als KI-Bild."""
+        from aquaticy import images
+        from aquaticy.media import save_snapshot
+
+        fmt = fmt.strip().lower() if isinstance(fmt, str) else "quadrat"
+        self._emit("image_create", prompt=prompt[:160])
+        try:
+            bild = images.generate(self.settings, prompt, fmt, model=self.image_model)
+        except images.ImageError as exc:
+            self._emit("image_created", error=str(exc))
+            return {"error": str(exc)}
+        try:
+            media_id = save_snapshot(self.settings.data_dir, bild["bytes"], bild["mime"],
+                                     keep=True)
+        except (OSError, ValueError) as exc:
+            return {"error": f"Das Bild liess sich nicht ablegen: {exc}"}
+        self.stats.images_created += 1
+        self.stats.visuals.append(
+            {
+                "kind": "erstellt",
+                "media_id": media_id,
+                "mime_type": bild["mime"],
+                "title": "KI-Bild (" + bild["modell"] + ")",
+                "caption": " ".join(prompt.split())[:300],
+                "captured_at": datetime.now(UTC).isoformat(timespec="seconds"),
+            }
+        )
+        self._emit("image_created", media_id=media_id, modell=bild["modell"])
+        return {
+            "erstellt": True,
+            "modell": bild["modell"],
+            "hinweis": (
+                "Das Bild steht unter deiner Antwort. Sag in einem Satz, was darauf zu sehen "
+                "sein soll, und dass es KI-erstellt ist -- beschreib es nicht lang."
+            ),
+        }
+
     def _addon_call(self, name: str, arguments: dict[str, Any]) -> dict[str, Any]:
         """Die Werkzeuge der Add-ons. Ausgeschaltet heisst: gibt es nicht."""
         from aquaticy import addons
@@ -2251,6 +2322,7 @@ class Toolbox:
                 "ausgeschaltet. Das entscheidet der Nutzer: Einstellungen -> Werkstatt -> Add-ons."
             )}
         self.stats.addon_calls += 1
+        rechte = addons.rights_of(self.settings, erforderlich)
         if name == "github":
             return addons.github_call(
                 addons.github_token(self.settings),
@@ -2261,16 +2333,29 @@ class Toolbox:
                 ref=str(arguments.get("ref") or ""),
                 state=str(arguments.get("state") or "open"),
                 query=str(arguments.get("query") or ""),
+                nur_oeffentlich=rechte["repos"] == "oeffentlich",
+                inhalte=rechte["inhalte"] == "ja",
             )
         if name == "weather":
-            return addons.weather(
-                str(arguments.get("place") or self.settings.location or ""),
-                arguments.get("days") or 3,
-            )
+            ort = str(arguments.get("place") or self.settings.location or "")
+            if rechte["orte"] == "meiner":
+                # Recht "Nur mein Ort": der Ortsfilter gilt, egal was gefragt wurde.
+                ort = str(self.settings.location or "")
+                if not ort:
+                    return {"error": (
+                        "Der Nutzer hat das Wetter auf 'Nur mein Ort' gestellt, aber keinen "
+                        "Ort eingetragen (Einstellungen -> Ort)."
+                    )}
+            return addons.weather(ort, arguments.get("days") or 3)
+        grenze = int(rechte["menge"])
+        try:
+            gewuenscht = int(str(arguments.get("limit") or 15))
+        except ValueError:
+            gewuenscht = 15
         return addons.read_feeds(
             addons.feeds_of(self.settings),
             str(arguments.get("query") or ""),
-            arguments.get("limit") or 15,
+            max(1, min(gewuenscht, grenze)),
         )
 
     def blender_run(self, script: str, filename: str = "", timeout: int = 0) -> dict[str, Any]:
@@ -2442,6 +2527,10 @@ class Toolbox:
             return self.vm_read(path=str(arguments.get("path", "")))
         if name == "vm_files":
             return self.vm_files(path=str(arguments.get("path", "") or ""))
+        if name == "create_image":
+            return self.create_image(
+                str(arguments.get("prompt") or ""), str(arguments.get("format") or "quadrat")
+            )
         if name in ("github", "weather", "read_feeds"):
             return self._addon_call(name, arguments)
         if name == "blender_run":

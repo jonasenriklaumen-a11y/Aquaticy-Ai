@@ -231,6 +231,7 @@ SENSITIVE_TOOLS: dict[str, str] = {
     "find_profiles": "sucht öffentliche Profile und Einträge zu einem Namen",
     "inspect_public_visual": "öffnet ein Kamera-, Straßen- oder Satellitenbild",
     "mail_draft": "legt im Postfach des Nutzers einen Mail-Entwurf an",
+    "create_image": "erstellt ein neues Bild aus einer Beschreibung (KI-Bildmodell)",
     # User mode: was Aquaticy in der Werkstatt eintippt, kann an andere gehen
     # (Formulare, Beitraege) -- und eine Adresse im Browser kann eine Kamera
     # oder ein Profil sein.

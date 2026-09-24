@@ -235,7 +235,9 @@ def test_plain_keys_need_no_look() -> None:
     d, box, auge, _ = _desktop()
     assert d.key("ctrl+l Tab")["gedrueckt"] == ["ctrl+l", "Tab"]
     assert auge.gesehen == []
-    assert box.aufrufe == [(("key", "ctrl+l", "Tab"), None)]
+    # ctrl+l ist kein Blaettern -- also wird einmal nachgesehen, ob vorn ein
+    # Messenger mit "Nur lesen" ist (9.5.10). Hier ist es keiner.
+    assert box.aufrufe == [(("windows",), None), (("key", "ctrl+l", "Tab"), None)]
 
 
 @pytest.mark.parametrize("taste", ["Return", "KP_Enter", "space", "shift+Return"])

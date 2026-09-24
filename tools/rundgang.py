@@ -139,6 +139,20 @@ class FakeAgent:
                 {"kind": "desktop", "media_id": self.bildschirm,
                  "title": "Bildschirm der Werkstatt"}]})
             return type("R", (), {"answer": antwort, "stopped": False})()
+        if "bild-probe" in text:
+            # Automatische Modellwahl + ein erstelltes Bild (9.5.10).
+            self.on_event("model_auto", {"model": "mistral/mistral-large-latest",
+                                         "kategorie": "bild", "grund": "Bild erstellen",
+                                         "bild": "Mistral Bildgenerierung"})
+            self.on_event("image_create", {"prompt": "a lighthouse"})
+            self.on_event("image_created", {"media_id": self.bildschirm,
+                                            "modell": "Mistral Bildgenerierung"})
+            antwort = "Hier ist dein Leuchtturm -- KI-erstellt."
+            self.on_event("answer_chunk", {"text": antwort})
+            self.on_event("done", {"tool_calls": 1, "hit_limit": False, "visuals": [
+                {"kind": "erstellt", "media_id": self.bildschirm,
+                 "title": "KI-Bild (Mistral Bildgenerierung)", "caption": "a lighthouse"}]})
+            return type("R", (), {"answer": antwort, "stopped": False})()
         if mode in ("code", "pro"):
             self.on_event("code_model", {"model": "mistral/mistral-large-latest"})
         if sandbox and mode == "code":
@@ -436,6 +450,17 @@ def normales_konto(browser: Any, port: int, log: Protokoll, fehler: list[str]) -
     pg.locator('.addon[data-id="feeds"] button', has_text="Installieren").click()
     pg.wait_for_selector('.addon[data-id="feeds"] textarea', timeout=10_000)
     log.pruefe(True, "Add-ons ohne Werkstatt (RSS-Feeds) gehen auch mit dem normalen Konto")
+    antwort = pg.evaluate(
+        """async () => {
+          const r = await fetch("/api/config", {method: "POST",
+            headers: {"Content-Type": "application/json"},
+            body: JSON.stringify({AQUATICY_AUTO_MODEL: "true"})});
+          return await r.json();
+        }"""
+    )
+    werte = pg.evaluate("async () => (await (await fetch('/api/config')).json()).values")
+    log.pruefe(antwort.get("ok") and werte.get("AQUATICY_AUTO_MODEL") == "true",
+               "die automatische Modellwahl geht auch mit dem normalen Konto")
     kontext.close()
 
 
@@ -1031,6 +1056,24 @@ def rundgang(pg: Any, log: Protokoll, agent: FakeAgent, bilder: Path | None,
         )
         pg.click("#btn-new")
         pg.wait_for_timeout(700)
+        log.abschnitt("6d. Automatische Modellwahl und KI-Bild")
+        pg.fill("#input", "bild-probe: Erstelle mir ein Bild von einem Leuchtturm")
+        pg.click("#send")
+        pg.wait_for_selector("#stop", state="hidden", timeout=25000)
+        pg.wait_for_timeout(900)
+        schritte = pg.inner_text(".steps >> nth=-1")
+        log.pruefe("[Modell]" in schritte and "Bild erstellen" in schritte,
+                   f"die Wahl steht im Verlauf: {schritte[-140:]!r}")
+        log.pruefe("erstellt mit Mistral Bildgenerierung" in schritte, "und wer gemalt hat")
+        karte = pg.locator(".result-card.visual").filter(has_text="KI-Bild")
+        log.pruefe(karte.count() == 1, "das Bild steht als Karte unter der Antwort")
+        log.pruefe("KI-erstellt" in karte.inner_text(), "beschriftet als KI-erstellt")
+        log.pruefe(karte.locator("a", has_text="Herunterladen").count() == 1,
+                   "mit Herunterladen statt einer Bildquelle")
+        log.pruefe(pg.eval_on_selector(".result-card.visual img", "e => e.naturalWidth") > 0,
+                   "das Bild laedt wirklich")
+        pg.click("#btn-new")
+        pg.wait_for_timeout(700)
 
     if dran("addons"):
         log.abschnitt("6c. Add-ons und Login-Apps")
@@ -1075,6 +1118,15 @@ def rundgang(pg: Any, log: Protokoll, agent: FakeAgent, bilder: Path | None,
         log.pruefe(wetter.locator("button", has_text="Deinstallieren").count() == 1,
                    "und laesst sich wieder deinstallieren")
         log.pruefe("Keine Anmeldung" in wetter.inner_text(), "darunter: wie man sich anmeldet")
+        log.pruefe(wetter.locator(".addon-rechte .seg button").count() == 2,
+                   "darunter die Rechte als einfache Wahl")
+        wetter.locator(".seg button", has_text="Nur mein Ort").click()
+        pg.wait_for_timeout(900)
+        knopf = pg.locator('.addon[data-id="wetter"] .seg button', has_text="Nur mein Ort")
+        log.pruefe(knopf.get_attribute("aria-checked") == "true", "die Wahl ist markiert")
+        rechte = pg.evaluate("""async () => (await (await fetch('/api/addons')).json())
+            .addons.find(a => a.id === 'wetter').rechte""")
+        log.pruefe(rechte.get("orte") == "meiner", "und beim Server gespeichert")
         wetter.locator(".schalter").click()
         pg.wait_for_timeout(900)
         log.pruefe(not pg.locator('.addon[data-id="wetter"] .schalter').is_checked(),
@@ -1107,7 +1159,24 @@ def rundgang(pg: Any, log: Protokoll, agent: FakeAgent, bilder: Path | None,
                    "das Tippfeld zeigt Passwoerter nicht")
         pg.click("#screen-close")
         pg.wait_for_selector("#screenbox", state="hidden")
-        pg.click("#cancel")
+        pg.click('#secnav button:has-text("Dev settings")')
+        pg.wait_for_timeout(700)
+        log.pruefe(pg.locator('#dev-settings [name="AQUATICY_AUTO_MODEL"]').count() == 1,
+                   "Dev settings: Schalter 'Modell automatisch wählen'")
+        pg.check("#automodel")
+        pg.click('#settings button[type="submit"]')
+        pg.wait_for_timeout(1500)
+        log.pruefe("Auto · " in pg.inner_text("#model-name"),
+                   f"oben steht Auto: {pg.inner_text('#model-name')!r}")
+        pg.click("#btn-settings")
+        pg.wait_for_selector("#overlay.open", state="visible")
+        pg.wait_for_timeout(700)
+        pg.uncheck("#automodel")
+        pg.click('#settings button[type="submit"]')
+        pg.wait_for_timeout(1500)
+        log.pruefe("Auto" not in pg.inner_text("#model-name"), "und wieder aus")
+        if pg.is_visible("#overlay.open"):
+            pg.click("#cancel")
         pg.wait_for_timeout(500)
 
     if dran("einstellungen"):

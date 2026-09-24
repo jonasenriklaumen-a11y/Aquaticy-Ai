@@ -264,6 +264,28 @@ def aktives_fenster() -> str:
     return gefunden.stdout.decode("utf-8", "replace").strip() if gefunden.returncode == 0 else ""
 
 
+def aktives_fenster_id() -> int:
+    """Die Kennung des vorderen Fensters als Zahl (0 = keins)."""
+    gefunden = rufe("xdotool", "getactivewindow", zeit=5)
+    try:
+        return int(gefunden.stdout.decode().strip()) if gefunden.returncode == 0 else 0
+    except ValueError:
+        return 0
+
+
+def aktive_klasse(fenster: list[dict[str, str]]) -> str:
+    """Die Fensterklasse des vorderen Fensters -- daran erkennt Aquaticy, welches
+    Programm vorn ist (etwa ein Messenger mit eigenen Rechten)."""
+    kennung = aktives_fenster_id()
+    for eintrag in fenster:
+        try:
+            if kennung and int(eintrag["id"], 16) == kennung:
+                return eintrag["klasse"]
+        except ValueError:
+            continue
+    return ""
+
+
 def fertig(**mehr: object) -> int:
     time.sleep(0.6)  # dem Programm einen Augenblick geben, bevor jemand nachsieht
     print(json.dumps({"ok": True, "fenster": aktives_fenster(), **mehr}, ensure_ascii=False))
@@ -538,8 +560,9 @@ def cmd_open(args: list[str]) -> int:
 
 
 def cmd_windows(_args: list[str]) -> int:
-    print(json.dumps({"fenster": fenster_liste(), "aktiv": aktives_fenster()},
-                     ensure_ascii=False))
+    fenster = fenster_liste()
+    print(json.dumps({"fenster": fenster, "aktiv": aktives_fenster(),
+                      "aktiv_klasse": aktive_klasse(fenster)}, ensure_ascii=False))
     return 0
 
 

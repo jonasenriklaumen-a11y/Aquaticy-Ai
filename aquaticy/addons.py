@@ -171,6 +171,135 @@ CATALOG: dict[str, AddOn] = {
     )
 }
 
+# ---------------------------------------------------------------------------
+# Rechte je Add-on (9.5.10)
+# ---------------------------------------------------------------------------
+@dataclass(frozen=True)
+class Recht:
+    """Eine Einstellung im Add-on-Fenster: eine Frage, zwei oder drei Antworten.
+
+    Bewusst so einfach: kein Regelwerk, sondern eine Wahl wie "Nur lesen" oder
+    "Lesen und schreiben". Durchgesetzt wird sie im Code (Werkzeug bzw. Pruefung
+    im Desktop), nicht nur im Prompt.
+    """
+
+    key: str
+    label: str
+    options: tuple[tuple[str, str], ...]
+    default: str
+    #: Nur sichtbar/wirksam, wenn ein anderes Recht diesen Wert hat.
+    nur_wenn: tuple[str, str] | None = None
+
+
+_MESSENGER_RECHTE = (
+    Recht("zugriff", "Was Aquaticy darf",
+          (("lesen", "Nur lesen"), ("schreiben", "Lesen und schreiben")), "lesen"),
+    Recht("wo", "Schreiben in",
+          (("einzeln", "Nur Einzelchats"), ("alle", "Einzelchats und Gruppen")), "einzeln",
+          nur_wenn=("zugriff", "schreiben")),
+)
+
+RIGHTS: dict[str, tuple[Recht, ...]] = {
+    "github": (
+        Recht("repos", "Welche Repos",
+              (("oeffentlich", "Nur öffentliche"), ("alle", "Auch private")), "alle"),
+        Recht("inhalte", "Dateien",
+              (("nein", "Nur Übersicht"), ("ja", "Auch Inhalte lesen")), "ja"),
+    ),
+    "whatsapp": _MESSENGER_RECHTE,
+    "signal": _MESSENGER_RECHTE,
+    "telegram": _MESSENGER_RECHTE,
+    "blender": (
+        Recht("nutzung", "Blender nutzen",
+              (("skripte", "Nur Skripte"), ("alles", "Skripte und Oberfläche")), "alles"),
+    ),
+    "wetter": (
+        Recht("orte", "Orte", (("alle", "Jeder Ort"), ("meiner", "Nur mein Ort")), "alle"),
+    ),
+    "feeds": (
+        Recht("menge", "Einträge je Abruf", (("10", "10"), ("20", "20"), ("40", "40")), "20"),
+    ),
+}
+
+#: Die Messenger -- fuer die Pruefungen im Desktop.
+MESSENGERS = ("whatsapp", "signal", "telegram")
+
+#: Die strengsten Rechte: gelten, wenn ein Messenger-Fenster da ist, das zu
+#: keinem eingeschalteten Add-on gehoert (etwa im gewoehnlichen Browser).
+STRICTEST = {"zugriff": "lesen", "wo": "einzeln"}
+
+
+def rights_of(settings: Any, addon_id: str) -> dict[str, str]:
+    """Die gueltigen Rechte eines Add-ons -- Unbekanntes faellt auf den Standard."""
+    gespeichert = (load_state(settings).get(addon_id) or {}).get("rechte")
+    gespeichert = gespeichert if isinstance(gespeichert, dict) else {}
+    rechte: dict[str, str] = {}
+    for recht in RIGHTS.get(addon_id, ()):
+        wert = str(gespeichert.get(recht.key, ""))
+        erlaubt = {option for option, _ in recht.options}
+        rechte[recht.key] = wert if wert in erlaubt else recht.default
+    return rechte
+
+
+def set_rights(settings: Any, addon_id: str, werte: Any) -> dict[str, str]:
+    """Setzt Rechte. Nur bekannte Schluessel, nur erlaubte Werte -- sonst nichts."""
+    addon = get(addon_id)
+    if not (load_state(settings).get(addon.id) or {}).get("installed"):
+        raise AddOnError(f"{addon.name} ist nicht installiert.")
+    if not isinstance(werte, dict) or not werte:
+        raise AddOnError("Rechte bitte als {Name: Wert}.")
+    katalog = {recht.key: recht for recht in RIGHTS.get(addon.id, ())}
+    neu = rights_of(settings, addon.id)
+    for key, wert in werte.items():
+        recht = katalog.get(str(key))
+        if recht is None:
+            raise AddOnError(f"{addon.name} hat kein Recht '{key}'.")
+        erlaubt = {option for option, _ in recht.options}
+        if str(wert) not in erlaubt:
+            raise AddOnError(f"'{wert}' gibt es bei '{recht.label}' nicht.")
+        neu[recht.key] = str(wert)
+    _update(settings, addon.id, rechte=neu)
+    return neu
+
+
+def rights_text(addon_id: str, rechte: dict[str, str]) -> str:
+    """Die Rechte in Worten -- fuer den Prompt und die Anzeige."""
+    teile = []
+    for recht in RIGHTS.get(addon_id, ()):
+        if recht.nur_wenn and rechte.get(recht.nur_wenn[0]) != recht.nur_wenn[1]:
+            continue
+        label = dict(recht.options).get(rechte.get(recht.key, recht.default), "")
+        teile.append(f"{recht.label}: {label}")
+    return "; ".join(teile)
+
+
+def messenger_of(klasse: str, titel: str) -> str:
+    """Welcher Messenger ist dieses Fenster? "" = keiner.
+
+    Zuerst die Fensterklasse, die das Add-on selbst setzt (Firefox mit
+    --class aquaticy-whatsapp, Signal Desktop). Dann der Titel -- das faengt
+    auch WhatsApp Web im gewoehnlichen Browser.
+    """
+    klasse, titel = (klasse or "").lower(), (titel or "").lower()
+    for name in MESSENGERS:
+        if f"aquaticy-{name}" in klasse:
+            return name
+    if "signal" in klasse:
+        return "signal"
+    for name, merkmal in (("whatsapp", "whatsapp"), ("telegram", "telegram"),
+                          ("signal", "signal")):
+        if merkmal in titel:
+            return name
+    return ""
+
+
+def messenger_rights(settings: Any, name: str) -> dict[str, str]:
+    """Die Rechte fuer ein Messenger-Fenster -- ohne eingeschaltetes Add-on die strengsten."""
+    if name in MESSENGERS and name in active_ids(settings, pro=True):
+        return rights_of(settings, name)
+    return dict(STRICTEST)
+
+
 #: Die Web-Apps teilen sich ein Firefox -- es liegt auf einem eigenen
 #: Datentraeger und wird mit der ersten Web-App geladen, mit der letzten
 #: wieder geloescht.
@@ -386,6 +515,13 @@ def public_view(settings: Any, pro: bool) -> dict[str, Any]:
                 **({"token_set": anmeldung["token_set"]} if "token_set" in anmeldung else {}),
             },
             "feeds": feeds_of(settings) if addon.id == "feeds" else [],
+            "rechte": rights_of(settings, addon.id),
+            "rechte_katalog": [
+                {"key": recht.key, "label": recht.label,
+                 "options": [{"value": v, "label": t} for v, t in recht.options],
+                 "nur_wenn": list(recht.nur_wenn) if recht.nur_wenn else None}
+                for recht in RIGHTS.get(addon.id, ())
+            ],
             "usable": ok,
             "reason": warum,
         })
@@ -805,8 +941,18 @@ def github_call(
     state: str = "open",
     query: str = "",
     client: httpx.Client | None = None,
+    nur_oeffentlich: bool = False,
+    inhalte: bool = True,
 ) -> dict[str, Any]:
-    """Liest bei GitHub -- ausschliesslich mit GET."""
+    """Liest bei GitHub -- ausschliesslich mit GET.
+
+    Args:
+        nur_oeffentlich: Recht "Nur öffentliche Repos". Private tauchen weder in
+            Listen noch in der Suche auf, und ein privates Repo direkt zu lesen
+            wird abgelehnt -- geprueft bei GitHub, nicht am Namen.
+        inhalte: Recht "Auch Inhalte lesen". Ohne gibt es Ordner und Listen,
+            aber keine Dateiinhalte.
+    """
     if not token:
         return {"error": "GitHub ist nicht angemeldet. Das macht der Nutzer im Add-on-Fenster."}
     action = (action or "").strip().lower()
@@ -847,7 +993,13 @@ def github_call(
         return antwort.json()
 
     try:
-        ergebnis = _github_action(hole, action, repo, nummer, path, ref, state, query)
+        if nur_oeffentlich and braucht_repo and hole(f"/repos/{repo}").get("private"):
+            raise AddOnError(
+                "Das Repo ist privat -- und der Nutzer hat Aquaticy nur öffentliche Repos "
+                "erlaubt (Add-on GitHub -> Rechte)."
+            )
+        ergebnis = _github_action(hole, action, repo, nummer, path, ref, state, query,
+                                  nur_oeffentlich=nur_oeffentlich, inhalte=inhalte)
     except AddOnError as exc:
         return {"error": str(exc)}
     except (httpx.HTTPError, ValueError) as exc:
@@ -866,14 +1018,18 @@ def github_call(
 
 
 def _github_action(hole: Any, action: str, repo: str, nummer: int, path: str, ref: str,
-                   state: str, query: str) -> dict[str, Any]:
+                   state: str, query: str, *, nur_oeffentlich: bool = False,
+                   inhalte: bool = True) -> dict[str, Any]:
     if action == "ich":
         ich = hole("/user")
         return {"login": ich.get("login"), "name": ich.get("name"),
                 "public_repos": ich.get("public_repos"), "private_repos":
-                ich.get("total_private_repos")}
+                None if nur_oeffentlich else ich.get("total_private_repos")}
     if action == "repos":
-        repos = hole("/user/repos", per_page=30, sort="updated")
+        repos = hole("/user/repos", per_page=30, sort="updated",
+                     visibility="public" if nur_oeffentlich else "")
+        if nur_oeffentlich:
+            repos = [r for r in repos if not r.get("private")]
         return {"repos": [{"name": r.get("full_name"), "privat": r.get("private"),
                            "beschreibung": _kurz(r.get("description"), 200),
                            "sprache": r.get("language"), "aktualisiert": r.get("updated_at")}
@@ -920,6 +1076,10 @@ def _github_action(hole: Any, action: str, repo: str, nummer: int, path: str, re
             return {"ordner": path or "/", "eintraege": [
                 {"name": e.get("name"), "art": e.get("type"), "groesse": e.get("size")}
                 for e in inhalt[:200]]}
+        if not inhalte:
+            return {"datei": path, "groesse": inhalt.get("size"), "hinweis": (
+                "Dateiinhalte darf Aquaticy hier nicht lesen -- der Nutzer hat 'Nur "
+                "Übersicht' erlaubt (Add-on GitHub -> Rechte).")}
         if inhalt.get("encoding") != "base64" or int(inhalt.get("size") or 0) > 400_000:
             return {"datei": path, "hinweis": "Zu gross oder keine Textdatei.",
                     "groesse": inhalt.get("size")}
@@ -942,6 +1102,8 @@ def _github_action(hole: Any, action: str, repo: str, nummer: int, path: str, re
         raise AddOnError("Wonach suchen? (query)")
     if repo and REPO_RE.fullmatch(repo):
         q = f"{q} repo:{repo}"
+    if nur_oeffentlich:
+        q = f"{q} is:public"
     treffer = hole("/search/issues", q=q, per_page=20)
     return {"treffer": [{"repo": str(t.get("repository_url") or "").split("/repos/")[-1],
                          "nummer": t.get("number"), "titel": t.get("title"),
@@ -1161,7 +1323,11 @@ APP_OF = {"whatsapp": "whatsapp", "signal": "signal", "telegram": "telegram",
 
 def desktop_apps(settings: Any, pro: bool = True) -> list[str]:
     """Welche Add-on-Programme sich im Desktop oeffnen lassen."""
-    return [APP_OF[a] for a in active_ids(settings, pro) if a in APP_OF]
+    return [
+        APP_OF[a] for a in active_ids(settings, pro)
+        if a in APP_OF
+        and not (a == "blender" and rights_of(settings, "blender")["nutzung"] == "skripte")
+    ]
 
 
 PROMPT = """\
@@ -1186,7 +1352,18 @@ def prompt_for(settings: Any, pro: bool = True) -> str:
     aktiv = active_ids(settings, pro)
     if not aktiv:
         return ""
-    return PROMPT % {"liste": ", ".join(CATALOG[a].name for a in aktiv)}
+    text = PROMPT % {"liste": ", ".join(CATALOG[a].name for a in aktiv)}
+    zeilen = [
+        f"- {CATALOG[a].name}: {rights_text(a, rights_of(settings, a))}"
+        for a in aktiv if RIGHTS.get(a)
+    ]
+    if zeilen:
+        text += (
+            "Was der Nutzer dir je Add-on erlaubt hat (im Code durchgesetzt -- frag gar "
+            "nicht erst nach mehr, sondern sag, wo man es aendert: Add-on-Fenster -> "
+            "Rechte):\n" + "\n".join(zeilen) + "\n"
+        )
+    return text
 
 
 def werkstatt_command_for_blender() -> str:
