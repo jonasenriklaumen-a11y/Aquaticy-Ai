@@ -2,19 +2,22 @@
 
 Bis 9.5.10 wurde nur das Hauptmodell mitgezaehlt. Agenten, Master, Planer,
 Rechtspruefer, Bildmodell und die Bildbeschreibung liefen am Zaehler vorbei --
-und das Kontingent eines normalen Kontos (150.000 Token) wurde nur VOR einer
-Anfrage geprueft. Eine einzige Anfrage mit vielen Agenten konnte es so weit
+und das Kontingent eines normalen Kontos wurde nur VOR einer Anfrage
+geprueft. Eine einzige Anfrage mit vielen Agenten konnte es so weit
 ueberschreiten.
 
 Jetzt gilt:
 
-* Alle Aufrufe gehen ueber ``completion()`` hier. Sie werden im Zaehler des
-  Kontos vermerkt (die Zahlen des Anbieters, sonst geschaetzt: drei Zeichen
-  sind ein Token).
-* Hat das Konto ein Kontingent (``settings.token_limit``, nur normale Konten),
-  wird VOR jedem Aufruf geprueft. Ist es aufgebraucht, kommt
-  ``QuotaExceeded`` -- der Lauf endet, statt weiter auf Kosten des Betreibers
-  zu laufen.
+* Alle Aufrufe gehen ueber ``completion()`` hier (das Hauptmodell streamt und
+  meldet sich ueber ``record()``). Sie werden zweimal vermerkt: in der
+  Statistik des Profils (je Tag und Modell) und -- bei normalen Konten -- im
+  Kontingent des Kontos in der Kontendatenbank (aquaticy/quota.py). Gezaehlt
+  werden die Zahlen des Anbieters, sonst geschaetzt: drei Zeichen sind ein
+  Token.
+* Hat das Konto ein Kontingent (``settings.quota``, nur normale Konten), wird
+  VOR jedem Aufruf geprueft: 5-Stunden-Sitzung und Woche. Ist eines
+  aufgebraucht, kommt ``QuotaExceeded`` -- der Lauf endet, statt weiter auf
+  Kosten des Betreibers zu laufen.
 * Ein erstelltes Bild zaehlt pauschal ``IMAGE_TOKENS`` -- ein Bildmodell
   rechnet nicht in Token ab, kostet aber trotzdem.
 """
@@ -24,54 +27,60 @@ from __future__ import annotations
 import contextlib
 from typing import Any
 
+from aquaticy.quota import SESSION_TOKENS, QuotaExceeded
+
+__all__ = [
+    "IMAGE_TOKENS",
+    "QuotaExceeded",
+    "charge_image",
+    "check",
+    "completion",
+    "quota_of",
+    "record",
+    "remaining",
+    "share_of_session",
+]
+
 #: So viel zaehlt ein erstelltes Bild.
 IMAGE_TOKENS = 5_000
 
 
-class QuotaExceeded(RuntimeError):
-    """Das Kontingent des Kontos ist aufgebraucht."""
-
-
-def limit_of(settings: Any) -> int | None:
-    limit = getattr(settings, "token_limit", None)
-    return int(limit) if isinstance(limit, int) and limit > 0 else None
-
-
-def used(settings: Any) -> int:
-    from aquaticy.usage import UsageLog
-
-    return UsageLog(settings.db_path).total_tokens()
+def quota_of(settings: Any) -> Any:
+    """Das Kontingent des Kontos -- ``None`` heisst: keins (Pro, lokal)."""
+    quota = getattr(settings, "quota", None)
+    return quota if hasattr(quota, "check") and hasattr(quota, "record") else None
 
 
 def remaining(settings: Any) -> int | None:
-    """Wie viel noch geht -- ``None`` heisst: kein Kontingent (Pro, lokal)."""
-    limit = limit_of(settings)
-    if limit is None:
-        return None
-    return max(0, limit - used(settings))
+    """Was noch geht -- ``None`` heisst: kein Kontingent."""
+    quota = quota_of(settings)
+    return None if quota is None else quota.remaining()
 
 
-def message(settings: Any) -> str:
-    limit = limit_of(settings) or 0
-    return (
-        f"Dein Kontingent von {limit:,} Token ist aufgebraucht. Mit einem Pro-Konto "
-        "gibt es kein Tokenlimit."
-    ).replace(",", ".")
+def share_of_session(tokens: int) -> str:
+    """Wie viel einer Sitzung *tokens* sind -- fuer Saetze an Menschen."""
+    anteil = tokens * 100 / SESSION_TOKENS
+    return f"{anteil:.1f}".rstrip("0").rstrip(".").replace(".", ",") + " %"
 
 
 def check(settings: Any, need: int = 0) -> None:
-    """Wirft ``QuotaExceeded``, wenn das Konto nichts mehr uebrig hat."""
-    rest = remaining(settings)
-    if rest is not None and (rest <= 0 or rest < need):
-        raise QuotaExceeded(message(settings))
+    """Wirft ``QuotaExceeded``, wenn Sitzung oder Woche nichts mehr hergeben."""
+    quota = quota_of(settings)
+    if quota is not None:
+        quota.check(need)
 
 
 def record(settings: Any, model: str, tokens_in: int, tokens_out: int) -> None:
     """Vermerkt einen Aufruf. Zaehlen darf nie eine Antwort kosten."""
+    rein, raus = max(0, int(tokens_in or 0)), max(0, int(tokens_out or 0))
     with contextlib.suppress(Exception):
         from aquaticy.usage import UsageLog
 
-        UsageLog(settings.db_path).record(model, max(0, int(tokens_in)), max(0, int(tokens_out)))
+        UsageLog(settings.db_path).record(model, rein, raus)
+    quota = quota_of(settings)
+    if quota is not None:
+        with contextlib.suppress(Exception):
+            quota.record(rein + raus, model)
 
 
 def _counted(messages: Any, response: Any) -> tuple[int, int]:

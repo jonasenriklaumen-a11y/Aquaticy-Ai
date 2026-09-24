@@ -23,6 +23,7 @@ import json
 import os
 import socket
 import threading
+import time
 from http.client import HTTPConnection
 from http.server import ThreadingHTTPServer
 from pathlib import Path
@@ -33,6 +34,7 @@ import pytest
 
 from aquaticy import metering, web
 from aquaticy.config import Settings
+from aquaticy.quota import SESSION_TOKENS, Quota
 from aquaticy.usage import UsageLog
 
 
@@ -47,8 +49,14 @@ def knapp(tmp_path: Path) -> Settings:
     settings = Settings(model="mistral/mistral-large-latest", data_dir=tmp_path / "d",
                         subagents_auto=False, request_delay_seconds=0.0)
     settings.data_dir.mkdir(parents=True)
-    settings.token_limit = 1_000
+    # Ein normales Konto (seit 9.5.14: 5-Stunden-Sitzung und Woche).
+    settings.quota = Quota(tmp_path / "konten.sqlite3", "k", time.time() - 3600)
     return settings
+
+
+def _voll(settings: Settings, bis_auf: int = 0) -> None:
+    """Braucht die Sitzung auf -- bis auf *bis_auf* Token."""
+    settings.quota.record(SESSION_TOKENS - bis_auf, "m")
 
 
 def test_every_metered_call_is_counted(knapp: Settings, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -69,7 +77,7 @@ def test_provider_numbers_win_over_the_estimate(knapp: Settings,
 def test_an_exhausted_quota_stops_the_call_before_it_costs(
     knapp: Settings, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    UsageLog(knapp.db_path).record("m", 1_000, 0)
+    _voll(knapp)
     gerufen: list[bool] = []
     monkeypatch.setattr("litellm.completion", lambda **kw: gerufen.append(True) or _antwort())
     with pytest.raises(metering.QuotaExceeded, match="Kontingent"):
@@ -115,7 +123,7 @@ def test_the_main_agent_stops_mid_run(knapp: Settings, monkeypatch: pytest.Monke
     def llm(**kw: Any) -> Any:
         aufrufe.append(kw["model"])
         # Jede Runde verbraucht mehr, als uebrig ist.
-        UsageLog(knapp.db_path).record("m", 2_000, 0)
+        _voll(knapp)
         tool = SimpleNamespace(id=f"c{len(aufrufe)}", type="function", function=SimpleNamespace(
             name="calculate", arguments=json.dumps({"expression": "1+1"})))
         return SimpleNamespace(choices=[SimpleNamespace(
@@ -131,7 +139,7 @@ def test_subagents_stop_when_the_quota_is_gone(knapp: Settings,
                                                monkeypatch: pytest.MonkeyPatch) -> None:
     from aquaticy.subagents import run_subagents
 
-    UsageLog(knapp.db_path).record("m", 1_000, 0)
+    _voll(knapp)
     gerufen: list[bool] = []
     monkeypatch.setattr("litellm.completion", lambda **kw: gerufen.append(True) or _antwort())
     ergebnisse = run_subagents(["Teil eins", "Teil zwei"], knapp, parallel=2)
@@ -143,13 +151,14 @@ def test_an_image_counts_and_needs_room(knapp: Settings, monkeypatch: pytest.Mon
     from aquaticy import images
     from aquaticy.tools import Toolbox
 
-    knapp.token_limit = metering.IMAGE_TOKENS + 100
+    _voll(knapp, bis_auf=metering.IMAGE_TOKENS + 100)
     monkeypatch.setattr(images, "generate", lambda *a, **k: {
         "bytes": b"\x89PNG\r\n\x1a\n" + b"0" * 32, "mime": "image/png", "modell": "T"})
     box = Toolbox(knapp)
     assert box.create_image("ein Hund")["erstellt"] is True
     assert UsageLog(knapp.db_path).total_tokens() >= metering.IMAGE_TOKENS
-    assert "Kontingent" in box.create_image("noch ein Hund")["error"]
+    fehler = box.create_image("noch ein Hund")["error"]
+    assert "Kontingent" in fehler and "2,5 %" in fehler, "in Prozent, nicht in Token"
 
 
 # -- Konto-Einstellungen: normale Konten -----------------------------------------------
@@ -164,11 +173,11 @@ def test_normal_accounts_get_the_quota_and_the_operators_addresses(tmp_path: Pat
     profil = _profil(tmp_path, "AQUATICY_API_BASE=http://192.168.1.10:8080\n"
                                "AQUATICY_SEARXNG_URL=http://10.0.0.5/\n")
     normal = web._profile_settings(profil, "normal")
-    assert normal.token_limit == web.NORMAL_TOKEN_LIMIT
+    assert normal.quota is not None, "ein normales Konto hat immer ein Kontingent"
     assert normal.api_base == web.get_settings().api_base
     assert normal.searxng_url == web.get_settings().searxng_url
     pro = web._profile_settings(profil, "pro")
-    assert pro.token_limit is None and pro.api_base == "http://192.168.1.10:8080"
+    assert pro.quota is None and pro.api_base == "http://192.168.1.10:8080"
 
 
 def _sitzung(tmp_path: Path, monkeypatch: pytest.MonkeyPatch, plan: str) -> web.ChatSession:

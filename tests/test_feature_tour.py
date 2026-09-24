@@ -67,7 +67,8 @@ def tour(server: tuple[int, Path], request: pytest.FixtureRequest,  # noqa: F811
     monkeypatch.setattr(web, "REQUEST_LIMIT", web.RateLimiter(attempts=10_000, window_seconds=60))
     # Nur hier: das Kontingent ist in test_end_to_end eigens geprueft, und
     # der grosse Systemtext kostet je Frage einige tausend Token.
-    monkeypatch.setattr(web, "NORMAL_TOKEN_LIMIT", 10**9)
+    monkeypatch.setattr("aquaticy.quota.SESSION_TOKENS", 10**9)
+    monkeypatch.setattr("aquaticy.quota.WEEK_TOKENS", 10**10)
     monkeypatch.chdir(tmp_path)
     plan = request.param
     return Tour(port, _konto(port, plan, "PROE2E234" if plan == "pro" else ""))
@@ -76,7 +77,8 @@ def tour(server: tuple[int, Path], request: pytest.FixtureRequest,  # noqa: F811
 @pytest.mark.parametrize("tour", ["normal", "pro"], indirect=True)
 def test_every_page_and_endpoint(tour: Tour, tmp_path: Path) -> None:
     status, konto = tour("GET", "/api/account")
-    pro = konto["token_limit"] is None
+    pro = konto["pro"]
+    assert konto["usage"]["limited"] is not pro
     assert status == 200 and konto["plan"] == ("pro" if pro else "normal")
 
     # -- Seiten und Lesewege ------------------------------------------------
@@ -270,7 +272,7 @@ def test_what_each_account_is_offered(tour: Tour) -> None:
     fake_llm.ANFRAGEN.clear()
     tour.chat("WERKZEUG:calculate {}")
     angeboten = {n for zeile in fake_llm.ANFRAGEN for n in json.loads(zeile)["tool_names"]}
-    pro = tour("GET", "/api/account")[1]["token_limit"] is None
+    pro = tour("GET", "/api/account")[1]["pro"]
     assert ("lan_check" in angeboten) is pro, "das Heimnetz gehoert zu Pro"
     # Nicht eingerichtet -> nicht angeboten: kein Werkzeug, das nur scheitern kann.
     for name in ("github", "read_feeds", "create_image", "ha_states", "ha_call",

@@ -103,11 +103,12 @@ MONITORING = ("visual", "price", "image")
 #: hat. Solche Auftraege schaltet der Planer ab.
 GUARD_STATE = "abgelehnt nach Rechtsrahmen"
 
-#: Der Zustand eines Auftrags, dessen Konto sein Tokenlimit erreicht hat. Der
-#: Zaehler laesst sich nicht zuruecksetzen -- der Auftrag kaeme also nie
-#: wieder dran und wuerde doch alle zwanzig Sekunden einen Lauf eintragen.
-#: Auch ihn schaltet der Planer deshalb ab.
-TOKEN_LIMIT_STATE = "Tokenlimit erreicht"
+#: Der Zustand eines Auftrags, dessen Konto sein Kontingent erreicht hat
+#: (5-Stunden-Sitzung oder Woche, aquaticy/quota.py). Bis 9.5.13 galt ein
+#: Limit fuer immer, und der Planer schaltete den Auftrag ab. Seit 9.5.14
+#: setzt sich das Kontingent zurueck: der Auftrag bleibt an, dieser Termin
+#: faellt aus, der naechste laeuft wieder.
+TOKEN_LIMIT_STATE = "Kontingent erreicht"
 
 
 def _number(value: str) -> float | None:
@@ -543,7 +544,7 @@ def describe_job_image(agent: Any, job: Job, settings: Any) -> str:
         return ""
 
 
-def run_job(job: Job, settings: Any, *, token_limit: int | None = None) -> tuple[str, str]:
+def run_job(job: Job, settings: Any) -> tuple[str, str]:
     """Fuehrt einen Auftrag aus. Returns: (Zustand, Chat-Kennung).
 
     Der Agent ist ein eigener: das laufende Gespraech des Nutzers bleibt
@@ -553,12 +554,15 @@ def run_job(job: Job, settings: Any, *, token_limit: int | None = None) -> tuple
     Der Agent bekommt deshalb keinen Rueckfrage-Empfaenger und muss mit dem
     auskommen, was in der Frage steht.
     """
+    from aquaticy import metering
     from aquaticy.agent import Agent
     from aquaticy.cache import Cache
     from aquaticy.guardrails import UNAVAILABLE
-    from aquaticy.usage import UsageLog
 
-    if token_limit is not None and UsageLog(settings.db_path).total_tokens() >= token_limit:
+    try:
+        # Das Kontingent des Kontos (settings.quota) -- vor dem ersten Aufruf.
+        metering.check(settings)
+    except metering.QuotaExceeded:
         return (TOKEN_LIMIT_STATE, "")
 
     cache = Cache(settings.db_path, settings.cache_ttl_hours)
@@ -688,12 +692,9 @@ class Scheduler:
     ohnehin gegenseitig ausbremsen.
     """
 
-    def __init__(
-        self, settings_getter: Any, on_run: Any = None, token_limit: int | None = None
-    ) -> None:
+    def __init__(self, settings_getter: Any, on_run: Any = None) -> None:
         self._settings_getter = settings_getter
         self._on_run = on_run
-        self._token_limit = token_limit
         self._stop = threading.Event()
         self._thread: threading.Thread | None = None
 
@@ -724,17 +725,12 @@ class Scheduler:
             # waere beim naechsten Takt wieder der erste, wuerde wieder
             # stolpern -- und alles, was hinter ihm steht, kaeme nie dran.
             try:
-                if self._token_limit is None:
-                    state, chat = run_job(job, settings)
-                else:
-                    state, chat = run_job(job, settings, token_limit=self._token_limit)
+                state, chat = run_job(job, settings)
             except Exception as exc:
                 state, chat = (f"Fehler: {type(exc).__name__}", "")
             store.note_run(job.id, state, chat)
-            if (
-                state in ("erfüllt", TOKEN_LIMIT_STATE)
-                or state.startswith(GUARD_STATE)
-            ):
+            # Am Kontingent bleibt der Auftrag an: es setzt sich zurueck.
+            if state == "erfüllt" or state.startswith(GUARD_STATE):
                 store.set_enabled(job.id, False)
             gelaufen += 1
             if self._on_run:

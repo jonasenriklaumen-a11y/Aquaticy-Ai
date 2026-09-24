@@ -13,9 +13,10 @@ Gezaehlt wird, was tatsaechlich ueber die Leitung geht:
   Schnittstelle zustandslos ist; genau so rechnen die Anbieter auch ab.
 * **heraus** die Antwort und die Argumente der Werkzeugaufrufe.
 
-Abgelegt wird tageweise je Modell in derselben Datenbank wie der Cache. Bei
-normalen Konten setzt die Weboberflaeche nach insgesamt 150.000 Token eine
-Pause; Pro-Konten bleiben unbegrenzt.
+Abgelegt wird tageweise je Modell in derselben Datenbank wie der Cache --
+das ist die Statistik. Das Kontingent normaler Konten (5-Stunden-Sitzung und
+Woche) steht getrennt davon am Konto in der Kontendatenbank
+(aquaticy/quota.py); Pro-Konten bleiben unbegrenzt.
 """
 
 from __future__ import annotations
@@ -186,3 +187,47 @@ class UsageLog:
             return int(row[0] or 0)
         except sqlite3.Error:
             return 0
+
+
+def kurz(zahl: Any) -> str:
+    """Grosse Zahlen fuer Menschen: 1234567 -> "1,23 Mio".
+
+    Bis 9.5.13 rechnete das der Browser; jetzt kommt der fertige Text vom
+    Server.
+    """
+    try:
+        n = float(zahl or 0)
+    except (TypeError, ValueError):
+        n = 0.0
+    if n >= 1e9:
+        return f"{n / 1e9:.2f}".replace(".", ",") + " Mrd"
+    if n >= 1e6:
+        return f"{n / 1e6:.2f}".replace(".", ",") + " Mio"
+    if n >= 1e3:
+        return f"{n / 1e3:.1f}".replace(".", ",") + " Tsd"
+    return str(int(n))
+
+
+def summary_view(summary: dict[str, Any]) -> dict[str, Any]:
+    """Die Statistik als fertige Texte -- der Browser zeigt sie nur noch an."""
+    kacheln = []
+    for key, was in (("today", "Heute"),
+                     ("window", f"Letzte {summary.get('window_days') or 7} Tage"),
+                     ("total", "Insgesamt")):
+        wert = summary.get(key) or {}
+        rein, raus = int(wert.get("tokens_in") or 0), int(wert.get("tokens_out") or 0)
+        kacheln.append({
+            "wert": kurz(rein + raus),
+            "was": f"{was} (Token)",
+            "dazu": f"{kurz(rein)} hinein · {kurz(raus)} heraus · "
+                    f"{int(wert.get('calls') or 0)} Aufrufe",
+        })
+    modelle = [
+        f"{m.get('model')}: {kurz(int(m.get('tokens_in') or 0) + int(m.get('tokens_out') or 0))}"
+        f" Token in {int(m.get('calls') or 0)} Aufrufen"
+        for m in summary.get("models") or []
+    ]
+    return {
+        "tiles": kacheln,
+        "detail": ("Je Modell:\n" + "\n".join(modelle)) if modelle else "Noch nichts gezählt.",
+    }

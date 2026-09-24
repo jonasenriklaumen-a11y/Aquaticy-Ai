@@ -137,7 +137,7 @@ aquaticy "welche Bahnstrecken in NRW sind gerade gesperrt?"
 $ aquaticy --location "Mönchengladbach" --lang de
 
 ╭──────────────────────────────────────────────────────╮
-│ Aquaticy AI 9.5.13                                     │
+│ Aquaticy AI 9.5.14                                     │
 │ Modell mistral/mistral-large-latest · Suche duckduckgo │
 │ Frag einfach los. /help zeigt die Befehle.           │
 ╰──────────────────────────────────────────────────────╯
@@ -931,17 +931,26 @@ laufen live mit, die Antwort wird Wort für Wort gestreamt.
   den belegten Speicher als Kacheln ein — alle vier Sekunden aufgefrischt, solange das
   Einstellungsfenster offen ist. Standardmäßig aus; der Haken bleibt im Browser
   gemerkt, gefragt wird nur, während du hinschaust.
-* **Nutzung** unter *Einstellungen → Nutzung*: drei Kacheln zeigen, wie viele Token
-  heute, in den letzten sieben Tagen und insgesamt durch die Leitung gegangen sind —
-  hinein und heraus getrennt, darunter die Aufschlüsselung je Modell. **Ein Token
+* **Nutzung** unter *Einstellungen → Nutzung* (seit 9.5.14): Normale Konten sehen ihre
+  **Nutzungslimits** wie auf der Nutzungsseite von Claude — zwei Balken in Prozent,
+  keine Tokenzahlen: *Aktuelle Sitzung* (5-Stunden-Fenster, 200.000 Token, beginnt mit
+  der ersten Nachricht) und *Diese Woche* (1,5 Millionen Token, setzt sich jede Woche zur
+  Uhrzeit der Kontoerstellung zurück), jeweils mit „Setzt sich in 3 Std. 12 Min. (um
+  17:42) zurück“ bzw. „… am Dienstag, 29.09. um 14:32 zurück“. Ab 80 % steht ein Hinweis
+  über dem Eingabefeld; ist ein Limit erreicht, sagt der Chat welches und wann es
+  weitergeht. Pro-Konten und der lokale Betrieb haben kein Limit; dort zeigen drei
+  Kacheln, wie viele Token heute, in den letzten sieben Tagen und insgesamt durch die
+  Leitung gegangen sind — hinein und heraus getrennt, darunter die Aufschlüsselung je
+  Modell. **Ein Token
   sind hier drei Zeichen.** Das ist eine Vereinbarung, keine Messung: jeder Anbieter
   zerlegt Text anders, und die genauen Zahlen bekäme man nur mit dessen eigenem
   Zerleger. Für Größenordnungen reicht es — ob eine Frage hundert oder hunderttausend
   Token gekostet hat, sieht man so. Gezählt wird, was wirklich hinausgeht: der
   Systemtext und das ganze Gespräch bei *jedem* Aufruf (die Schnittstelle ist
   zustandslos, genau so rechnen die Anbieter auch ab) plus die Antwort und die
-  Argumente der Werkzeugaufrufe. Bei normalen Konten endet das Kontingent bei insgesamt
-  150.000 Token. Pro-Konten bleiben unbegrenzt. Der Zähler lässt sich nicht zurücksetzen.
+  Argumente der Werkzeugaufrufe. Der Verbrauch hängt am Konto und wird auf dem Server
+  gerechnet (siehe *Konten und Pro*); Verlauf oder Speicher zu löschen setzt ihn nicht
+  zurück.
 * **Der erste Satz an ein örtliches Modell** sagt, dass gewartet wird. Ollama lädt
   ein großes Modell zehn bis sechzig Sekunden von der Platte; vorher stand in der
   Zeit nichts da und es sah aus, als hänge die Seite. Jetzt steht als erster
@@ -1019,7 +1028,7 @@ er erreichbar ist — im heimischen Netz und über Tailscale:
 
 ```
 ╭───────────────────────────────────────────────────────────────────╮
-│ Aquaticy AI 9.5.13                                                  │
+│ Aquaticy AI 9.5.14                                                  │
 │ Diese Adresse im Browser oeffnen:                                 │
 │   http://192.168.1.44:8765/    im heimischen Netz                 │
 │   http://100.81.120.100:8765/  ueber Tailscale                    │
@@ -2291,8 +2300,21 @@ im Terminal. Später zeigt `aquaticy pro-code` denselben Code erneut. Alternativ
 ihn vor dem Start mit `AQUATICY_PRO_CODE`.
 
 Normale Konten können recherchieren, chatten und ihre eigenen Einstellungen und Daten
-nutzen. Nach insgesamt 150.000 Token nehmen sie keine weiteren Modellanfragen an. Der
-Zähler lässt sich nicht zurücksetzen. Pro-Konten haben kein Tokenlimit und können
+nutzen. Seit 9.5.14 haben sie zwei Limits, wie bei Claude:
+
+| Limit | Budget | Beginnt | Setzt sich zurück |
+|---|---|---|---|
+| **Sitzung** | 200.000 Token | mit der ersten Nachricht | 5 Stunden danach |
+| **Woche** | 1.500.000 Token | zur Uhrzeit der Kontoerstellung | jede Woche am selben Wochentag zur selben Uhrzeit (Ortszeit des Servers, auch über die Zeitumstellung) |
+
+Angezeigt wird beides **in Prozent**, nicht in Token (*Einstellungen → Nutzung*, im
+Konto-Abschnitt und als Hinweis ab 80 %). Gezählt und gerechnet wird **nur auf dem
+Server**: Der Verbrauch steht in der Kontendatenbank (`accounts.sqlite3`) an der Kennung
+des Kontos — nicht im Profilordner und nicht im Browser. Wer Chats, Verlauf oder Speicher
+löscht, löscht damit nicht seinen Verbrauch. Ist ein Limit erreicht, nimmt der Server
+keine Anfragen mehr an und sagt, wann es weitergeht; ein Auftrag lässt diesen Termin aus
+und läuft beim nächsten wieder (bis 9.5.13 wurde er abgeschaltet, weil das alte Limit von
+150.000 Token nie zurückgesetzt wurde). Pro-Konten haben kein Tokenlimit und können
 zusätzlich die LAN-Suche, Home Assistant, die Lagerverwaltung, den User mode und die
 Werkstatt-Add-ons (WhatsApp Web, Signal, Telegram Web, Blender) verwenden. Nur Pro-Konten
 können unter **Dev settings** die Rechts-Leitplanken abschalten (siehe unten).
@@ -2300,8 +2322,9 @@ können unter **Dev settings** die Rechts-Leitplanken abschalten (siehe unten).
 **Was bei normalen Konten fest bleibt (seit 9.5.11 geprüft wie von einem kundigen Nutzer):**
 
 - **Das Kontingent gilt für jeden Modellaufruf** — Hauptmodell, Agenten, Master, Planer,
-  Bildbeschreibung, Rechtsprüfer — und vor jeder Runde, nicht nur vor der Anfrage. Ist es
-  aufgebraucht, endet der Lauf sofort. Ein erstelltes Bild zählt pauschal 5.000 Token, ein
+  Bildbeschreibung, Rechtsprüfer — und vor jeder Runde, nicht nur vor der Anfrage. Ist
+  Sitzung oder Woche aufgebraucht, endet der Lauf sofort. Ein erstelltes Bild zählt
+  pauschal 5.000 Token (2,5 % einer Sitzung), ein
   mitgeschicktes Bild (etwa ein Foto zur Beschreibung) pauschal 1.500 — so rechnen auch die
   Anbieter, nicht nach der Länge der Bilddaten (bis 9.5.11 war ein Foto von 300 KB hier
   133.000 „Token“ wert).
@@ -2488,6 +2511,8 @@ aquaticy/
   addons.py      # Add-ons: installieren, schalten, anmelden, Rechte; GitHub, Wetter, Feeds
   router.py      # automatische Modellwahl: welches Hauptmodell passt zur Nachricht
   metering.py    # jeder Modellaufruf zählt; das Kontingent gilt auch mitten im Lauf
+  quota.py       # Kontingent normaler Konten: 5-Stunden-Sitzung und Woche, am Konto
+  webview.py     # was die Oberfläche anzeigt -- fertig gerechnet auf dem Server
   images.py      # Bilder erstellen (FLUX.1 schnell bei NVIDIA, Mistral)
   jobs.py        # Aufträge: Fragen, die sich von selbst stellen
   usage.py       # der Token-Zähler (drei Zeichen sind ein Token)
@@ -2537,6 +2562,21 @@ einmal mit „weniger Bewegung". Am Ende steht, was geprüft und was beanstandet
 Rückgabewert ist die Anzahl der Beanstandungen. Der Agent dahinter ist gestellt, es
 laufen also weder Modelle noch Suchanfragen. `pytest` führt ihn als eigenen Prozess mit
 aus und überspringt ihn, wo Playwright oder der Browser fehlen.
+
+**Was im Browser läuft — und was nicht** (seit 9.5.14): Die Oberfläche zeichnet nur
+noch. Auf dem Server gerechnet und formuliert werden: das Kontingent (Prozent,
+Rücksetzzeiten, Hinweise), welches Modell gerade wirklich antwortet und die Statuszeile
+darunter, welche Modelle die Auswahl je Modus zeigt und welches Feld die Wahl setzt, die
+Anbieter mit Schlüsselnamen und Beispielen, welcher Suchdienst welchen Schlüssel braucht,
+die Gruppen der Chats („Heute“, „Gestern“ …), alle Zeit- und Größenangaben (Speicher,
+Aufträge, Werkstatt-Dateien, Aufnahmezeitpunkt von Bildern), die Beschreibung jedes
+Auftrags, die Anzeigen der Auslastung, Dateinamen für den Chat-Export, Vorschläge,
+Begrüßungssätze und die Namen von Rollen und Prüfurteilen (`aquaticy/webview.py`). Im
+Browser bleibt nur, was dort laufen muss: Klicks und Tastatur, das Zeichnen, der
+Antwortstrom live samt Markdown, das Lesen angehängter Dateien vor dem Hochladen, die
+Klickposition im Werkstatt-Bildschirm und die Tageszeit für „Guten Morgen“ — die kennt
+nur das Gerät des Nutzers. Entschieden wird ohnehin immer auf dem Server: Pro-Sperren,
+Kontingent und Rechte gelten dort, auch wenn jemand an der Oberfläche vorbei schickt.
 
 **Jede Funktion einmal** (`tests/test_feature_tour.py`, seit 9.5.13): derselbe Aufbau wie
 Ende zu Ende, aber in der Breite — für ein normales und ein Pro-Konto jede Seite, jeder

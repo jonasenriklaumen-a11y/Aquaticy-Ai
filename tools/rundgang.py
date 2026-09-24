@@ -361,6 +361,20 @@ def normales_konto(browser: Any, port: int, log: Protokoll, fehler: list[str]) -
     pg.click("#btn-settings")
     pg.wait_for_selector("#overlay.open", state="visible")
     pg.wait_for_timeout(700)
+    # 9.5.14: Sitzung und Woche als Balken in Prozent -- keine Tokenzahlen.
+    pg.click('#secnav button:has-text("Nutzung")')
+    pg.wait_for_timeout(700)
+    grenzen = pg.inner_text("#limits")
+    log.pruefe("Aktuelle Sitzung" in grenzen and "Diese Woche" in grenzen
+               and "% genutzt" in grenzen,
+               f"Nutzung: zwei Balken in Prozent ({grenzen.splitlines()[:1]})")
+    log.pruefe(pg.locator('#limits [role="progressbar"]').count() == 2,
+               "beide als Fortschrittsbalken lesbar (für Screenreader)")
+    log.pruefe("%" in pg.inner_text("#account-tokens")
+               and "Token" not in pg.inner_text("#account-tokens"),
+               f"im Konto steht Prozent: {pg.inner_text('#account-tokens')!r}")
+    log.pruefe(not pg.inner_text("#zaehler").strip(),
+               "Tokenzahlen sieht ein normales Konto nicht")
     log.pruefe(
         pg.is_checked("#legalguard") and pg.is_enabled("#legalguard"),
         "der Schalter ist an und nicht ausgegraut",
@@ -926,7 +940,7 @@ def rundgang(pg: Any, log: Protokoll, agent: FakeAgent, bilder: Path | None,
         # geprueft wird, dass jeder Vorschlag aus der richtigen Liste stammt.
         aus_liste = pg.evaluate(
             """() => [...document.querySelectorAll("#chips .chip")]
-                     .every(c => SUGGESTIONS.normal.includes(c.textContent.trim()))"""
+                     .every(c => TEXTE.suggestions.normal.includes(c.textContent.trim()))"""
         )
         log.pruefe(aus_liste,
                    f"im Standardmodus geht es ums Suchen ({vorschlag[:40]!r})")
@@ -940,7 +954,7 @@ def rundgang(pg: Any, log: Protokoll, agent: FakeAgent, bilder: Path | None,
         # jeder gezeigte Vorschlag wirklich aus der Coding-Liste stammt.
         aus_liste = pg.evaluate(
             """() => [...document.querySelectorAll("#chips-code .chip")]
-                     .every(c => SUGGESTIONS.code.includes(c.textContent.trim()))"""
+                     .every(c => TEXTE.suggestions.code.includes(c.textContent.trim()))"""
         )
         code_text = pg.inner_text("#chips-code")
         log.pruefe(aus_liste, f"es geht ums Programmieren ({code_text[:40]!r})")

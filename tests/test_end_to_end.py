@@ -103,7 +103,9 @@ def test_a_question_goes_all_the_way(server: tuple[int, Path]) -> None:
     assert any(a["stream"] and a["tools"] for a in anfragen), "gestreamt, mit Werkzeugen"
     assert all(a["auth"].startswith("Bearer sk-fa") for a in anfragen)
     konto = json.loads(_req(port, "GET", "/api/account", cookie=cookie)[2])
-    assert konto["tokens_used"] > 0, "gezaehlt"
+    sitzung = konto["usage"]["session"]
+    assert sitzung["active"] and sitzung["percent"] >= 1, "gezaehlt -- am Konto, in Prozent"
+    assert "tokens_used" not in konto and "_used" not in konto["usage"], "keine Tokenzahlen"
 
 
 def test_the_legal_check_refuses_for_real(server: tuple[int, Path]) -> None:
@@ -115,16 +117,34 @@ def test_the_legal_check_refuses_for_real(server: tuple[int, Path]) -> None:
 
 
 def test_the_quota_stops_a_normal_account(server: tuple[int, Path]) -> None:
-    from aquaticy.usage import UsageLog
+    from aquaticy.quota import SESSION_TOKENS, WEEK_TOKENS
 
     port, konten = server
     vorher = set((konten / "users").iterdir())
     cookie = _konto(port)
     profil = (set((konten / "users").iterdir()) - vorher).pop()
-    UsageLog(profil / "aquaticy.sqlite3").record("fake", web.NORMAL_TOKEN_LIMIT, 0)
+    kontingent = web.AUTH.quota(web.AUTH.account(profil.name))
+    kontingent.record(SESSION_TOKENS, "fake")
     status, _, daten = _req(port, "POST", "/api/chat", {"message": "Noch eine"}, cookie)
-    assert status == 429 and "Kontingent" in daten.decode()
+    antwort = json.loads(daten)
+    assert status == 429 and antwort["code"] == "quota" and antwort["which"] == "session"
+    assert "5-Stunden-Sitzung" in antwort["error"] and "zurück" in antwort["error"]
+    assert antwort["usage"]["session"]["percent"] == 100
     assert fake_llm.ANFRAGEN == []
+    # Verlauf und Profil loeschen setzt den Verbrauch nicht zurueck: er haengt am Konto.
+    (profil / "aquaticy.sqlite3").unlink(missing_ok=True)
+    assert _req(port, "POST", "/api/chat", {"message": "Und jetzt?"}, cookie)[0] == 429
+    kontingent.record(WEEK_TOKENS, "fake")
+    antwort = json.loads(_req(port, "POST", "/api/chat", {"message": "x"}, cookie)[2])
+    assert antwort["which"] == "week" and "Woche" in antwort["error"]
+
+
+def test_a_pro_account_has_no_limit(server: tuple[int, Path]) -> None:
+    port, _ = server
+    cookie = _konto(port, "pro", "PROE2E234")
+    konto = json.loads(_req(port, "GET", "/api/account", cookie=cookie)[2])
+    assert konto["pro"] is True and konto["usage"]["limited"] is False
+    assert konto["usage"]["summary"] == "Kein Limit"
 
 
 def test_a_chat_setting_stays_in_the_account(server: tuple[int, Path]) -> None:

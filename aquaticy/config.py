@@ -11,6 +11,7 @@ import os
 from dataclasses import dataclass, field
 from functools import lru_cache
 from pathlib import Path
+from typing import Any
 
 from dotenv import load_dotenv
 
@@ -359,9 +360,10 @@ class Settings:
     #: Das Hauptmodell je Nachricht automatisch waehlen (Dev settings, fuer jedes
     #: Konto; siehe aquaticy/router.py). Die Agenten bleiben dabei unveraendert.
     auto_model: bool = False
-    #: Token-Kontingent des Kontos -- nur normale Konten haben eins (gesetzt vom
-    #: Webserver, nie aus der .env). None = unbegrenzt. Siehe aquaticy/metering.py.
-    token_limit: int | None = None
+    #: Das Kontingent des Kontos (aquaticy/quota.py: 5-Stunden-Sitzung und
+    #: Woche) -- nur normale Konten haben eins. Gesetzt vom Webserver, nie aus
+    #: der .env. None = unbegrenzt. Siehe aquaticy/metering.py.
+    quota: Any = None
     #: Netz, das dabei durchsucht wird. Leer = das eigene automatisch erkennen.
     lan_subnet: str = ""
     fetch_timeout: float = 15.0

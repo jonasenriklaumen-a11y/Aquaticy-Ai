@@ -32,8 +32,8 @@ from urllib.parse import parse_qs, urlsplit
 
 from dotenv import dotenv_values
 
-from aquaticy import __version__
-from aquaticy.auth import NORMAL_TOKEN_LIMIT, Account, AuthStore, RateLimiter, pro_code_for
+from aquaticy import __version__, webview
+from aquaticy.auth import Account, AuthStore, RateLimiter, pro_code_for
 from aquaticy.cache import Cache
 from aquaticy.config import (
     DEFAULT_ENV_PATH,
@@ -403,7 +403,115 @@ _INT_SETTINGS = {
 NORMAL_CONTEXT_CAP = 32_768
 
 
-def _profile_settings(profile: Path, plan: str) -> Settings:
+def header_for(settings: Settings) -> dict[str, Any]:
+    """Die Kopfzeile fuer den Zustand, den der Server fuehrt (aquaticy/webview.py)."""
+    return webview.header_view(
+        settings,
+        ui_state().read(),
+        strong_model=(strong_models(1) or [{}])[0].get("id", ""),
+        strong_code_model=(strong_models(1, purpose="code") or [{}])[0].get("id", ""),
+        ha_connected=bool(settings.ha_url and settings.ha_token),
+        problems=settings.missing_requirements(),
+    )
+
+
+def storage_view(usage: dict[str, Any]) -> dict[str, Any]:
+    """Der Speicherstand mit fertigem Satz ("3,1 von 400 MB belegt · 12 Notizen")."""
+    anzahl = int(usage.get("entries") or 0)
+    text = (f"{usage.get('used_mb')} von {usage.get('limit_mb')} MB belegt · {anzahl} "
+            f"{'Notiz' if anzahl == 1 else 'Notizen'}")
+    return {**usage, "text": text, "title": f"{usage.get('used_mb')} von "
+            f"{usage.get('limit_mb')} MB belegt"}
+
+
+def system_gauges(data: dict[str, Any]) -> list[dict[str, Any]]:
+    """Die Anzeigen der Auslastung -- Name, Wert, Zusatz, Anteil."""
+    anzeigen: list[dict[str, Any]] = []
+    cpu, mem, disk, gpu = (data.get(k) or {} for k in ("cpu", "memory", "disk", "gpu"))
+    if cpu.get("percent") is not None:
+        anzeigen.append({"name": "Prozessor", "value": f"{cpu['percent']} %",
+                         "sub": f"{cpu.get('cores')} Kerne · Last {cpu.get('load')}",
+                         "percent": cpu["percent"]})
+    if mem.get("percent") is not None:
+        anzeigen.append({"name": "Arbeitsspeicher", "value": f"{mem.get('used_gb')} GB",
+                         "sub": f"von {mem.get('total_gb')} GB", "percent": mem["percent"]})
+    if disk.get("percent") is not None:
+        anzeigen.append({"name": "Festplatte", "value": f"{disk.get('free_gb')} GB frei",
+                         "sub": f"von {disk.get('total_gb')} GB", "percent": disk["percent"]})
+    if gpu.get("name"):
+        anzeigen.append({"name": "Grafikkarte", "value": f"{gpu.get('percent')} %",
+                         "sub": f"{gpu['name']} · {gpu.get('used_gb')} von "
+                                f"{gpu.get('total_gb')} GB", "percent": gpu.get("percent")})
+    speicher = data.get("storage") or {}
+    if speicher:
+        anzeigen.append({"name": "Speicher", "value": f"{speicher.get('used_mb')} MB",
+                         "sub": f"von {speicher.get('limit_mb')} MB · "
+                                f"{speicher.get('entries')} Notizen",
+                         "percent": speicher.get("percent")})
+    return anzeigen
+
+
+def usage_view(settings: Settings) -> dict[str, Any]:
+    """Der Verbrauch fuer den Browser: Prozent und Uhrzeiten, keine Tokenzahlen.
+
+    Alles hier rechnet der Server -- die Oberflaeche zeichnet nur die Balken.
+    """
+    from datetime import datetime
+
+    from aquaticy.quota import public
+
+    jetzt = time.time()
+    stand_um = "Stand: " + datetime.fromtimestamp(jetzt).strftime("%H:%M")
+    kontingent = getattr(settings, "quota", None)
+    if kontingent is None:
+        return {"limited": False, "text": "Kein Limit", "summary": "Kein Limit",
+                "updated_at": jetzt, "updated_text": stand_um}
+    try:
+        stand = public(kontingent.status(jetzt))
+    except Exception:  # pragma: no cover - eine kaputte Datenbank ist kein 500
+        return {"limited": True, "error": "Der Verbrauch ließ sich nicht lesen.",
+                "summary": "nicht verfügbar", "updated_at": jetzt, "updated_text": stand_um}
+    stand["updated_at"] = jetzt
+    stand["updated_text"] = stand_um
+    stand["summary"] = (f"Sitzung {stand['session']['percent']} % · "
+                        f"Woche {stand['week']['percent']} %")
+    stand["warning"] = _usage_warning(stand)
+    return stand
+
+
+def _usage_warning(stand: dict[str, Any]) -> str:
+    """Ein Satz, sobald ein Limit knapp wird (ab 80 %) -- sonst leer."""
+    from aquaticy.quota import when_phrase
+
+    for key, name in (("week", "deines Wochenlimits"), ("session", "dieser Sitzung")):
+        teil = stand.get(key) or {}
+        prozent = int(teil.get("percent") or 0)
+        wann = when_phrase(str(teil.get("resets_text") or ""))
+        if teil.get("exhausted"):
+            return f"Das Limit {name} ist erreicht — es setzt sich {wann} zurück."
+        if prozent >= 80:
+            return f"Du hast {prozent} % {name} genutzt — es setzt sich {wann} zurück."
+    return ""
+
+
+def account_quota(profile: Path, account: Account | None = None) -> Any:
+    """Das Kontingent eines normalen Kontos (aquaticy/quota.py).
+
+    Es liegt in der Kontendatenbank an der Kennung des Kontos. Nur ohne
+    Kontenverwaltung (Tests, kaputter Start) landet es im Profilordner --
+    ein normales Konto ohne Kontingent gibt es nicht.
+    """
+    from aquaticy.quota import Quota
+
+    if AUTH is not None:
+        konto = account or AUTH.account(profile.name)
+        if konto is not None:
+            return AUTH.quota(konto)
+    erstellt = float(getattr(account, "created_at", 0.0) or 0.0)
+    return Quota(profile / "quota.sqlite3", getattr(account, "id", "") or profile.name, erstellt)
+
+
+def _profile_settings(profile: Path, plan: str, account: Account | None = None) -> Settings:
     """Kopiert die Servervorgaben und legt die Werte eines Kontos darueber."""
     base = get_settings()
     settings = replace(
@@ -458,8 +566,9 @@ def _profile_settings(profile: Path, plan: str) -> Settings:
         # hier nicht.
         settings.vm_user_mode = False
         # Das Kontingent gilt fuer jeden Modellaufruf, nicht nur vor der
-        # Anfrage (aquaticy/metering.py).
-        settings.token_limit = NORMAL_TOKEN_LIMIT
+        # Anfrage (aquaticy/metering.py): 5-Stunden-Sitzung und Woche,
+        # gespeichert am Konto in der Kontendatenbank (aquaticy/quota.py).
+        settings.quota = account_quota(profile, account)
         # Wohin der Server Anfragen schickt, bestimmt bei normalen Konten der
         # Betreiber: eine eigene Modell- oder SearXNG-Adresse wuerde Anfragen
         # (samt Schluessel des Betreibers) an beliebige Rechner lenken -- auch
@@ -471,6 +580,8 @@ def _profile_settings(profile: Path, plan: str) -> Settings:
         # sprengen. Normale Konten bleiben im ueblichen Rahmen.
         obergrenze = max(int(base.context_tokens or 0), NORMAL_CONTEXT_CAP)
         settings.context_tokens = min(int(settings.context_tokens or 0), obergrenze)
+    else:
+        settings.quota = None
     settings.data_dir.mkdir(parents=True, exist_ok=True)
     return settings
 
@@ -522,7 +633,7 @@ class ChatSession:
     def settings(self) -> Settings:
         if self._settings is None:
             self._settings = (
-                _profile_settings(self.profile, self.plan)
+                _profile_settings(self.profile, self.plan, self.account)
                 if self.profile is not None
                 else get_settings()
             )
@@ -589,7 +700,11 @@ class ChatSession:
                     "question": entry.question,
                     "answer": entry.answer,
                     "products": entry.meta.get("products", []),
-                    "visuals": entry.meta.get("visuals", []),
+                    "visuals": [
+                        {**v, "captured_text": webview.iso_moment_text(v.get("captured_at"))}
+                        if isinstance(v, dict) and v.get("captured_at") else v
+                        for v in entry.meta.get("visuals", []) or []
+                    ],
                 }
                 for entry in entries
             ],
@@ -1219,10 +1334,8 @@ def start_user_scheduler(account: Account) -> None:
     with _SCHEDULER_LOCK:
         if account.id in USER_SCHEDULERS:
             return
-        scheduler = Scheduler(
-            SESSIONS.get(account).settings,
-            token_limit=None if account.pro else NORMAL_TOKEN_LIMIT,
-        )
+        # Das Kontingent steckt in den Einstellungen des Kontos (settings.quota).
+        scheduler = Scheduler(SESSIONS.get(account).settings)
         scheduler.start()
         USER_SCHEDULERS[account.id] = scheduler
 
@@ -1758,9 +1871,12 @@ def with_state(html: str) -> str:
     # alle aus einer Weissliste -- aber genau das ist der Punkt: man baut
     # die Absicherung ein, bevor jemand die Liste erweitert.
     roh = json.dumps(stand, ensure_ascii=False).replace("</", "<\\/")
+    texte = json.dumps(webview.start_texts(), ensure_ascii=False).replace("</", "<\\/")
     boot = (
         f"window.__AQUATICY_STATE__ = {roh};"
         f"window.__AQUATICY_VERSION__ = {json.dumps(__version__)};"
+        # Vorschlaege, Begruessungen, Beschriftungen -- vom Server (9.5.14).
+        f"window.__AQUATICY_TEXTS__ = {texte};"
     )
     return html.replace("<script>", f"<script>{boot}</script>\n<script>", 1)
 
@@ -2155,18 +2271,14 @@ class Handler(BaseHTTPRequestHandler):
             job = store.get(nummer)
             if job is None:
                 return {"ok": False, "error": "Diesen Auftrag gibt es nicht."}
-            job_token_limit = None if SESSION.pro else NORMAL_TOKEN_LIMIT
 
             def sofort() -> None:
                 # Scheitert der Lauf, muss das trotzdem am Auftrag stehen:
                 # sonst bleibt er auf "laeuft gerade" haengen und sein
                 # naechster Termin in der Vergangenheit.
                 try:
-                    state, chat = run_job(
-                        job,
-                        settings,
-                        token_limit=job_token_limit,
-                    )
+                    # Das Kontingent prueft run_job ueber settings.quota.
+                    state, chat = run_job(job, settings)
                 except Exception as exc:
                     state, chat = (f"Fehler: {type(exc).__name__}", "")
                 store.note_run(job.id, state, chat)
@@ -2298,17 +2410,16 @@ class Handler(BaseHTTPRequestHandler):
             if account is None:
                 self._json({"error": "Bitte melde dich an."}, 401)
                 return
-            from aquaticy.usage import UsageLog
-
-            used = UsageLog(SESSION.settings().db_path).total_tokens()
+            # Seit 9.5.14: Prozent und Uhrzeiten, keine Tokenzahlen -- gerechnet
+            # hier auf dem Server (aquaticy/quota.py).
             self._json(
                 {
                     "email": account.email,
                     "username": account.username,
                     "plan": account.plan,
-                    "tokens_used": used,
-                    "token_limit": None if account.pro else NORMAL_TOKEN_LIMIT,
-                    "tokens_left": None if account.pro else max(0, NORMAL_TOKEN_LIMIT - used),
+                    "pro": account.pro,
+                    "plan_label": "Pro" if account.pro else "Normal",
+                    "usage": usage_view(SESSION.settings()),
                 }
             )
         elif route == "/google":
@@ -2348,8 +2459,15 @@ class Handler(BaseHTTPRequestHandler):
                     )[0].get("id", ""),
                     "google": google_state(settings),
                     "legal_rules": rules_overview(),
+                    # Seit 9.5.14 fertig vom Server (aquaticy/webview.py):
+                    "header": header_for(settings),
+                    "providers": webview.provider_view(),
+                    "search_key_hints": webview.search_key_hints(SEARCH_BACKEND_KEYS),
                 }
             )
+        elif route == "/api/header":
+            # Nur die Kopfzeile: welches Modell wirklich antwortet, was gilt.
+            self._json(header_for(SESSION.settings()))
         elif route == "/api/run":
             self._run_stream()
         elif route == "/api/runstate":
@@ -2362,7 +2480,8 @@ class Handler(BaseHTTPRequestHandler):
             suche = (parse_qs(urlsplit(self.path).query).get("q") or [""])[0].strip()
             self._json(
                 {
-                    "chats": (
+                    # Die Gruppe ("Heute", "Gestern" ...) rechnet der Server.
+                    "chats": webview.with_groups(
                         cache.search_chats(suche, limit=40)
                         if suche
                         else cache.recent_chats(limit=40)
@@ -2384,7 +2503,8 @@ class Handler(BaseHTTPRequestHandler):
                 return
             chats = {chat["session_id"]: chat for chat in cache.recent_chats(limit=200)}
             title = str(chats.get(wanted, {}).get("title") or entries[0].question).strip()
-            self._json({"title": title, "markdown": chat_markdown(title, entries)})
+            self._json({"title": title, "markdown": chat_markdown(title, entries),
+                        "filename": webview.export_filename(title)})
         elif route == "/api/werkstatt":
             # Was in der Werkstatt liegt. Ist keine da, ist das keine
             # Stoerung -- dann liegt eben nichts da.
@@ -2397,7 +2517,10 @@ class Handler(BaseHTTPRequestHandler):
                     "status": box.status(),
                     "usage_gb": box.usage_gb() if box.alive else 0.0,
                     "disk_gb": box.disk_gb,
-                    "files": box.list_files() if box.alive else [],
+                    "files": [
+                        {**datei, "size_text": webview.size_text(datei.get("bytes"))}
+                        for datei in (box.list_files() if box.alive else [])
+                    ],
                 }
             )
         elif route == "/api/werkstatt/datei":
@@ -2414,7 +2537,7 @@ class Handler(BaseHTTPRequestHandler):
             store = JobStore(SESSION.settings().db_path)
             self._json(
                 {
-                    "jobs": [job.as_dict() for job in store.all_jobs()],
+                    "jobs": [webview.job_view(job.as_dict()) for job in store.all_jobs()],
                     "rhythms": [
                         {"id": key, "name": name} for key, name in RHYTHM_NAMES.items()
                     ],
@@ -2427,14 +2550,23 @@ class Handler(BaseHTTPRequestHandler):
 
             # ?purpose=code liefert unter "strong" die Modelle fuers
             # Programmieren, sonst die Arbeitspferde fuer die Recherche.
-            zweck = (parse_qs(urlsplit(self.path).query).get("purpose") or [""])[0].strip()
-            self._json(
-                {
-                    "models": available_models(SESSION.settings()),
-                    # Fuer den Code- und den Pro-Modus: nur die staerksten.
-                    "strong": strong_models(3, purpose=zweck),
-                }
-            )
+            frage = parse_qs(urlsplit(self.path).query)
+            zweck = (frage.get("purpose") or [""])[0].strip()
+            modus = (frage.get("mode") or [""])[0].strip()
+            alle = available_models(SESSION.settings())
+            antwort: dict[str, Any] = {
+                "models": alle,
+                # Fuer den Code- und den Pro-Modus: nur die staerksten.
+                "strong": strong_models(3, purpose=zweck),
+            }
+            if modus:
+                # Seit 9.5.14 entscheidet der Server, was die Auswahl zeigt: im
+                # Code- und Pro-Modus nur die drei staerksten (ein schwaches
+                # Modell ist dort am teuersten), und welches Feld die Wahl setzt.
+                antwort["picker"] = webview.picker_view(
+                    modus, alle, strong_models(3, purpose="code" if modus == "code" else "")
+                )
+            self._json(antwort)
         elif route == "/api/memory":
             # Abgeschaltet heisst abgeschaltet: dann wird auch nichts gezeigt.
             if not SESSION.settings().memory_enabled:
@@ -2444,15 +2576,27 @@ class Handler(BaseHTTPRequestHandler):
                 self._json(
                     {
                         "enabled": True,
-                        "usage": store.usage(),
-                        "entries": [entry.as_dict() for entry in store.all_entries(limit=300)],
+                        "usage": storage_view(store.usage()),
+                        "entries": [
+                            {**eintrag, "when_text": webview.date_text(eintrag.get("when"))}
+                            for eintrag in (e.as_dict() for e in store.all_entries(limit=300))
+                        ],
                     }
                 )
         elif route == "/api/usage":
-            from aquaticy.usage import UsageLog
+            from aquaticy.usage import UsageLog, summary_view
 
             settings = SESSION.settings()
-            self._json(UsageLog(settings.db_path).summary())
+            # Normale Konten sehen ihr Kontingent in Prozent; die Statistik in
+            # Token gibt es nur ohne Kontingent (Pro, lokal). Aufbereitet wird
+            # hier -- der Browser zeigt nur noch an.
+            self._json({
+                "limits": usage_view(settings),
+                "stats": (
+                    summary_view(UsageLog(settings.db_path).summary())
+                    if settings.quota is None else None
+                ),
+            })
         elif route == "/api/system":
             if not SESSION.pro:
                 self._json({"error": "Die Auslastungsanzeige braucht ein Pro-Konto."}, 403)
@@ -2464,7 +2608,8 @@ class Handler(BaseHTTPRequestHandler):
             # Nicht "memory" nennen -- das ist im Abbild schon der
             # Arbeitsspeicher, der Schluessel wuerde ihn ueberschreiben.
             if settings.memory_enabled:
-                payload["storage"] = SESSION.memory().usage()
+                payload["storage"] = storage_view(SESSION.memory().usage())
+            payload["gauges"] = system_gauges(payload)
             self._json(payload)
         elif route == "/api/notes":
             settings = SESSION.settings()
@@ -2864,7 +3009,20 @@ p{{margin:0 0 8px;color:#57534a}}</style></head><body><main>
         if not SESSION.pro:
             instance = settings.searxng_url
 
-        llm_ok, llm_msg = check_llm(model, api_key, api_base)
+        kontingent = settings.quota if not eigener_schluessel else None
+        try:
+            # Der Test laeuft mit dem Schluessel des Betreibers -- also zaehlt er
+            # wie jeder andere Aufruf ins Kontingent (seit 9.5.14).
+            if kontingent is not None:
+                kontingent.check()
+            llm_ok, llm_msg = check_llm(model, api_key, api_base)
+            if kontingent is not None:
+                from aquaticy.probe import PROBE_QUESTION, PROBE_TOKENS
+                from aquaticy.usage import tokens
+
+                kontingent.record(tokens(PROBE_QUESTION) + PROBE_TOKENS, model)
+        except Exception as exc:  # QuotaExceeded: der Satz sagt, wann es weitergeht
+            llm_ok, llm_msg = False, str(exc)
         search_ok, search_msg = check_search(backend, search_key, engines, instance)
         return {
             "ok": llm_ok and search_ok,
@@ -2951,23 +3109,18 @@ p{{margin:0 0 8px;color:#57534a}}</style></head><body><main>
 
     def _chat(self) -> None:
         """Fuehrt die Anfrage aus und streamt die Ereignisse als SSE."""
-        if not SESSION.pro:
-            from aquaticy.usage import UsageLog
+        kontingent = SESSION.settings().quota
+        if kontingent is not None:
+            from aquaticy.quota import QuotaExceeded
 
-            used = UsageLog(SESSION.settings().db_path).total_tokens()
-            if used >= NORMAL_TOKEN_LIMIT:
+            try:
+                kontingent.check()
+            except QuotaExceeded as exc:
+                # Der Satz nennt, welches Limit und wann es sich zuruecksetzt;
+                # "usage" ist derselbe Stand wie unter /api/account.
                 self._json(
-                    {
-                        # Die Zahl kommt aus der Konstante, nicht aus dem Satz:
-                        # sonst steht hier beim naechsten Mal wieder die alte.
-                        "error": (
-                            f"Dein Kontingent von {NORMAL_TOKEN_LIMIT:,} Token ist "
-                            "aufgebraucht. Mit einem Pro-Konto gibt es kein Tokenlimit."
-                        ).replace(",", "."),
-                        "code": "token_limit",
-                        "tokens_used": used,
-                        "token_limit": NORMAL_TOKEN_LIMIT,
-                    },
+                    {"error": str(exc), "code": "quota", "which": exc.which,
+                     "usage": usage_view(SESSION.settings())},
                     429,
                 )
                 return
@@ -3042,6 +3195,10 @@ p{{margin:0 0 8px;color:#57534a}}</style></head><body><main>
             # Nur Dateien, kein Text: das ist eine vollstaendige Bitte.
             message = "Sieh dir das Angehaengte an und sag mir, worum es geht."
 
+        if kontingent is not None:
+            # Die 5-Stunden-Sitzung beginnt mit der ersten Nachricht -- nicht
+            # erst mit dem ersten gezaehlten Token.
+            kontingent.begin()
         # Der Lauf gehoert ab hier dem Server, nicht der Verbindung. Reisst
         # sie ab, laeuft er weiter und kann spaeter zu Ende gesehen werden.
         session = SESSION.current() if isinstance(SESSION, SessionProxy) else SESSION
@@ -3055,6 +3212,13 @@ p{{margin:0 0 8px;color:#57534a}}</style></head><body><main>
             kind = "chunk" if name == "answer_chunk" else name
             if kind == "done":
                 seen_done.set()
+                # Der Aufnahmezeitpunkt eines Bildes kommt als fertiger Text
+                # (9.5.14) -- der Browser rechnet keine Zeiten mehr um.
+                payload = {**payload, "visuals": [
+                    {**v, "captured_text": webview.iso_moment_text(v.get("captured_at"))}
+                    if isinstance(v, dict) and v.get("captured_at") else v
+                    for v in payload.get("visuals") or []
+                ]} if payload.get("visuals") else payload
             lauf.add({"type": kind, **payload})
 
         def run() -> None:

@@ -16,14 +16,14 @@ from collections.abc import Iterator
 from contextlib import contextmanager, suppress
 from dataclasses import dataclass
 from pathlib import Path
+from typing import Any
 
 from aquaticy.memory import secure_file
 
 SESSION_DAYS = 30
 
-#: Das Kontingent eines normalen Kontos. Ein Pro-Konto hat keines -- dort
-#: steht ueberall `None` statt einer Zahl, nicht etwa eine sehr grosse.
-NORMAL_TOKEN_LIMIT = 150_000
+#: Das Kontingent eines normalen Kontos steht seit 9.5.14 in aquaticy/quota.py
+#: (5-Stunden-Sitzung und Woche). Ein Pro-Konto hat keines.
 EMAIL_RE = re.compile(r"^[^\s@]{1,64}@[^\s@]{1,190}\.[^\s@]{2,63}$")
 USERNAME_RE = re.compile(r"^[^\x00-\x1f\x7f]{2,40}$")
 PRO_CODE_RE = re.compile(r"^[A-Z0-9]{9}$")
@@ -373,6 +373,22 @@ class AuthStore:
                 "DELETE FROM sessions WHERE token_hash=?",
                 (_secret_hash(token, self._pepper),),
             )
+
+    def account(self, user_id: str) -> Account | None:
+        """Ein Konto nach seiner Kennung -- oder None."""
+        with self._connect() as conn:
+            row = conn.execute("SELECT * FROM users WHERE id = ?", (str(user_id),)).fetchone()
+        return self._account(row)
+
+    def quota(self, account: Account) -> Any:
+        """Das Kontingent eines Kontos (aquaticy/quota.py) -- in dieser Datenbank.
+
+        Es haengt an der Kennung des Kontos, nicht am Profilordner: wer dort
+        Chats, Speicher oder Verlauf loescht, loescht nicht seinen Verbrauch.
+        """
+        from aquaticy.quota import Quota
+
+        return Quota(self.db_path, account.id, float(account.created_at or 0.0))
 
     def accounts(self) -> list[Account]:
         with self._connect() as conn:

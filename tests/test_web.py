@@ -1847,10 +1847,15 @@ def test_the_ui_has_its_own_save_button_for_the_model() -> None:
 
 
 def test_the_ui_shows_what_a_key_looks_like() -> None:
-    """Wer den falschen Schluessel einfuegt, soll es sofort sehen."""
-    html = web.UI_FILE.read_text(encoding="utf-8")
-    assert "nvapi-" in html
-    assert "nvidia_nim/meta/llama-3.3-70b-instruct" in html
+    """Wer den falschen Schluessel einfuegt, soll es sofort sehen (seit 9.5.14 vom Server)."""
+    from aquaticy.webview import provider_view
+
+    nvidia = next(p for p in provider_view() if p["id"] == "nvidia_nim")
+    assert nvidia["placeholder"].startswith("nvapi-")
+    assert nvidia["example"] == "nvidia_nim/meta/llama-3.3-70b-instruct"
+    assert "NVIDIA_NIM_API_KEY" in nvidia["note"] and "nvapi-" in nvidia["note"]
+    lokal = next(p for p in provider_view() if p["id"] == "ollama_chat")
+    assert lokal["key_label"] == "(nicht nötig)" and "Kein Schlüssel" in lokal["note"]
 
 
 # -- Chats statt Einzelfragen ---------------------------------------------
@@ -2653,9 +2658,18 @@ def test_the_sidebar_shows_a_chat_the_moment_it_starts() -> None:
 
 
 def test_the_sidebar_groups_by_day() -> None:
+    """Seit 9.5.14 sortiert der Server die Chats in Gruppen."""
+    from aquaticy.webview import chat_group, with_groups
+
+    jetzt = time.time()
+    assert chat_group(jetzt - 60, jetzt) in ("Heute", "Gestern")  # kurz nach Mitternacht
+    assert chat_group(jetzt - 3 * 86400, jetzt) == "Letzte 7 Tage"
+    assert chat_group(jetzt - 20 * 86400, jetzt) == "Letzte 30 Tage"
+    assert chat_group(jetzt - 90 * 86400, jetzt) == "Älter"
+    assert chat_group("kaputt", jetzt) == "Älter"
+    assert with_groups([{"touched": jetzt}], jetzt)[0]["group"] == "Heute"
     html = web.UI_FILE.read_text(encoding="utf-8")
-    for label in ('"Heute"', '"Gestern"', '"Letzte 7 Tage"', '"Älter"'):
-        assert label in html, label
+    assert "chat.group" in html and "function chatGroup" not in html
 
 
 def test_the_sidebar_offers_renaming_and_deleting() -> None:
@@ -2769,11 +2783,24 @@ def test_every_choice_is_sent_with_every_question() -> None:
         assert feld in korb, f"{feld} geht nicht mit"
 
 
+def _kopf(stand: dict[str, Any], **mehr: Any) -> dict[str, Any]:
+    from aquaticy.uistate import defaults
+    from aquaticy.webview import header_view
+
+    einstellungen = SimpleNamespace(model="mistral/mistral-large-latest", location="Bremen",
+                                    auto_model=False, memory_enabled=False)
+    for name, wert in mehr.items():
+        setattr(einstellungen, name, wert)
+    return header_view(einstellungen, {**defaults(), **stand},
+                       strong_model="nvidia_nim/stark", strong_code_model="nvidia_nim/code")
+
+
 def test_what_differs_from_normal_is_visible_in_the_header() -> None:
-    """Es aendert das Ergebnis spuerbar -- man soll es sehen."""
-    html = web.UI_FILE.read_text(encoding="utf-8")
-    assert '"strukturiert"' in html
-    assert '"Denktiefe "' in html
+    """Es aendert das Ergebnis spuerbar -- man soll es sehen (seit 9.5.14 vom Server)."""
+    assert _kopf({})["status"] == "Bremen"
+    kopf = _kopf({"structured": True, "effort": "high"})
+    assert "strukturiert" in kopf["status"] and "Denktiefe high" in kopf["status"]
+    assert "kein Ortsfilter" in _kopf({}, location="")["status"]
 
 
 def test_the_switch_is_not_shadowed_by_a_local_name() -> None:
@@ -2863,7 +2890,9 @@ def test_the_picker_offers_the_web_switch() -> None:
     assert 'id="online"' in picker
     assert "Im Web suchen" in picker
     assert "angehängten Dateien" in picker
-    assert '"ohne Web"' in html, "die Kopfzeile sagt es"
+    assert "ohne Web" in _kopf({"online": False})["status"], "die Kopfzeile sagt es"
+    assert "ohne Web" not in _kopf({"online": False, "mode": "code"})["status"], (
+        "im Code-Modus wird immer nachgeschlagen")
 
 
 def test_the_web_switch_reaches_the_agent(
@@ -2979,7 +3008,7 @@ def test_the_recheck_is_sent_with_every_question() -> None:
 def test_a_running_recheck_is_visible() -> None:
     html = web.UI_FILE.read_text(encoding="utf-8")
     assert "[Gegenprobe]" in html
-    assert '"gegenprüfen"' in html, "und steht in der Kopfzeile"
+    assert "gegenprüfen" in _kopf({"recheck": True})["status"], "und steht in der Kopfzeile"
 
 
 # ---------------------------------------------------------------------------
@@ -2994,12 +3023,33 @@ def test_the_counter_can_be_read_but_not_reset(client, web_settings: Settings) -
     status, data = client("GET", "/api/usage")
     assert status == 200
     zahlen = json.loads(data)
-    assert zahlen["chars_per_token"] == 3
-    assert zahlen["total"]["tokens_in"] == 300
+    # Ohne Kontingent (lokal, Pro): die Statistik -- fertig aufbereitet vom Server.
+    assert zahlen["limits"]["limited"] is False
+    assert zahlen["stats"]["tiles"][2]["wert"] == "330"
+    assert "300 hinein · 30 heraus · 1 Aufrufe" in zahlen["stats"]["tiles"][2]["dazu"]
+    assert "mistral/mistral-large-latest: 330 Token in 1 Aufrufen" in zahlen["stats"]["detail"]
 
     status, data = client("DELETE", "/api/usage")
     assert status == 404
-    assert json.loads(client("GET", "/api/usage")[1])["total"]["calls"] == 1
+    assert json.loads(client("GET", "/api/usage")[1])["stats"]["tiles"][2]["wert"] == "330"
+
+
+def test_a_normal_account_sees_percent_not_tokens(
+    client, session: web.ChatSession, tmp_path: Path
+) -> None:
+    """9.5.14: Normale Konten sehen ihr Kontingent in Prozent -- keine Tokenzahl."""
+    from aquaticy.quota import Quota
+
+    session._settings.quota = Quota(tmp_path / "konten.sqlite3", "k", time.time() - 60)
+    session._settings.quota.record(50_000, "m")
+    zahlen = json.loads(client("GET", "/api/usage")[1])
+    assert zahlen["stats"] is None
+    assert zahlen["limits"]["session"]["percent"] == 25
+    assert zahlen["limits"]["week"]["percent"] == 4
+    assert "_used" not in zahlen["limits"] and "50000" not in json.dumps(zahlen)
+    session._settings.quota.record(120_000, "m")
+    zahlen = json.loads(client("GET", "/api/usage")[1])
+    assert zahlen["limits"]["warning"].startswith("Du hast 85 % dieser Sitzung genutzt")
 
 
 def test_the_memory_window_shows_nothing_when_memory_is_off(
@@ -3107,11 +3157,15 @@ def test_a_workshop_file_is_never_served_as_html(client) -> None:
 # ---------------------------------------------------------------------------
 # Was die Oberflaeche zeigen muss
 # ---------------------------------------------------------------------------
-def test_the_settings_show_the_token_counter() -> None:
+def test_the_settings_show_the_usage_limits() -> None:
+    """Seit 9.5.14: Sitzung und Woche als Balken in Prozent -- wie bei Claude."""
     html = web.UI_FILE.read_text(encoding="utf-8")
     assert "<legend>Nutzung</legend>" in html
-    assert 'id="zaehler"' in html
-    assert "drei\n          Zeichen" in html or "drei Zeichen" in html
+    assert 'id="limits"' in html and 'id="zaehler"' in html
+    assert "function limitZeile" in html and "% genutzt" in html
+    assert 'role="progressbar"' in html
+    assert 'id="limit-banner"' in html, "der Hinweis ab 80 %"
+    assert "150.000" not in html and "tokens_used" not in html
 
 
 def test_the_memory_window_exists_with_a_delete_per_entry() -> None:
@@ -3659,20 +3713,21 @@ def test_the_checkers_report_what_they_do() -> None:
 def test_the_roles_are_named_the_same_on_both_sides() -> None:
     """Die Marken im Browser kommen aus derselben Liste wie die Rollen."""
     from aquaticy.subagents import ROLE_LABELS
+    from aquaticy.webview import ROLE_LABELS as IM_BROWSER
+    from aquaticy.webview import start_texts
 
-    html = web.UI_FILE.read_text(encoding="utf-8")
-    zeile = html[html.index("const ROLLEN =") :]
-    zeile = zeile[: zeile.index("};")]
     for name, label in ROLE_LABELS.items():
         if not label:
             continue
-        assert f'{name}:"{label}"' in zeile, f"{name} fehlt im Browser"
+        assert IM_BROWSER[name] == label, f"{name} fehlt im Browser"
+    assert start_texts()["roles"] == IM_BROWSER
+    html = web.with_state(web.UI_FILE.read_text(encoding="utf-8"))
+    assert "window.__AQUATICY_TEXTS__" in html and '"Spurensuche"' in html
 
 
 def test_the_header_says_when_four_are_checking() -> None:
-    html = web.UI_FILE.read_text(encoding="utf-8")
-    assert 'if (recheck) bits.push("4 Prüfer");' in html
-    assert 'else if (recheck) bits.push("gegenprüfen");' in html
+    assert "4 Prüfer" in _kopf({"mode": "pro", "recheck": True})["status"]
+    assert "gegenprüfen" in _kopf({"mode": "normal", "recheck": True})["status"]
 
 
 # ---------------------------------------------------------------------------
@@ -3824,18 +3879,27 @@ def test_the_sidebar_glows_until_it_is_read() -> None:
 
 def test_the_picker_offers_only_the_strong_ones_in_code_and_pro() -> None:
     """Alles andere wäre eine Wahl, die gleich wieder überstimmt wird."""
-    html = web.UI_FILE.read_text(encoding="utf-8")
-    assert 'const nurStarke = mode === "code" || mode === "pro";' in html
-    assert "(nurStarke ? daten.strong : daten.models)" in html
-    assert '"Stärkstes Modell wählen"' in html
-    # Gewählt wird dort das Code-Modell -- der Standardmodus behält seins.
-    assert "{ AQUATICY_CODE_MODEL: model.id } : { AQUATICY_MODEL: model.id }" in html
+    from aquaticy.webview import picker_view
+
+    alle, stark = [{"id": "a"}, {"id": "b"}], [{"id": "stark"}]
+    for modus in ("code", "pro"):
+        auswahl = picker_view(modus, alle, stark)
+        assert auswahl["models"] == stark
+        # Gewählt wird dort das Code-Modell -- der Standardmodus behält seins.
+        assert auswahl["field"] == "AQUATICY_CODE_MODEL"
+    assert picker_view("pro", alle, stark)["heading"] == "Stärkstes Modell wählen"
+    normal = picker_view("normal", alle, stark)
+    assert normal["models"] == alle and normal["field"] == "AQUATICY_MODEL"
 
 
 def test_the_header_shows_what_really_runs() -> None:
-    html = web.UI_FILE.read_text(encoding="utf-8")
-    assert 'cfg.strong_model || cfg.values.AQUATICY_MODEL' in html
-    assert 'mode === "code" || mode === "pro"' in html
+    """Im Code- und Pro-Modus das staerkste Modell, sonst das eingestellte (Server)."""
+    assert _kopf({"mode": "normal"})["model"] == "mistral/mistral-large-latest"
+    assert _kopf({"mode": "pro"})["model"] == "nvidia_nim/stark"
+    assert _kopf({"mode": "code"})["model"] == "nvidia_nim/code"
+    assert _kopf({"mode": "normal"}, auto_model=True)["model_label"] == (
+        "Auto · mistral-large-latest")
+    assert _kopf({"mode": "pro"}, auto_model=True)["model_label"] == "stark"
 
 
 def test_the_config_says_which_model_is_the_strong_one(client) -> None:
@@ -4005,3 +4069,88 @@ def test_a_fresh_form_can_be_saved_as_it_is(client, web_settings: Settings) -> N
     assert werte["AQUATICY_SUBAGENT_PARALLEL"] == "0"
     status, data = client("POST", "/api/config", werte)
     assert status == 200, data
+
+
+# ---------------------------------------------------------------------------
+# 9.5.14: Was der Browser anzeigt, rechnet der Server
+# ---------------------------------------------------------------------------
+def test_the_header_comes_from_the_server_and_follows_the_switches(
+    client, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(web, "strong_models",
+                        lambda n, purpose="": [{"id": f"x/{purpose or 'stark'}"}])
+    client("POST", "/api/prefs", {"mode": "normal", "structured": True})
+    kopf = json.loads(client("GET", "/api/header")[1])
+    assert kopf["model"] == "mistral/mistral-large-latest" and "strukturiert" in kopf["status"]
+    client("POST", "/api/prefs", {"mode": "code", "sandbox": True})
+    kopf = json.loads(client("GET", "/api/header")[1])
+    assert kopf["model"] == "x/code" and "Werkstatt" in kopf["status"]
+    assert json.loads(client("GET", "/api/config")[1])["header"]["model"] == "x/code"
+
+
+def test_the_model_picker_is_decided_by_the_server(client, monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(web, "strong_models", lambda n, purpose="": [{"id": "stark"}])
+    daten = json.loads(client("GET", "/api/models?mode=pro")[1])
+    assert daten["picker"]["models"] == [{"id": "stark"}]
+    assert daten["picker"]["field"] == "AQUATICY_CODE_MODEL"
+    assert "picker" not in json.loads(client("GET", "/api/models")[1])
+
+
+def test_chats_jobs_and_memory_come_with_their_texts(
+    client, session: web.ChatSession, web_settings: Settings
+) -> None:
+    cache = Cache(web_settings.db_path, web_settings.cache_ttl_hours)
+    cache.add_history("s1", "Größe & Preis?", "Antwort", {})
+    chats = json.loads(client("GET", "/api/chats")[1])["chats"]
+    assert chats[0]["group"] == "Heute"
+    export = json.loads(client("GET", "/api/chatexport?session_id=s1")[1])
+    assert export["filename"].endswith(".md") and "Größe" in export["filename"]
+    job = json.loads(client("POST", "/api/jobs", {"action": "add", "question": "Neues?",
+                                                   "rhythm": "weekly", "weekday": 2,
+                                                   "hour": 9, "minute": 5})[1])["job"]
+    liste = json.loads(client("GET", "/api/jobs")[1])["jobs"]
+    auftrag = next(j for j in liste if j["id"] == job["id"])
+    assert auftrag["title"] == "Recherche: Neues?"
+    assert auftrag["when_text"].startswith("wöchentlich, Mittwoch um 09:05 · nächstes Mal ")
+    assert auftrag["toggle_label"] == "Anhalten"
+    session.memory().remember("Mag Tee", topic="Vorliebe")
+    speicher = json.loads(client("GET", "/api/memory")[1])
+    assert speicher["entries"][0]["when_text"] and "MB belegt" in speicher["usage"]["text"]
+
+
+def test_the_page_brings_its_texts_from_the_server() -> None:
+    html = web.with_state(web.UI_FILE.read_text(encoding="utf-8"))
+    assert "window.__AQUATICY_TEXTS__" in html
+    assert "Vergleiche drei Laptops für Bildbearbeitung" in html.split("<script>", 2)[1]
+    quelltext = web.UI_FILE.read_text(encoding="utf-8")
+    for alt in ("const SUGGESTIONS", "const PROVIDERS", "const ROLLEN", "const URTEILE",
+                "const TAGE", "function wannGenau", "function groesse", "function kurz("):
+        assert alt not in quelltext, f"{alt} gehoert auf den Server"
+
+
+def test_the_capture_time_is_written_by_the_server() -> None:
+    from aquaticy.webview import iso_moment_text
+
+    text = iso_moment_text("2026-09-24T13:44:18+00:00")
+    assert "24. Sept." in text and ":" in text
+    assert iso_moment_text("kaputt") == ""
+
+
+def test_the_probe_counts_for_a_normal_account(
+    client, session: web.ChatSession, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """9.5.14: Der Test-Knopf laeuft mit dem Schluessel des Betreibers -- er zaehlt mit."""
+    from aquaticy.quota import SESSION_TOKENS, Quota
+
+    gefragt: list[str] = []
+    monkeypatch.setattr("aquaticy.probe.check_llm",
+                        lambda m, k, b: gefragt.append(m) or (True, "ok"))
+    monkeypatch.setattr("aquaticy.probe.check_search", lambda *a: (True, "ok"))
+    session._settings.quota = Quota(tmp_path / "konten.sqlite3", "k", time.time() - 60)
+    antwort = json.loads(client("POST", "/api/probe", {})[1])
+    assert antwort["llm"]["ok"] and len(gefragt) == 1
+    assert session._settings.quota.status()["_used"]["session"] > 0, "gezaehlt"
+    session._settings.quota.record(SESSION_TOKENS, "m")
+    antwort = json.loads(client("POST", "/api/probe", {})[1])
+    assert antwort["llm"]["ok"] is False and "Kontingent" in antwort["llm"]["message"]
+    assert len(gefragt) == 1, "am Limit fragt der Test das Modell nicht mehr"

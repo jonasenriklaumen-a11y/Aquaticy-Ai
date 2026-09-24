@@ -547,10 +547,11 @@ def test_a_verified_offer_can_follow_an_unread_link() -> None:
 def test_a_job_stops_before_starting_an_agent_at_the_token_limit(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
-    from aquaticy.usage import UsageLog
+    from aquaticy.quota import SESSION_TOKENS, Quota
 
     settings = _bild_settings(tmp_path)
-    UsageLog(settings.db_path).record("modell", 100, 0)
+    settings.quota = Quota(tmp_path / "konten.sqlite3", "k", 0.0)
+    settings.quota.record(SESSION_TOKENS, "modell")
 
     class Agent:
         def __init__(self, *args: Any, **kwargs: Any) -> None:
@@ -562,7 +563,7 @@ def test_a_job_stops_before_starting_an_agent_at_the_token_limit(
         enabled=True, structured=True, created_at=0.0, next_run=0.0, last_run=0.0,
         last_state="", last_chat="",
     )
-    assert auftraege.run_job(job, settings, token_limit=100) == ("Tokenlimit erreicht", "")
+    assert auftraege.run_job(job, settings) == ("Kontingent erreicht", "")
 
 
 def test_a_broken_job_does_not_block_the_others(
@@ -700,12 +701,11 @@ def test_a_thousands_price_is_no_bargain() -> None:
         assert price_condition_met(frage, [teil]) is False, preis
 
 
-def test_a_job_at_the_token_limit_switches_itself_off(
+def test_a_job_at_the_quota_stays_on_for_the_next_turn(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """Der Zaehler eines normalen Kontos laesst sich nicht zuruecksetzen. Ein
-    Auftrag am Limit kaeme also nie wieder dran -- frueher lief er trotzdem
-    alle zwanzig Sekunden an und trug jedes Mal einen Lauf ein."""
+    """Seit 9.5.14 setzt sich das Kontingent zurueck (5 Stunden, Woche). Ein
+    Auftrag am Limit laesst diesen Termin aus -- und bleibt an."""
     store = JobStore(tmp_path / "j.db")
     job = store.add("Frage")
     with store._connect() as conn:
@@ -717,5 +717,6 @@ def test_a_job_at_the_token_limit_switches_itself_off(
     settings = type("S", (), {"db_path": tmp_path / "j.db", "cache_ttl_hours": 1})()
     assert Scheduler(lambda: settings).tick() == 1
     danach = store.get(job.id)
-    assert not danach.enabled
-    assert danach.last_state == "Tokenlimit erreicht"
+    assert danach.enabled
+    assert danach.last_state == "Kontingent erreicht"
+    assert danach.next_run > time.time(), "der naechste Termin, nicht gleich noch einmal"

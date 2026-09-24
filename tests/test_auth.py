@@ -5,7 +5,6 @@ from __future__ import annotations
 import pytest
 
 from aquaticy.auth import (
-    NORMAL_TOKEN_LIMIT,
     Account,
     AuthStore,
     RateLimiter,
@@ -42,8 +41,11 @@ def test_registration_keeps_the_chosen_username_and_accepts_seven_characters(
     assert store.authenticate(account.email, "1234567") == account
 
 
-def test_free_accounts_receive_four_hundred_thousand_tokens() -> None:
-    assert NORMAL_TOKEN_LIMIT == 150_000
+def test_free_accounts_get_a_session_and_a_weekly_budget() -> None:
+    """Seit 9.5.14: 200.000 je 5-Stunden-Sitzung, 1,5 Mio. je Woche (aquaticy/quota.py)."""
+    from aquaticy.quota import SESSION_TOKENS, WEEK_TOKENS
+
+    assert (SESSION_TOKENS, WEEK_TOKENS) == (200_000, 1_500_000)
 
 
 def test_registration_requires_and_records_explicit_terms(store: AuthStore) -> None:

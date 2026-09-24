@@ -462,22 +462,30 @@ def sandbox_command() -> None:
 
 @app.command("list")
 def list_users_command() -> None:
-    """Listet Konten mit Token- und Speicherverbrauch."""
+    """Listet Konten mit Kontingent (in Prozent) und Speicherverbrauch."""
     from aquaticy.auth import AuthStore, folder_bytes, pro_code_for
     from aquaticy.memory import human_size
-    from aquaticy.usage import UsageLog
 
     settings = get_settings()
     store = AuthStore(settings.data_dir, pro_code_for(settings.data_dir))
     accounts = store.accounts()
-    table = Table("Nutzername", "E-Mail", "Konto", "Token", "Speicher", box=None, pad_edge=False)
+    table = Table("Nutzername", "E-Mail", "Konto", "Sitzung (5 Std.)", "Woche", "Speicher",
+                  box=None, pad_edge=False)
     for account in accounts:
         profile = store.profile_dir(account.id)
+        if account.pro:
+            sitzung = woche = "kein Limit"
+        else:
+            stand = store.quota(account).status()
+            sitzung = (f"{stand['session']['percent']} %" if stand["session"]["active"]
+                       else "—")
+            woche = f"{stand['week']['percent']} %"
         table.add_row(
             account.username,
             account.email,
             "Pro" if account.pro else "Normal",
-            f"{UsageLog(profile / 'aquaticy.sqlite3').total_tokens():,}".replace(",", "."),
+            sitzung,
+            woche,
             human_size(folder_bytes(profile)),
         )
     if accounts:

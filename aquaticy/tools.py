@@ -2303,8 +2303,8 @@ class Toolbox:
             # Ein Bild zaehlt pauschal -- und nur, wenn das Kontingent es noch traegt.
             metering.check(self.settings, need=metering.IMAGE_TOKENS)
         except metering.QuotaExceeded as exc:
-            return {"error": str(exc) + f" (Ein Bild zählt {metering.IMAGE_TOKENS:,} Token.)"
-                    .replace(",", ".")}
+            return {"error": str(exc) + " (Ein Bild braucht "
+                    f"{metering.share_of_session(metering.IMAGE_TOKENS)} einer Sitzung.)"}
         self._emit("image_create", prompt=prompt[:160])
         try:
             bild = images.generate(self.settings, prompt, fmt, model=self.image_model)

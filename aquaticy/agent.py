@@ -1122,9 +1122,6 @@ class Agent:
         self.sandbox = False
         #: Zusätzliche, ausschließlich öffentliche Webcam- und Satellitenquellen.
         self.visual_sources = False
-        #: Der Zaehler. Er haengt an derselben Datenbank wie der Cache; ohne
-        #: Datenverzeichnis (Tests) wird schlicht nichts mitgeschrieben.
-        self._usage: Any = None
         #: Das staerkste erreichbare Modell, je Zweck: "code" fuers
         #: Programmieren, "work" fuer alles andere. Einmal ermittelt, dann
         #: gemerkt -- die Suche danach fragt bei Ollama nach und soll nicht
@@ -1639,13 +1636,12 @@ class Agent:
         Zaehlen darf nie eine Antwort kosten -- deshalb faengt das hier alles.
         """
         try:
-            from aquaticy.usage import UsageLog, message_tokens
+            from aquaticy.usage import message_tokens
 
-            if self._usage is None:
-                self._usage = UsageLog(self.settings.db_path)
             hinein = message_tokens(messages)
             heraus = message_tokens([answer]) if isinstance(answer, dict) else 0
-            self._usage.record(self.active_model, hinein, heraus)
+            # Statistik des Profils UND Kontingent des Kontos (aquaticy/quota.py)
+            metering.record(self.settings, self.active_model, hinein, heraus)
         except Exception:  # pragma: no cover - Zaehlen ist nie kritisch
             pass
 

@@ -711,6 +711,46 @@ body.dragging::after{animation:fade-in var(--t-fast) var(--ease-out)}
 :root.theming *{transition:background-color var(--t-slow) ease,
   color var(--t-slow) ease,border-color var(--t-slow) ease!important}
 
+/* Nutzungslimits (seit 9.5.14) -- aufgebaut wie die Nutzungsseite von Claude:
+   links was und wann es sich zuruecksetzt, rechts der Balken und der Anteil.
+   Alles, was hier steht, rechnet der Server; der Browser zeichnet nur. */
+.limits{display:grid;gap:14px;margin-top:10px}
+.limits-head{font:600 13.5px/1.3 var(--sans);margin:4px 0 0}
+.limit{display:grid;grid-template-columns:minmax(150px,1fr) minmax(140px,2fr) auto;
+  align-items:center;gap:6px 16px}
+.limit-text strong{display:block;font-weight:600;font-size:13.5px}
+.limit-text span{display:block;font-size:12px;color:var(--text-3);margin-top:2px}
+.limit-bar{height:8px;border-radius:999px;background:var(--surface-2);overflow:hidden;
+  border:1px solid var(--line)}
+.limit-bar > span{display:block;height:100%;border-radius:inherit;background:var(--accent);
+  width:0;transition:width var(--t-slow, .4s) var(--ease-out, ease)}
+.limit.knapp .limit-bar > span{background:var(--warn)}
+.limit.voll .limit-bar > span{background:var(--err)}
+.limit-pct{font-size:12.5px;color:var(--text-2);font-variant-numeric:tabular-nums;
+  white-space:nowrap;min-width:92px;text-align:right}
+.limit-hint{font-size:11.5px;color:var(--text-3);grid-column:1/-1;margin-top:-2px}
+.limits-foot{display:flex;align-items:center;gap:8px;font-size:11.5px;color:var(--text-3)}
+.limits-foot button{background:none;border:0;color:var(--text-3);cursor:pointer;
+  font-size:14px;padding:0 2px;line-height:1}
+.limits-foot button:hover{color:var(--text)}
+.limits-frei{font-size:13px;color:var(--text-2)}
+@media (max-width:560px){.limit{grid-template-columns:1fr auto}
+  .limit-bar{grid-column:1/-1;grid-row:2}}
+/* Der Hinweis ueber dem Eingabefeld, sobald ein Limit knapp wird. */
+.limit-banner{display:flex;align-items:center;gap:10px;margin:0 0 8px;padding:8px 12px;
+  border:1px solid var(--line-2);border-radius:12px;background:var(--surface);
+  font-size:12.5px;color:var(--text-2)}
+.limit-banner[hidden]{display:none}
+.limit-banner .limit-bar{flex:0 0 90px}
+.limit-banner button{margin-left:auto;background:none;border:0;color:var(--accent-text);
+  cursor:pointer;font-size:12.5px;white-space:nowrap}
+.limit-karte{margin-top:10px;padding:10px 14px 12px;border:1px solid var(--line-2);
+  border-radius:12px;background:var(--surface)}
+.limit-karte .limits-head{margin:0}
+@media (max-width:560px){.limit-banner{flex-wrap:wrap;gap:4px 10px}
+  .limit-banner .limit-bar{flex:1 1 100%;order:3}
+  .limit-banner .txt{flex:1 1 0}}
+
 /* Der Zaehler: drei Kacheln und darunter die Aufschluesselung. */
 .zaehler{display:grid;grid-template-columns:repeat(3,1fr);gap:10px;margin-top:12px}
 .kachel{background:var(--surface);border:1px solid var(--line-2);border-radius:12px;
@@ -1294,6 +1334,11 @@ input:focus,select:focus{border-color:var(--accent)}
   </main>
 
   <footer>
+    <div class="limit-banner" id="limit-banner" role="status" hidden>
+      <div class="limit-bar"><span></span></div>
+      <span class="txt"></span>
+      <button type="button" id="limit-banner-open">Nutzung ansehen</button>
+    </div>
     <div class="files" id="files"></div>
     <div class="composer">
       <textarea id="input" rows="1" placeholder="Frag etwas …"></textarea>
@@ -1491,7 +1536,7 @@ input:focus,select:focus{border-color:var(--accent)}
           <span>Nutzername</span><strong id="account-username">…</strong>
           <span>E-Mail</span><strong id="account-email">…</strong>
           <span>Kontotyp</span><strong id="account-plan">…</strong>
-          <span>Token</span><strong id="account-tokens">…</strong>
+          <span>Nutzung</span><strong id="account-tokens">…</strong>
         </div>
         <div class="actions section">
           <span class="note">Jedes Konto hat eigene Chats, Einstellungen und Speicherdateien.</span>
@@ -1614,10 +1659,12 @@ input:focus,select:focus{border-color:var(--accent)}
         <div class="note" id="usage-note"></div>
       </fieldset>
 
-      <fieldset><legend>Nutzung</legend>
-        <p class="lead">Wie viel durch die Leitung geht. Ein Token sind hier drei
-          Zeichen — eine Vereinbarung, keine Messung: jeder Anbieter zerlegt Text
-          anders. Normale Konten haben insgesamt 150.000 Token, Pro-Konten kein Limit.</p>
+      <fieldset id="sec-nutzung"><legend>Nutzung</legend>
+        <p class="lead">Normale Konten haben zwei Limits: eine <b>Sitzung</b> von fünf
+          Stunden, die mit deiner ersten Nachricht beginnt, und eine <b>Woche</b>, die sich
+          zur Uhrzeit deiner Kontoerstellung zurücksetzt. Gezählt wird auf dem Server, an
+          deinem Konto. Pro-Konten haben kein Limit.</p>
+        <div class="limits" id="limits"></div>
         <div class="zaehler" id="zaehler"></div>
         <div class="note" id="usage-detail"></div>
       </fieldset>
@@ -1937,7 +1984,7 @@ input:focus,select:focus{border-color:var(--accent)}
 const $ = (s) => document.querySelector(s);
 const thread = $("#thread"), main = $("#main"), input = $("#input"), send = $("#send");
 let busy = false;
-const aquaticyVersion = window.__AQUATICY_VERSION__ || "9.5.13";
+const aquaticyVersion = window.__AQUATICY_VERSION__ || "9.5.14";
 $("#version").textContent = "v" + aquaticyVersion;
 document.title = `Aquaticy AI ${aquaticyVersion}`;
 
@@ -1976,30 +2023,36 @@ let kopfTimer = null;
 // schon beim Aufbauen an. Dieser Riegel haelt sie zurueck, bis wirklich jemand
 // angemeldet ist -- sonst stehen drei Fehlversuche in der Konsole.
 let angemeldet = false;
+// Die letzte Speicherung -- die Kopfzeile wartet auf sie, damit der Server
+// schon den neuen Stand kennt, wenn er sie berechnet (9.5.14).
+let zustandGespeichert = Promise.resolve();
+function zustandSenden(){
+  clearTimeout(zustandTimer);
+  zustandTimer = null;
+  const senden = zustandOffen;
+  zustandOffen = {};
+  if (!Object.keys(senden).length) return zustandGespeichert;
+  // Ein fehlgeschlagenes Merken darf nichts kaputt machen: die Ansicht
+  // stimmt trotzdem, es steht beim naechsten Laden nur wieder das Alte da.
+  zustandGespeichert = api("/api/prefs", {
+    method: "POST", headers: {"Content-Type": "application/json"},
+    body: JSON.stringify(senden),
+  }).then(r => r.text()).catch(() => {});
+  return zustandGespeichert;
+}
 function merkeZustand(teil){
   Object.assign(zustandOffen, teil);
   clearTimeout(zustandTimer);
-  zustandTimer = setTimeout(() => {
-    const senden = zustandOffen;
-    zustandOffen = {};
-    // Ein fehlgeschlagenes Merken darf nichts kaputt machen: die Ansicht
-    // stimmt trotzdem, es steht beim naechsten Laden nur wieder das Alte da.
-    api("/api/prefs", {
-      method: "POST", headers: {"Content-Type": "application/json"},
-      body: JSON.stringify(senden),
-    }).catch(() => {});
-  }, 180);
+  zustandTimer = setTimeout(zustandSenden, 180);
 }
 
 // Dieselbe Liste wie in `aquaticy/uistate.py` und `aquaticy/agent.py`. Was hier
 // nicht steht, wird "normal" -- der Server sieht es genauso.
 const MODI = ["normal", "pro", "code"];
-// Wie die Rollen und die Urteile der Pruefer heissen. Dieselben Schluessel
-// wie in `aquaticy/subagents.py`; was hier fehlt, bleibt einfach unbeschriftet.
-const ROLLEN = {zahlen:"Zahlen", gegenstimmen:"Gegenstimmen", frisch:"Aktuelles",
-                tiefe:"Spurensuche"};
-const URTEILE = {BESTAETIGT:"bestätigt", ABWEICHUNG:"Abweichung gefunden",
-                 UNKLAR:"nichts Belastbares gefunden"};
+// Vorschlaege, Begruessungen und die Namen der Rollen und Pruefurteile kommen
+// seit 9.5.14 vom Server (aquaticy/webview.py) -- mit der Seite ausgeliefert.
+const TEXTE = (typeof window.__AQUATICY_TEXTS__ === "object" && window.__AQUATICY_TEXTS__)
+  || { suggestions: {}, greetings: {}, roles: {}, verdicts: {} };
 const PLATZHALTER = {
   normal: "Frag etwas …",
   pro: "Frag etwas Größeres …",
@@ -2447,8 +2500,8 @@ function renderResultMedia(bubble, products = [], visuals = []){
     title.textContent = visual.title || "Aktuelles öffentliches Bild"; body.appendChild(title);
     if (visual.captured_at){
       const captured = document.createElement("div"); captured.className = "why";
-      const date = new Date(visual.captured_at);
-      captured.textContent = isNaN(date) ? "" : "Aufgenommen: " + date.toLocaleString("de-DE");
+      // Den Zeitpunkt formuliert der Server (captured_text).
+      captured.textContent = visual.captured_text ? "Aufgenommen: " + visual.captured_text : "";
       if (captured.textContent) body.appendChild(captured);
     }
     const link = sourceLink(visual.source_url || url, "Bildquelle öffnen");
@@ -2819,8 +2872,20 @@ async function verfolge(hole, steps, bubble, text){
   try {
     const res = await hole();
     if (!res.ok){
-      let message = `HTTP ${res.status}`;
-      try { message = (await res.json()).error || message; } catch {}
+      let message = `HTTP ${res.status}`, daten = null;
+      try { daten = await res.json(); message = daten.error || message; } catch {}
+      if (daten && daten.code === "quota"){
+        // Das Limit ist erreicht: der Satz vom Server sagt, welches und wann
+        // es sich zuruecksetzt, darunter die Balken wie in den Einstellungen.
+        step(steps, "[Limit]", message, "warn");
+        const karte = document.createElement("div");
+        karte.className = "limit-karte limits";
+        zeichneLimits(karte, daten.usage);
+        bubble.innerHTML = "";
+        bubble.appendChild(karte);
+        zeigeLimitHinweis(daten.usage);
+        throw Object.assign(new Error(message), { gezeigt: true });
+      }
       throw new Error(message);
     }
     const reader = res.body.getReader(), dec = new TextDecoder();
@@ -2852,7 +2917,9 @@ async function verfolge(hole, steps, bubble, text){
     }
     const broken = err instanceof TypeError
       || /network|fetch|load failed|abgebrochen/i.test(String(err.message || err));
-    if (broken){
+    if (err && err.gezeigt){
+      // Schon dargestellt (Limit erreicht) -- keine zweite Fehlerzeile.
+    } else if (broken){
       step(steps, "[Verbindung]",
         answer
           ? "Die Verbindung ist mittendrin abgerissen. Oben steht, was bis dahin ankam."
@@ -2924,7 +2991,7 @@ async function verfolge(hole, steps, bubble, text){
           s.className = "step"; s.innerHTML = `<span class="sub"></span>`;
           // Der Blickwinkel steht dahinter, wenn es einen gibt: wer nach
           // Preisen fragt, bekommt den Agenten, der auf Zahlen achtet.
-          const rolle = ROLLEN[(ev.roles || [])[i]] || "";
+          const rolle = TEXTE.roles[(ev.roles || [])[i]] || "";
           s.querySelector(".sub").textContent = rolle ? `${t}  · ${rolle}` : t;
           steps.appendChild(s);
         }); break;
@@ -2975,7 +3042,7 @@ async function verfolge(hole, steps, bubble, text){
       case "check":
         step(steps, "[Prüfer]", "prüft: " + ev.task); break;
       case "check_done":
-        step(steps, "[Prüfer]", `${ev.task} — ${URTEILE[ev.verdict] || "geprüft"}`,
+        step(steps, "[Prüfer]", `${ev.task} — ${TEXTE.verdicts[ev.verdict] || "geprüft"}`,
              ev.verdict === "ABWEICHUNG" ? "warn" : ""); break;
       case "checks_done":
         // Wie bei der Gegenprobe im Standardmodus: dass geprueft wurde,
@@ -3112,6 +3179,8 @@ async function verfolge(hole, steps, bubble, text){
     }
   }
   setBusy(false); input.focus();
+  // Nach jedem Lauf: ist ein Limit knapp geworden? (Rechnet der Server.)
+  pruefeLimits();
 }
 
 // Zurueck auf der Seite, waehrend Aquaticy noch arbeitet.
@@ -3334,18 +3403,6 @@ let currentChat = "";
 // Frage darin -- oder nach dem, was der Nutzer selbst vergeben hat.
 let chats = [];
 
-function chatGroup(touched){
-  const day = 86400;
-  const now = Date.now() / 1000;
-  const midnight = new Date(); midnight.setHours(0, 0, 0, 0);
-  const today = midnight.getTime() / 1000;
-  if (touched >= today) return "Heute";
-  if (touched >= today - day) return "Gestern";
-  if (touched >= now - 7 * day) return "Letzte 7 Tage";
-  if (touched >= now - 30 * day) return "Letzte 30 Tage";
-  return "Älter";
-}
-
 // Woraus die Liste zuletzt gezeichnet wurde. Steht hier oben, nicht unter
 // der Funktion: eine Deklaration mit let gilt vor ihrer Zeile als nicht
 // vorhanden, und die Funktion darueber wuerde darueber stolpern.
@@ -3381,12 +3438,13 @@ function drawRecents(){
   // unter "Letzte Chats" gleich noch ein "Heute" -- zwei Ueberschriften
   // uebereinander, die dasselbe sagen. Beim Suchen gar keine: die Treffer
   // sortieren sich nach Fund, nicht nach Tag.
-  const groups = new Set(chats.map(chat => chatGroup(chat.touched || 0)));
+  // Die Gruppe ("Heute", "Gestern" ...) rechnet der Server.
+  const groups = new Set(chats.map(chat => chat.group || ""));
   const showGroups = !chatQuery && groups.size > 1;
   let group = "";
   for (const chat of chats){
     const label = (chat.title || "Ohne Titel").replace(/\s+/g, " ").trim();
-    const where = chatGroup(chat.touched || 0);
+    const where = chat.group || "";
     if (showGroups && where !== group){
       group = where;
       const head = document.createElement("div");
@@ -3604,7 +3662,7 @@ async function exportChat(chat){
       `/api/chatexport?session_id=${encodeURIComponent(chat.session_id)}`);
     const data = await res.json();
     if (!data.markdown){ toast(data.error || "Da war nichts zu exportieren."); return; }
-    downloadText(dateiname(data.title || chat.title) + ".md", data.markdown);
+    downloadText(data.filename || "aquaticy.md", data.markdown);
     toast("Gespeichert.");
   } catch { toast("Der Export ist nicht durchgekommen."); }
 }
@@ -3716,27 +3774,23 @@ async function openPicker(){
   backdrop.addEventListener("click", closePicker);
   document.body.appendChild(backdrop);
 
-  // Im Code- und im Pro-Modus zaehlt nicht das eingestellte Modell, sondern
-  // das staerkste erreichbare -- ein schwaches ist genau dort am teuersten.
-  // Also stehen dort auch nur die drei staerksten zur Wahl; alles andere
-  // waere eine Auswahl, die gleich wieder ueberstimmt wird.
-  const nurStarke = mode === "code" || mode === "pro";
-  let models = [];
+  // Was zur Wahl steht, entscheidet der Server (aquaticy/webview.py): im
+  // Code- und Pro-Modus nur die staerksten, sonst alle -- samt Ueberschrift
+  // und dem Feld, das die Wahl setzt.
+  let auswahl = null;
   try {
-    // Was "am staerksten" heisst, haengt am Modus: im Code-Modus sind das
-    // die Modelle fuers Programmieren, im Pro-Modus die fuer die Recherche.
-    const zweck = mode === "code" ? "?purpose=code" : "";
-    const daten = await (await api("/api/models" + zweck)).json();
-    models = (nurStarke ? daten.strong : daten.models) || [];
+    const daten = await (await api("/api/models?mode=" + encodeURIComponent(mode))).json();
+    auswahl = daten.picker || null;
   } catch { /* Server weg -- die Liste bleibt leer, der Hinweis unten steht */ }
-  $("#picker-head").textContent = mode === "code"
-    ? "Stärkstes Code-Modell wählen"
-    : nurStarke ? "Stärkstes Modell wählen" : "Modell wählen";
+  const models = auswahl?.models || [];
+  $("#picker-head").textContent = auswahl?.heading || "Modell wählen";
 
   if (!models.length){
-    list.innerHTML = '<div class="picker-foot">Kein Modell gefunden. '
-      + 'Trag unter Einstellungen einen Anbieter samt Schlüssel ein, '
-      + 'oder installiere eins mit <code>aquaticy install-model</code>.</div>';
+    list.innerHTML = "";
+    const leer = document.createElement("div");
+    leer.className = "picker-foot";
+    leer.textContent = auswahl?.empty || "Kein Modell gefunden.";
+    list.appendChild(leer);
     return;
   }
   list.innerHTML = "";
@@ -3749,20 +3803,17 @@ async function openPicker(){
     item.querySelector(".kind").textContent = model.kind;
     item.querySelector(".note").textContent = model.note || "";
     item.title = model.id;
-    item.addEventListener("click", () => chooseModel(model, nurStarke));
+    item.addEventListener("click", () => chooseModel(model, auswahl.field));
     list.appendChild(item);
   });
   stagger(list.querySelectorAll(".pick"), 22);
 }
 
-async function chooseModel(model, alsStarkes){
+async function chooseModel(model, feld){
   closePicker();
   $("#model-name").textContent = model.label;
-  // Im Code- und Pro-Modus wird das starke Modell gesetzt, nicht das
-  // allgemeine: sonst haette die Wahl beim naechsten Wechsel in den
-  // Standardmodus alles umgestellt, was man dort eingerichtet hatte.
-  const wunsch = alsStarkes
-    ? { AQUATICY_CODE_MODEL: model.id } : { AQUATICY_MODEL: model.id };
+  // Welches Feld die Wahl setzt, hat der Server mit der Liste gesagt.
+  const wunsch = { [feld === "AQUATICY_CODE_MODEL" ? "AQUATICY_CODE_MODEL" : "AQUATICY_MODEL"]: model.id };
   const res = await api("/api/config", {
     method: "POST", headers: {"Content-Type": "application/json"},
     body: JSON.stringify(wunsch)
@@ -3842,7 +3893,8 @@ $("#btn-settings").addEventListener("click", async () => {
   try { cfg = await (await api("/api/config")).json(); }
   catch { alert("Aquaticy AI antwortet gerade nicht — läuft der Server noch?"); return; }
   fill(cfg.values);
-  fillProviders();
+  fillProviders(cfg.providers);
+  suchHinweise = cfg.search_key_hints || {};
   $("#provider").value = "";
   $("#provider-note").textContent = "";
   $("#model-note").textContent = "";
@@ -3911,9 +3963,8 @@ async function loadAccount(account){
     form.elements["AQUATICY_VM_SIZE"].value = "normal";
   try {
     const data = await (await api("/api/account")).json();
-    $("#account-tokens").textContent = data.token_limit == null
-      ? `${kurz(data.tokens_used)} · unbegrenzt`
-      : `${kurz(data.tokens_used)} von ${kurz(data.token_limit)}`;
+    // Den Satz baut der Server ("Sitzung 23 % · Woche 8 %" oder "Kein Limit").
+    $("#account-tokens").textContent = data.usage?.summary || "nicht verfügbar";
   } catch { $("#account-tokens").textContent = "nicht verfügbar"; }
 }
 
@@ -4393,13 +4444,59 @@ $("#cancel").addEventListener("click", closeSettings);
 overlay.addEventListener("click", (e) => { if (e.target === overlay) closeSettings(); });
 
 /* ---------- Nutzung ---------- */
-// Grosse Zahlen liest niemand als Ziffernfolge. 1234567 -> "1,23 Mio".
-function kurz(zahl){
-  const n = Number(zahl) || 0;
-  if (n >= 1e9) return (n / 1e9).toFixed(2).replace(".", ",") + " Mrd";
-  if (n >= 1e6) return (n / 1e6).toFixed(2).replace(".", ",") + " Mio";
-  if (n >= 1e3) return (n / 1e3).toFixed(1).replace(".", ",") + " Tsd";
-  return String(n);
+// Seit 9.5.14 rechnet der Server alles: Prozent, Ruecksetzzeiten, Warnsaetze
+// und die Statistik fuer Konten ohne Limit. Hier wird nur gezeichnet.
+
+// Ein Limit als Zeile: links was und wann es sich zuruecksetzt, rechts Balken
+// und Anteil -- wie auf der Nutzungsseite von Claude.
+function limitZeile(teil){
+  const zeile = document.createElement("div");
+  const prozent = Math.max(0, Math.min(100, Number(teil?.percent) || 0));
+  zeile.className = "limit" + (teil?.exhausted ? " voll" : prozent >= 80 ? " knapp" : "");
+  zeile.innerHTML = '<div class="limit-text"><strong></strong><span></span></div>'
+    + '<div class="limit-bar" role="progressbar" aria-valuemin="0" aria-valuemax="100">'
+    + '<span></span></div><div class="limit-pct"></div><div class="limit-hint"></div>';
+  zeile.querySelector("strong").textContent = teil?.label || "";
+  zeile.querySelector(".limit-text span").textContent = teil?.active === false
+    ? (teil?.resets_text || "")
+    : "Setzt sich " + (teil?.resets_text || "") + " zurück";
+  const balken = zeile.querySelector(".limit-bar");
+  balken.setAttribute("aria-valuenow", String(prozent));
+  balken.setAttribute("aria-label", `${teil?.label || "Limit"}: ${prozent} % genutzt`);
+  zeile.querySelector(".limit-pct").textContent = `${prozent} % genutzt`;
+  zeile.querySelector(".limit-hint").textContent = teil?.hint || "";
+  // Erst zeichnen, dann fuellen: so waechst der Balken sichtbar.
+  requestAnimationFrame(() => { balken.firstElementChild.style.width = prozent + "%"; });
+  return zeile;
+}
+
+// Der ganze Block: beide Limits, darunter wann zuletzt nachgesehen wurde.
+function zeichneLimits(box, usage, nachladen){
+  box.innerHTML = "";
+  if (!usage) return;
+  if (!usage.limited){
+    const frei = document.createElement("div");
+    frei.className = "limits-frei";
+    frei.textContent = usage.text || "Kein Limit";
+    box.appendChild(frei);
+    return;
+  }
+  if (usage.error){ box.textContent = usage.error; return; }
+  const kopf = document.createElement("h3");
+  kopf.className = "limits-head";
+  kopf.textContent = "Nutzungslimits";
+  box.append(kopf, limitZeile(usage.session), limitZeile(usage.week));
+  const fuss = document.createElement("div");
+  fuss.className = "limits-foot";
+  fuss.textContent = usage.updated_text || "";
+  if (nachladen){
+    const knopf = document.createElement("button");
+    knopf.type = "button"; knopf.textContent = "↻"; knopf.title = "Neu laden";
+    knopf.setAttribute("aria-label", "Nutzung neu laden");
+    knopf.addEventListener("click", nachladen);
+    fuss.appendChild(knopf);
+  }
+  box.appendChild(fuss);
 }
 
 async function loadUsage(){
@@ -4409,45 +4506,59 @@ async function loadUsage(){
   let data;
   try { data = await (await api("/api/usage")).json(); }
   catch { detail.textContent = "Der Zählerstand ließ sich nicht laden."; return; }
-
-  const kacheln = [
-    ["heute", data.today, "Heute"],
-    ["fenster", data.window, `Letzte ${data.window_days || 7} Tage`],
-    ["gesamt", data.total, "Insgesamt"],
-  ];
-  for (const [, wert, was] of kacheln){
-    const gesamt = (wert?.tokens_in || 0) + (wert?.tokens_out || 0);
+  zeichneLimits($("#limits"), data.limits, loadUsage);
+  zeigeLimitHinweis(data.limits);
+  // Die Statistik in Token gibt es nur ohne Limit (Pro, lokal) -- fertig
+  // formuliert vom Server.
+  for (const k of data.stats?.tiles || []){
     const kachel = document.createElement("div");
     kachel.className = "kachel";
     kachel.innerHTML = '<div class="wert"></div><div class="was"></div>'
       + '<div class="dazu"></div>';
-    kachel.querySelector(".wert").textContent = kurz(gesamt);
-    kachel.querySelector(".was").textContent = was + " (Token)";
-    kachel.querySelector(".dazu").textContent =
-      `${kurz(wert?.tokens_in || 0)} hinein · ${kurz(wert?.tokens_out || 0)} heraus`
-      + ` · ${wert?.calls || 0} Aufrufe`;
+    kachel.querySelector(".wert").textContent = k.wert;
+    kachel.querySelector(".was").textContent = k.was;
+    kachel.querySelector(".dazu").textContent = k.dazu;
     box.appendChild(kachel);
   }
-
-  const zeilen = (data.models || []).map(m =>
-    `${m.model}: ${kurz((m.tokens_in || 0) + (m.tokens_out || 0))} Token `
-    + `in ${m.calls} Aufrufen`);
-  detail.textContent = zeilen.length
-    ? "Je Modell:\n" + zeilen.join("\n")
-    : "Noch nichts gezählt.";
+  detail.textContent = data.stats?.detail || "";
 }
+
+// Ueber dem Eingabefeld, sobald ein Limit knapp wird (den Satz schreibt der
+// Server ab 80 %). Wer nichts nahe am Limit hat, sieht nichts.
+function zeigeLimitHinweis(usage){
+  const banner = $("#limit-banner");
+  const text = usage?.limited ? (usage.warning || "") : "";
+  banner.hidden = !text;
+  if (!text) return;
+  const teil = (usage.week?.percent || 0) >= (usage.session?.percent || 0)
+    ? usage.week : usage.session;
+  const prozent = Math.max(0, Math.min(100, Number(teil?.percent) || 0));
+  banner.querySelector(".txt").textContent = text;
+  const balken = banner.querySelector(".limit-bar > span");
+  balken.style.width = prozent + "%";
+  balken.style.background = teil?.exhausted ? "var(--err)" : "var(--warn)";
+}
+
+async function pruefeLimits(){
+  try {
+    const data = await (await api("/api/account")).json();
+    if (data.usage) zeigeLimitHinweis(data.usage);
+  } catch {}
+}
+
+$("#limit-banner-open").addEventListener("click", async () => {
+  $("#btn-settings").click();
+  // Warten, bis das Fenster offen ist, dann zum Abschnitt springen.
+  setTimeout(() => {
+    const chip = document.querySelector('#secnav button[data-section="sec-nutzung"]');
+    if (chip) chip.click();
+  }, 350);
+});
 
 /* ---------- Werkstatt: Dateien ---------- */
 // Ohne diese Liste muesste man raten, wie die Datei heisst, die Aquaticy
 // gerade gebaut hat -- und haette keine Moeglichkeit, sie mitzunehmen.
 const vmBox = $("#vmbox");
-
-function groesse(bytes){
-  const n = Number(bytes) || 0;
-  if (n >= 1e6) return (n / 1e6).toFixed(1).replace(".", ",") + " MB";
-  if (n >= 1e3) return Math.round(n / 1e3) + " kB";
-  return n + " B";
-}
 
 async function loadWorkshop(){
   const liste = $("#vmliste"), note = $("#vm-note");
@@ -4500,7 +4611,7 @@ function vmZeile(datei){
     + '<span class="thema"></span></div><div class="text"></div></div>'
     + '<button type="button" class="weg">Holen</button>';
   const kurzname = String(datei.path).replace(/^\/work\/?/, "") || datei.path;
-  zeile.querySelector(".thema").textContent = groesse(datei.bytes);
+  zeile.querySelector(".thema").textContent = datei.size_text || "";
   zeile.querySelector(".text").textContent = kurzname;
   const knopf = zeile.querySelector(".weg");
   knopf.addEventListener("click", async () => {
@@ -4541,14 +4652,6 @@ const memBox = $("#membox");
 
 // SQLite legt die Zeit als "2026-09-06 14:03:11" in UTC ab. Ohne das Z
 // deutet der Browser das als Ortszeit und zeigt die Stunde falsch.
-function wann(roh){
-  if (!roh) return "";
-  const zeit = new Date(String(roh).replace(" ", "T") + "Z");
-  if (isNaN(zeit)) return String(roh);
-  return zeit.toLocaleDateString("de-DE",
-    { day: "2-digit", month: "short", year: "numeric" });
-}
-
 async function loadMemory(){
   const liste = $("#merkliste"), note = $("#merk-note");
   liste.innerHTML = "";
@@ -4593,7 +4696,7 @@ function merkZeile(eintrag){
     + '<div class="text"></div></div>'
     + '<button type="button" class="weg">Löschen</button>';
   zeile.querySelector(".thema").textContent = eintrag.topic || "notiz";
-  zeile.querySelector(".zeit").textContent = wann(eintrag.when);
+  zeile.querySelector(".zeit").textContent = eintrag.when_text || "";
   zeile.querySelector(".text").textContent = eintrag.text || "";
   zeile.querySelector(".weg").addEventListener("click", async () => {
     const weg = zeile.querySelector(".weg");
@@ -4627,18 +4730,6 @@ $("#merk-clear").addEventListener("click", async () => {
 /* ---------- Auftraege ---------- */
 // Eine Frage, die sich von selbst stellt. Die Antwort landet als Chat --
 // so muss man nichts Neues lernen, um sie zu lesen.
-const TAGE = ["Montag", "Dienstag", "Mittwoch", "Donnerstag", "Freitag",
-              "Samstag", "Sonntag"];
-
-function wannGenau(stempel){
-  if (!stempel) return "";
-  const zeit = new Date(stempel * 1000);
-  if (isNaN(zeit)) return "";
-  return zeit.toLocaleString("de-DE",
-    { weekday: "short", day: "2-digit", month: "short", hour: "2-digit",
-      minute: "2-digit" });
-}
-
 async function loadJobs(){
   const box = $("#auftraege");
   box.innerHTML = "";
@@ -4666,28 +4757,10 @@ function jobZeile(job){
     + '<button type="button" data-do="run">Jetzt</button>'
     + '<button type="button" data-do="toggle"></button>'
     + '<button type="button" class="weg" data-do="delete">Löschen</button></div>';
-  const art = job.kind === "visual" ? "Bildbeobachtung" :
-    job.kind === "price" ? "Preisbeobachtung" : "Recherche";
-  zeile.querySelector(".frage").textContent = `${art}: ${job.question}`;
-
-  const minuten = {minutes5: 5, minutes15: 15, minutes30: 30}[job.rhythm];
-  const takt = minuten
-    ? `alle ${minuten} Minuten`
-    : job.rhythm === "hourly"
-    ? `stündlich zur Minute ${String(job.minute).padStart(2, "0")}`
-    : job.rhythm === "weekly"
-      ? `wöchentlich, ${TAGE[job.weekday] || "Montag"} um `
-        + `${String(job.hour).padStart(2, "0")}:${String(job.minute).padStart(2, "0")}`
-      : `täglich um ${String(job.hour).padStart(2, "0")}:`
-        + `${String(job.minute).padStart(2, "0")}`;
-  const teile = [takt];
-  if (job.enabled) teile.push("nächstes Mal " + wannGenau(job.next_run));
-  else teile.push("angehalten");
-  if (job.last_run) teile.push(`zuletzt ${wannGenau(job.last_run)} — ${job.last_state}`);
-  zeile.querySelector(".wann").textContent = teile.join(" · ");
-
-  zeile.querySelector('[data-do="toggle"]').textContent =
-    job.enabled ? "Anhalten" : "Weiter";
+  // Was, wie oft, wann -- die Saetze schreibt der Server (aquaticy/webview.py).
+  zeile.querySelector(".frage").textContent = job.title || job.question || "";
+  zeile.querySelector(".wann").textContent = job.when_text || "";
+  zeile.querySelector('[data-do="toggle"]').textContent = job.toggle_label || "";
   zeile.querySelectorAll("button").forEach(knopf =>
     knopf.addEventListener("click", async () => {
       const was = knopf.dataset.do;
@@ -4821,35 +4894,27 @@ $("#job-add").addEventListener("click", async () => {
 // schnell es antwortet, wie viele Anfragen pro Minute es vertraegt -- und
 // danach richtet sich Aquaticy dann auch. Ollama ist kein Anbieter, sondern
 // der Weg, ganz ohne einen auszukommen.
-const PROVIDERS = [
-  ["nvidia_nim",  "NVIDIA NIM",         "NVIDIA_NIM_API_KEY",
-   "nvidia_nim/meta/llama-3.3-70b-instruct", "nvapi-…"],
-  ["mistral",     "Mistral",            "MISTRAL_API_KEY",    "mistral/mistral-large-latest",
-   ""],
-  ["ollama_chat", "Ollama (lokal)",     "",                   "ollama_chat/gemma4:12b", ""],
-];
+// Die Anbieter kommen seit 9.5.14 vom Server (/api/config -> providers), samt
+// Schluesselname, Beispielmodell und dem Satz darunter.
+let anbieter = [];
 
-function fillProviders(){
+function fillProviders(liste){
+  if (Array.isArray(liste) && liste.length) anbieter = liste;
   const select = $("#provider");
-  if (select.options.length > 1) return;   // nur einmal aufbauen
-  PROVIDERS.forEach(([id, label]) => {
+  if (select.options.length > 1 || !anbieter.length) return;   // nur einmal aufbauen
+  anbieter.forEach(eintrag => {
     const option = document.createElement("option");
-    option.value = id; option.textContent = label;
+    option.value = eintrag.id; option.textContent = eintrag.label;
     select.appendChild(option);
   });
   select.addEventListener("change", () => {
-    const found = PROVIDERS.find(entry => entry[0] === select.value);
+    const found = anbieter.find(eintrag => eintrag.id === select.value);
     if (!found) return;
-    const [, label, keyName, example, shape] = found;
     const model = form.elements["AQUATICY_MODEL"];
-    if (!model.value.startsWith(select.value + "/")) model.value = example;
-    const key = form.elements["__API_KEY__"];
-    key.placeholder = shape ? `${shape}  (leer lassen = unverändert)` : "leer lassen = unverändert";
-    $("#keyname").textContent = keyName ? `(${keyName})` : "(nicht nötig)";
-    $("#provider-note").textContent = keyName
-      ? `${label} braucht ${keyName}${shape ? ` — er beginnt mit ${shape}` : ""}. `
-        + "Trag ihn rechts ein, er landet in deiner .env."
-      : `${label} läuft auf deinem Rechner. Kein Schlüssel nötig.`;
+    if (!model.value.startsWith(select.value + "/")) model.value = found.example;
+    form.elements["__API_KEY__"].placeholder = found.placeholder;
+    $("#keyname").textContent = found.key_label;
+    $("#provider-note").textContent = found.note;
   });
 }
 
@@ -4942,23 +5007,8 @@ async function showLoad(){
   try { data = await (await api("/api/system")).json(); }
   catch (err){ note.className = "note bad"; note.textContent = String(err); return; }
 
-  const parts = [];
-  if (data.cpu?.percent !== undefined)
-    parts.push(gauge("Prozessor", data.cpu.percent + " %",
-      `${data.cpu.cores} Kerne · Last ${data.cpu.load}`, data.cpu.percent));
-  if (data.memory?.percent !== undefined)
-    parts.push(gauge("Arbeitsspeicher", data.memory.used_gb + " GB",
-      `von ${data.memory.total_gb} GB`, data.memory.percent));
-  if (data.disk?.percent !== undefined)
-    parts.push(gauge("Festplatte", data.disk.free_gb + " GB frei",
-      `von ${data.disk.total_gb} GB`, data.disk.percent));
-  if (data.gpu?.name)
-    parts.push(gauge("Grafikkarte", data.gpu.percent + " %",
-      `${data.gpu.name} · ${data.gpu.used_gb} von ${data.gpu.total_gb} GB`, data.gpu.percent));
-  if (data.storage)
-    parts.push(gauge("Speicher", data.storage.used_mb + " MB",
-      `von ${data.storage.limit_mb} MB · ${data.storage.entries} Notizen`,
-      data.storage.percent));
+  // Name, Wert und Zusatz jeder Anzeige schreibt der Server (9.5.14).
+  const parts = (data.gauges || []).map(g => gauge(g.name, g.value, g.sub, g.percent));
 
   note.className = "note";
   note.innerHTML = `<div class="gauges">${parts.join("")}</div>`
@@ -4977,11 +5027,8 @@ function showStorage(storage){
   }
   meter.firstElementChild.style.width = Math.min(100, storage.percent) + "%";
   meter.className = "meter" + (storage.percent >= 85 ? " warn" : "");
-  meter.title = `${storage.used_mb} von ${storage.limit_mb} MB belegt`;
-  if (note){
-    note.textContent = `${storage.used_mb} von ${storage.limit_mb} MB belegt`
-      + ` · ${storage.entries} ${storage.entries === 1 ? "Notiz" : "Notizen"}`;
-  }
+  meter.title = storage.title || "";
+  if (note) note.textContent = storage.text || "";
 }
 
 async function haCall(payload){
@@ -5161,11 +5208,11 @@ Suche (${data.search.backend}): ${mark(data.search)}`;
 });
 
 // Der Hinweis am Schluesselfeld richtet sich nach der gewaehlten Suchmaschine.
+// Welcher Suchdienst welchen Schluessel braucht, sagt der Server.
+let suchHinweise = {};
 function searchKeyHint(){
-  const names = { brave: "BRAVE_API_KEY", tavily: "TAVILY_API_KEY" };
-  const name = names[form.elements["AQUATICY_SEARCH_BACKEND"].value] || "";
-  $("#search-keyname").textContent = name
-    ? `(${name})` : "nur bei Brave und Tavily nötig";
+  const dienst = form.elements["AQUATICY_SEARCH_BACKEND"].value;
+  $("#search-keyname").textContent = suchHinweise[dienst] ?? suchHinweise[""] ?? "";
 }
 form.elements["AQUATICY_SEARCH_BACKEND"].addEventListener("change", searchKeyHint);
 
@@ -5198,33 +5245,18 @@ function greet(){
   const when = hour < 5 ? "Noch wach" : hour < 11 ? "Guten Morgen"
              : hour < 14 ? "Hallo" : hour < 18 ? "Guten Nachmittag"
              : hour < 23 ? "Guten Abend" : "Gute Nacht";
-  const phrases = mode === "code"
-    ? ["was wollen wir bauen?", "welches Problem lösen wir?", "woran programmieren wir heute?"]
-    : ["was möchtest du herausfinden?", "wobei kann ich dir helfen?", "was schauen wir uns heute an?"];
+  // Die Tageszeit kennt nur das Geraet des Nutzers -- die Saetze kommen vom Server.
+  const phrases = (mode === "code" ? TEXTE.greetings.code : TEXTE.greetings.normal)
+    || ["was möchtest du herausfinden?"];
   const turn = Math.floor(Date.now() / 60000) + document.querySelectorAll(".msg.user").length;
   const name = currentUsername ? ` ${currentUsername}` : "";
   $("#greeting").textContent = `${when}${name} — ${phrases[turn % phrases.length]}`;
   rotateSuggestions(turn);
 }
 
-const SUGGESTIONS = {
-  normal: [
-    "Was ist heute in meiner Stadt los?", "Finde ein gutes Café mit WLAN in meiner Nähe",
-    "Vergleiche drei Laptops für Bildbearbeitung", "Erkläre mir dieses Thema einfach",
-    "Welche Geräte hängen in meinem Netz?", "Plane einen entspannten Tagesausflug",
-    "Fasse die wichtigsten Nachrichten zusammen", "Hilf mir bei einer Kaufentscheidung",
-    "Prüfe diese Behauptung mit mehreren Quellen"
-  ],
-  code: [
-    "Schreib ein Python-Skript, das Ordner nach Datum sortiert",
-    "Warum wirft dieser Code einen IndexError?", "Baue eine kleine REST-API mit FastAPI",
-    "Verbessere die Fehlermeldungen in diesem Programm", "Schreib Tests für diese Funktion",
-    "Vereinfache diesen Code ohne sein Verhalten zu ändern", "Finde den Fehler in diesem Stacktrace",
-    "Entwirf eine kleine Kommandozeilen-App", "Optimiere diese Datenbankabfrage"
-  ]
-};
 function rotateSuggestions(seed = Date.now()){
-  const list = mode === "code" ? SUGGESTIONS.code : SUGGESTIONS.normal;
+  const list = (mode === "code" ? TEXTE.suggestions.code : TEXTE.suggestions.normal) || [];
+  if (!list.length) return;
   const target = mode === "code" ? $("#chips-code") : $("#chips");
   const start = Math.abs(Number(seed) || 0) % list.length;
   target.querySelectorAll(".chip").forEach((chip, index) => {
@@ -5244,45 +5276,17 @@ function refreshHeader(){
 
 async function kopfNeuZeichnen(){
   try {
-    const cfg = await (await api("/api/config")).json();
-    if (cfg.version) {
-      $("#version").textContent = "v" + cfg.version;
-      document.title = `Aquaticy AI ${cfg.version}`;
-    }
-    // Oben steht, womit gerade WIRKLICH gearbeitet wird: im Code- und im
-    // Pro-Modus das staerkste erreichbare Modell, sonst das eingestellte.
-    // Frueher stand dort immer das eingestellte -- und man sah nicht, dass
-    // gerade ein anderes antwortet.
-    currentModel = mode === "code"
-      ? (cfg.strong_code_model || cfg.strong_model || cfg.values.AQUATICY_MODEL || "")
-      : mode === "pro"
-        ? (cfg.strong_model || cfg.values.AQUATICY_MODEL || "")
-        : (cfg.values.AQUATICY_MODEL || "");
-    // Automatische Wahl: welches Modell antwortet, entscheidet sich erst an
-    // der Nachricht -- oben steht dann "Auto" vor dem Grundmodell.
-    const auto = cfg.values.AQUATICY_AUTO_MODEL === "true" && mode === "normal";
-    flash($("#model-name"),
-          (auto ? "Auto · " : "") + (currentModel.split("/").pop() || "Modell wählen"));
-    // Links steht, womit gearbeitet wird -- der Modellname hat oben in der
-    // Mitte seinen eigenen Platz und muss hier nicht doppelt stehen.
-    const bits = [cfg.values.AQUATICY_LOCATION || "kein Ortsfilter"];
-    // Was vom Normalfall abweicht, gehoert in die Kopfzeile -- es aendert
-    // das Ergebnis spuerbar, und man sieht es sonst nirgends.
-    if (mode === "code" && sandbox) bits.push("Werkstatt");
-    else if (!online) bits.push("ohne Web");
-    if (mode !== "code" && visualSources) bits.push("Webcams & Satelliten");
-    if (mode === "pro") bits.push("Pro");
-    if (structured) bits.push("strukturiert");
-    // Im Pro-Modus pruefen vier Agenten mit -- der Schalter heisst gleich,
-    // meint aber etwas anderes.
-    if (mode === "pro"){
-      if (recheck) bits.push("4 Prüfer");
-    } else if (recheck) bits.push("gegenprüfen");
-    if (effort !== "medium") bits.push("Denktiefe " + effort);
-    if (cfg.ha_connected) bits.push("Zuhause verbunden");
-    if (cfg.values.AQUATICY_MEMORY === "true") bits.push("Speicher an");
-    flash($("#status"), bits.join(" · "));
-    $("#status").title = cfg.problems?.length ? cfg.problems.join("; ") : "";
+    // Erst den Stand der Schalter beim Server ablegen -- die Kopfzeile
+    // rechnet er aus genau diesem Stand.
+    await zustandSenden();
+    const kopf = await (await api("/api/header")).json();
+    // Welches Modell wirklich antwortet (im Code- und Pro-Modus das
+    // staerkste), "Auto · ..." bei automatischer Wahl und die Statuszeile:
+    // alles fertig vom Server (aquaticy/webview.py).
+    currentModel = kopf.model || "";
+    flash($("#model-name"), kopf.model_label || "Modell wählen");
+    flash($("#status"), kopf.status || "");
+    $("#status").title = kopf.status_title || "";
   } catch { /* Server weg -- die Oberflaeche bleibt trotzdem bedienbar */ }
 }
 // Wird von `bootAuth` gerufen, sobald jemand angemeldet ist -- vorher gibt
@@ -5293,6 +5297,7 @@ async function starteOberflaeche(){
   greet();
   refreshHeader();
   loadRecents();
+  pruefeLimits();
   await wiederAufnehmen();
   input.focus();
 }
