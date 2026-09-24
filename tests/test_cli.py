@@ -685,6 +685,15 @@ def test_folder_without_images_is_reported(
     assert "Keine Bilder" in result.output
 
 
+def test_a_file_that_is_no_picture_is_not_sent(tmp_path: Path) -> None:
+    """9.5.13: `--image .env` schickt die Datei nicht als Bild ans Modell."""
+    geheim = tmp_path / ".env"
+    geheim.write_text("OPENAI_API_KEY=sk-geheim", encoding="utf-8")
+    result = runner.invoke(cli.app, ["chat", "Frage", "--image", str(geheim)])
+    assert result.exit_code == 1
+    assert "kein Bild" in result.output
+
+
 def test_missing_path_is_reported(tmp_path: Path) -> None:
     result = runner.invoke(cli.app, ["chat", "Frage", "--image", str(tmp_path / "weg.jpg")])
     assert result.exit_code == 1

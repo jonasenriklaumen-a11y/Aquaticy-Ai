@@ -481,7 +481,7 @@ HELP_MARKDOWN = """### Befehle
 - `/model <name>` — Modell wechseln, z. B. `mistral/mistral-large-latest`
 - `/max <frage>` — im Pro-Modus mit voller Mannschaft recherchieren
 - `/image <pfad>` — Bild ansehen lassen und damit recherchieren (Datei oder Ordner)
-- `/export html|md|csv` — die letzten Recherchen speichern
+- `/export html|md|csv` — die letzten Recherchen herunterladen
 - `/history` — fruehere Recherchen
 - `/notes` — Merkzettel
 - `/clear` — Gespraechsverlauf verwerfen
@@ -896,10 +896,32 @@ class ChatSession:
 
     def _image_question(self, agent: Any, line: str) -> str:
         """Macht aus `/image <pfad>` eine Frage, die das Bild beschreibt."""
+        from aquaticy.cli import IMAGE_SUFFIXES
+
         argument = line[len("/image") :].strip()
         if not argument:
             raise ValueError("Nutzung: /image pfad/zum/bild.jpg (oder ein Ordner)")
-        image = resolve_image(Path(argument).expanduser())
+        target = Path(argument)
+        if self.account is not None:
+            # Mit Konten sitzt am Browser nicht der Betreiber. Bis 9.5.12 las
+            # `/image` jede Datei, die der Server lesen kann -- auch die
+            # hochgeladenen Bilder anderer Konten -- und schickte sie ans
+            # Vision-Modell. Jetzt gilt nur der eigene Upload-Ordner.
+            uploads = (self.settings().data_dir / "uploads").resolve()
+            target = (uploads / target).resolve()
+            if not target.is_relative_to(uploads):
+                raise PermissionError(
+                    "Im Browser geht /image nur mit deinen eigenen hochgeladenen "
+                    "Bildern -- häng das Bild einfach an die Nachricht an."
+                )
+        else:
+            target = target.expanduser()
+        image = resolve_image(target)
+        if image.suffix.lower() not in IMAGE_SUFFIXES:
+            # Auch lokal: eine .env ist kein Bild und geht nicht ans Modell.
+            raise ValueError(
+                f"{image.name} ist kein Bild ({', '.join(IMAGE_SUFFIXES)})."
+            )
         description = agent.describe_image(image)
         return (
             f"Auf dem Bild ({image.name}) ist Folgendes zu sehen:\n{description}\n\n"
@@ -985,7 +1007,7 @@ class ChatSession:
                 return {"text": f"### Frueher gefragt\n{lines}"}
 
             if command == "export":
-                return {"text": self._export(argument or "html")}
+                return self._export(argument or "html")
 
             if command in ("quit", "exit", "q"):
                 return {"text": "Im Browser reicht es, das Fenster zu schliessen."}
@@ -1061,7 +1083,8 @@ class ChatSession:
         )
         total = human_size(sum(item.stat().st_size for item in files))
         return (
-            f"### Hochgeladen\n{len(files)} Dateien, zusammen {total}.\n\n{lines}"
+            f"### Hochgeladen\n{len(files)} {'Datei' if len(files) == 1 else 'Dateien'}, "
+            f"zusammen {total}.\n\n{lines}"
             "\n\nAlles loeschen: `/uploads clear`"
         )
 
@@ -1069,13 +1092,23 @@ class ChatSession:
         settings = self.settings()
         return Cache(settings.db_path, settings.cache_ttl_hours)
 
-    def _export(self, fmt: str) -> str:
-        """Exportiert die letzten Recherchen -- wie `aquaticy export`."""
+    def _export(self, fmt: str) -> dict[str, Any]:
+        """Exportiert die letzten Recherchen -- wie `aquaticy export`.
+
+        Die Datei geht als Download an den Browser. Bis 9.5.12 landete sie im
+        Arbeitsordner des Servers: wer von einem anderen Geraet kam, bekam
+        nur einen Pfad, mit dem er nichts anfangen konnte -- und jedes Konto
+        konnte dort beliebig viele Dateien anlegen. Nur ohne Konten (lokal,
+        ein Nutzer) bleibt zusaetzlich eine Kopie in ``./exports`` liegen,
+        wie im Terminal.
+        """
+        import tempfile
+
         from aquaticy.export import Turn, export
 
         entries = self._cache().recent_history(limit=5)
         if not entries:
-            return "Noch nichts zu exportieren — stell erst eine Frage."
+            return {"text": "Noch nichts zu exportieren — stell erst eine Frage."}
         turns = [
             Turn(
                 question=entry.question,
@@ -1087,10 +1120,26 @@ class ChatSession:
             for entry in entries
         ]
         try:
-            path = export(turns, fmt, directory=Path.cwd())
+            with tempfile.TemporaryDirectory(prefix="aquaticy-export-") as ordner:
+                path = export(turns, fmt, directory=Path(ordner))
+                inhalt = path.read_text(encoding="utf-8")
+                name = path.name
         except ValueError as exc:
-            return str(exc)
-        return f"Gespeichert: `{path}`"
+            return {"text": str(exc)}
+        except OSError as exc:
+            return {"text": f"Der Export ist fehlgeschlagen: {type(exc).__name__}"}
+        mime = {
+            "html": "text/html;charset=utf-8",
+            "md": "text/markdown;charset=utf-8",
+            "csv": "text/csv;charset=utf-8",
+        }[path.suffix.lstrip(".")]
+        text = f"Export fertig: **{name}** — der Download startet."
+        if self.account is None:
+            with contextlib.suppress(OSError):
+                ziel = Path.cwd() / name
+                ziel.write_text(inhalt, encoding="utf-8")
+                text += f"\n\nEine Kopie liegt in `{ziel}`."
+        return {"text": text, "download": {"name": name, "mime": mime, "content": inhalt}}
 
 
 def resolve_image(target: Path) -> Path:
@@ -2838,9 +2887,21 @@ p{{margin:0 0 8px;color:#57534a}}</style></head><body><main>
             except Exception as exc:
                 return {"ok": False, "error": f"{type(exc).__name__}: {exc}"}
 
+        from aquaticy.homeassistant import normalize_url
+
         settings = SESSION.settings()
         url = str(payload.get("url") or settings.ha_url).strip()
-        token = str(payload.get("token") or "").strip() or settings.ha_token
+        eingetippt = str(payload.get("token") or "").strip()
+        token = eingetippt or settings.ha_token
+        if (not eingetippt and settings.ha_token and settings.ha_url
+                and normalize_url(url) != normalize_url(settings.ha_url)):
+            # Wie bei den Modell-Schluesseln (_probe): der gespeicherte Token
+            # geht nur an die Adresse, fuer die er eingerichtet ist. Wer eine
+            # andere testet, fuegt den Token dafuer selbst ein.
+            return {"ok": False, "error": (
+                "Für eine neue Adresse bitte den Token dazu eintragen — der "
+                "gespeicherte geht nur an die gespeicherte Adresse."
+            )}
         if not url or not token:
             return {"ok": False, "error": "Adresse und Token werden beide gebraucht."}
         client = HomeAssistant(url, token)

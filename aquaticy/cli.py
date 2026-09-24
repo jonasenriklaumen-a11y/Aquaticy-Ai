@@ -1579,6 +1579,12 @@ def _resolve_image(path: Path) -> Path | None:
     target = path.expanduser()
 
     if target.is_file():
+        if target.suffix.lower() not in IMAGE_SUFFIXES:
+            # Ein Vertipper wie `/image .env` schickte sonst die Datei als
+            # "Bild" ans Modell -- samt allem, was darin steht.
+            console.print(f"[red]{target.name} ist kein Bild.[/red]")
+            console.print(f"[dim]Bilder sind: {', '.join(IMAGE_SUFFIXES)}[/dim]")
+            return None
         return target
 
     if target.is_dir():

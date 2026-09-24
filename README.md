@@ -137,7 +137,7 @@ aquaticy "welche Bahnstrecken in NRW sind gerade gesperrt?"
 $ aquaticy --location "Mönchengladbach" --lang de
 
 ╭──────────────────────────────────────────────────────╮
-│ Aquaticy AI 9.5.12                                     │
+│ Aquaticy AI 9.5.13                                     │
 │ Modell mistral/mistral-large-latest · Suche duckduckgo │
 │ Frag einfach los. /help zeigt die Befehle.           │
 ╰──────────────────────────────────────────────────────╯
@@ -1019,7 +1019,7 @@ er erreichbar ist — im heimischen Netz und über Tailscale:
 
 ```
 ╭───────────────────────────────────────────────────────────────────╮
-│ Aquaticy AI 9.5.12                                                  │
+│ Aquaticy AI 9.5.13                                                  │
 │ Diese Adresse im Browser oeffnen:                                 │
 │   http://192.168.1.44:8765/    im heimischen Netz                 │
 │   http://100.81.120.100:8765/  ueber Tailscale                    │
@@ -1672,7 +1672,9 @@ docker compose build aquaticy                    # nach Codeänderungen
 | **Keys** | kommen aus `./.env`, werden als Umgebungsvariablen hineingereicht |
 
 Exporte (`/export html`) landen in `./exports` und sind damit direkt auf dem Host
-lesbar. Cache und Verlauf überleben im Volume `aquaticy-data`.
+lesbar. In der Weboberfläche kommt `/export` seit 9.5.13 als Download im Browser an —
+auch am Handy oder an einem anderen Rechner. Cache und Verlauf überleben im Volume
+`aquaticy-data`.
 
 ### Eingeschlossen starten: eine Kiste in der Kiste
 
@@ -1708,7 +1710,9 @@ langsamer als `fuse-overlayfs`, braucht dafür aber kein `/dev/fuse` in der Kist
 `aquaticy sandbox` sagt jederzeit, wie es gerade steht — ob eingeschlossen, ob eine
 innere Laufzeit da ist, und ob etwas offen steht, das nicht offen stehen sollte
 (erreichbarer Wirts-Sockel, root in der Kiste, beschreibbares Wurzelverzeichnis).
-Findet es ein Loch, endet der Befehl mit Rückgabewert 1.
+Findet es ein Loch, endet der Befehl mit Rückgabewert 1. Das gilt nur in der Kiste: Direkt
+auf dem eigenen Rechner ist der Docker-Sockel normal (die Werkstatt braucht ihn) und seit
+9.5.13 kein „LOCH“ mehr.
 
 ### Zwei Varianten des Images
 
@@ -2316,6 +2320,15 @@ können unter **Dev settings** die Rechts-Leitplanken abschalten (siehe unten).
   Pro-Code; Konten sehen einander nicht.
 - Anfragen mit ungültiger Längenangabe (negativ, keine Zahl) lehnt der Server ab, bevor er
   liest.
+- **Keine Serverdateien über den Chat (9.5.13):** `/image` liest im Browser nur Bilder aus dem
+  eigenen Upload-Ordner des Kontos. Bis 9.5.12 las es jeden Pfad, den der Server lesen kann —
+  auch hochgeladene Bilder anderer Konten — und schickte ihn ans Bildmodell. Eine Datei, die
+  kein Bild ist (etwa eine `.env`), geht auch lokal und im Terminal nie als „Bild“ hinaus.
+- **`/export` legt nichts beim Server ab (9.5.13):** Im Browser kommt der Export als Download.
+  Vorher landete er im Arbeitsordner des Servers — für jedes Konto, beliebig oft.
+- **Der Home-Assistant-Token bleibt an seiner Adresse (9.5.13):** Wie bei den
+  Modell-Schlüsseln geht der gespeicherte Token beim Verbindungstest nur an die gespeicherte
+  Adresse; für eine neue Adresse wird er neu eingetragen.
 
 Was bleibt, ehrlich: Wer die Adresse eines öffentlichen Bildes oder Feeds prüft und sie danach
 abruft, fragt den Namensdienst zweimal. Ein Namensdienst, der zwischen beiden Fragen die
@@ -2524,6 +2537,20 @@ einmal mit „weniger Bewegung". Am Ende steht, was geprüft und was beanstandet
 Rückgabewert ist die Anzahl der Beanstandungen. Der Agent dahinter ist gestellt, es
 laufen also weder Modelle noch Suchanfragen. `pytest` führt ihn als eigenen Prozess mit
 aus und überspringt ihn, wo Playwright oder der Browser fehlen.
+
+**Jede Funktion einmal** (`tests/test_feature_tour.py`, seit 9.5.13): derselbe Aufbau wie
+Ende zu Ende, aber in der Breite — für ein normales und ein Pro-Konto jede Seite, jeder
+Endpunkt, jeder Slash-Befehl, Chats, Aufträge, Speicher, Add-ons, Einstellungen, Rückfragen
+und jedes Werkzeug, das ohne Internet auskommt. Kein Aufruf darf mit 5xx antworten, und die
+Pro-Sperren müssen halten. Das gestellte Modell ruft dafür auf Zuruf
+(`WERKZEUG:name {json}`) genau ein Werkzeug auf.
+
+**Die Werkstatt echt** (`tests/test_sandbox_live.py`, seit 9.5.13): startet die Werkstatt des
+Code-Modus wirklich in Docker, schreibt, liest, listet und rechnet darin und prüft, dass sie
+kein Netz hat und nichts außerhalb von `/work` beschreiben kann. Der Test entstand, weil
+Docker 29 den Arbeitsordner beim ersten Einhängen wieder `root` gab: Die Werkstatt startete
+und rechnete, konnte aber keine Datei schreiben — keine Ablage, keine Anhänge. Seit 9.5.13
+wird `/work` mit `nocopy` eingehängt. Ohne Docker wird der Test übersprungen.
 
 **Ende zu Ende** (`tests/test_end_to_end.py`, seit 9.5.12): Hier ist nur das Modell
 gestellt — ein kleiner OpenAI-kompatibler Server auf 127.0.0.1 (`tests/fake_llm.py`), der

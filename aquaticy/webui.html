@@ -1937,7 +1937,7 @@ input:focus,select:focus{border-color:var(--accent)}
 const $ = (s) => document.querySelector(s);
 const thread = $("#thread"), main = $("#main"), input = $("#input"), send = $("#send");
 let busy = false;
-const aquaticyVersion = window.__AQUATICY_VERSION__ || "9.5.12";
+const aquaticyVersion = window.__AQUATICY_VERSION__ || "9.5.13";
 $("#version").textContent = "v" + aquaticyVersion;
 document.title = `Aquaticy AI ${aquaticyVersion}`;
 
@@ -2501,8 +2501,8 @@ async function copyText(text){
   } catch { return false; }
 }
 
-function downloadText(name, text){
-  const url = URL.createObjectURL(new Blob([text], { type: "text/markdown;charset=utf-8" }));
+function downloadText(name, text, type){
+  const url = URL.createObjectURL(new Blob([text], { type: type || "text/markdown;charset=utf-8" }));
   const link = document.createElement("a");
   link.href = url; link.download = name;
   document.body.appendChild(link); link.click(); link.remove();
@@ -2748,6 +2748,11 @@ async function runCommand(line){
     });
     const data = await res.json();
     bubble.innerHTML = md(data.ok ? (data.text || "") : ("**Fehler:** " + data.error));
+    // /export: die Datei kommt als Download -- nicht als Pfad auf dem Server,
+    // mit dem man an einem anderen Geraet nichts anfangen kann.
+    if (data.ok && data.download && typeof data.download.content === "string"){
+      downloadText(data.download.name, data.download.content, data.download.mime);
+    }
     if (data.clear){ thread.innerHTML = ""; }
     // Kein `await`: die Kopfzeile zeichnet sich gleich von selbst neu, und
     // nichts hier unten wartet auf sie.

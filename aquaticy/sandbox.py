@@ -649,11 +649,16 @@ class Sandbox:
             "--ulimit", f"nofile={dateien}:{dateien}",
             "--ulimit", f"fsize={self.disk_gb * 1024 * 1024 * 1024}",
             # -- Platz zum Arbeiten --
-            "-v", f"{self._volume}:{WORKDIR}",
+            # `nocopy`: Neuere Docker-Versionen (29.x) legen wegen --workdir
+            # den Ordner zuerst im Abbild an -- als root -- und kopieren das
+            # beim ersten Einhaengen in den noch leeren Datentraeger. Das
+            # machte das chown aus _create_volume zunichte, und die Werkstatt
+            # konnte in /work nichts schreiben (bis 9.5.12).
+            "-v", f"{self._volume}:{WORKDIR}:nocopy",
             *(
                 flag
                 for volume, ziel in sorted(self.addon_mounts.items())
-                for flag in ("-v", f"{volume}:{ziel}")
+                for flag in ("-v", f"{volume}:{ziel}:nocopy")
             ),
             "--tmpfs", "/tmp:rw,noexec,nosuid,size=64m",
             # Nicht jede Laufzeit kennt diese Quote (sie braucht xfs mit

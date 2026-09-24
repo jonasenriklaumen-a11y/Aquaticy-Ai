@@ -1345,6 +1345,19 @@ def rundgang(pg: Any, log: Protokoll, agent: FakeAgent, bilder: Path | None,
         pg.click("#send")
         pg.wait_for_timeout(900)
         log.pruefe("/clear" in pg.inner_text("#thread"), "/help zeigt die Befehle")
+        # 9.5.13: /export kommt als Download im Browser an -- nicht als Pfad
+        # auf dem Server, mit dem man an einem anderen Geraet nichts anfaengt.
+        try:
+            with pg.expect_download(timeout=8000) as geladen:
+                pg.fill("#input", "/export md")
+                pg.click("#send")
+            datei = geladen.value
+            inhalt = Path(datei.path()).read_text(encoding="utf-8")
+            log.pruefe(datei.suggested_filename.endswith(".md") and "Lastenrad" in inhalt,
+                       f"/export lädt die Datei herunter ({datei.suggested_filename})")
+        except Exception as exc:  # der Rundgang meldet, statt abzubrechen
+            log.pruefe(False, f"/export lädt die Datei herunter ({type(exc).__name__})")
+        pg.wait_for_timeout(300)
         pg.click("#btn-notes")
         pg.wait_for_timeout(900)
         log.pruefe(

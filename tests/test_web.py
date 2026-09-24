@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import base64
+import dataclasses
 import json
 import re
 import sqlite3
@@ -520,6 +521,31 @@ def test_export_without_history_says_so(client) -> None:
     assert "exportieren" in json.loads(body)["text"]
 
 
+def test_export_goes_to_the_browser_not_the_server(
+    client, session: web.ChatSession, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """9.5.13: Mit Konto kommt der Export als Download -- keine Datei beim Server."""
+    from aquaticy.auth import Account
+
+    monkeypatch.chdir(tmp_path)
+    settings = session.settings()
+    Cache(settings.db_path, settings.cache_ttl_hours).add_history(
+        "s1", "Beste Kaffeemuehle", "Die Antwort"
+    )
+    session.account = Account(id="a1", email="a@example.org", plan="normal", created_at=0.0)
+    for fmt, mime in (("md", "text/markdown"), ("html", "text/html"), ("csv", "text/csv")):
+        _, body = client("POST", "/api/command", {"line": f"/export {fmt}"})
+        daten = json.loads(body)
+        assert daten["ok"] and daten["download"]["mime"].startswith(mime), daten
+        assert daten["download"]["name"].endswith("." + fmt)
+        assert "Kaffeemuehle" in daten["download"]["content"]
+    assert not list(tmp_path.glob("aquaticy-*")), "nichts im Arbeitsordner des Servers"
+    session.account = None
+    _, body = client("POST", "/api/command", {"line": "/export md"})
+    assert "Kopie" in json.loads(body)["text"], "lokal ohne Konten bleibt eine Kopie liegen"
+    assert list(tmp_path.glob("aquaticy-*.md"))
+
+
 def test_unknown_command_is_reported(client) -> None:
     _, body = client("POST", "/api/command", {"line": "/gibtsnicht"})
     assert "/help" in json.loads(body)["text"]
@@ -543,6 +569,46 @@ def test_image_goes_through_the_chat_path(
     # Der Agent bekommt die Beschreibung als Frage, nicht den Befehl.
     assert "ein gruener Stuhl" in agent.asked[0]
     assert "foto.png" in agent.asked[0]
+
+
+def test_image_in_the_browser_only_reads_own_uploads(
+    client, session: web.ChatSession, tmp_path: Path
+) -> None:
+    """9.5.13: Mit Konto liest /image nur den eigenen Upload-Ordner."""
+    from aquaticy.auth import Account
+
+    fremd = tmp_path / "anderes-konto" / "uploads"
+    fremd.mkdir(parents=True)
+    (fremd / "privat.png").write_bytes(b"\x89PNG\r\n\x1a\n")
+    eigen = session.settings().data_dir / "uploads"
+    eigen.mkdir(parents=True, exist_ok=True)
+    (eigen / "123-stuhl.png").write_bytes(b"\x89PNG\r\n\x1a\n")
+    gesehen: list[str] = []
+    agent = FakeAgent([("done", {"tool_calls": 0})])
+    agent.describe_image = lambda path: gesehen.append(str(path)) or "ein Stuhl"  # type: ignore[attr-defined]
+    session._agent = agent
+    session.account = Account(id="a1", email="a@example.org", plan="normal", created_at=0.0)
+    for pfad in (str(fremd / "privat.png"), str(fremd), "../../anderes-konto/uploads/privat.png",
+                 "/etc/passwd", "~/.env"):
+        _, body = client("POST", "/api/chat", {"message": f"/image {pfad}"})
+        assert sse_events(body)[0]["type"] == "error", pfad
+    assert gesehen == []
+    _, body = client("POST", "/api/chat", {"message": "/image 123-stuhl.png"})
+    assert gesehen and gesehen[0].endswith("123-stuhl.png")
+    assert "ein Stuhl" in agent.asked[-1]
+
+
+def test_image_refuses_a_file_that_is_no_picture(
+    client, session: web.ChatSession, tmp_path: Path
+) -> None:
+    geheim = tmp_path / ".env"
+    geheim.write_text("OPENAI_API_KEY=sk-geheim")
+    agent = FakeAgent()
+    agent.describe_image = lambda path: pytest.fail("darf nicht ans Modell")  # type: ignore[attr-defined]
+    session._agent = agent
+    _, body = client("POST", "/api/chat", {"message": f"/image {geheim}"})
+    events = sse_events(body)
+    assert events[0]["type"] == "error" and "kein Bild" in events[0]["message"]
 
 
 def test_image_folder_takes_the_newest_picture(tmp_path: Path) -> None:
@@ -1325,6 +1391,32 @@ def test_ha_test_passes_the_error_through(client, monkeypatch: pytest.MonkeyPatc
     monkeypatch.setattr("aquaticy.homeassistant.HomeAssistant.ping", boom)
     _, body = client("POST", "/api/ha", {"url": "192.168.1.5", "token": "falsch"})
     assert json.loads(body) == {"ok": False, "error": "Token abgelehnt"}
+
+
+def test_the_stored_ha_token_only_goes_to_the_stored_address(
+    client, session: web.ChatSession, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """9.5.13: Eine neue Adresse bekommt den gespeicherten Token nicht."""
+    gesehen: list[tuple[str, str]] = []
+
+    def ping(self):
+        gesehen.append((self.url, self.token))
+        return "Zuhause"
+
+    monkeypatch.setattr("aquaticy.homeassistant.HomeAssistant.ping", ping)
+    monkeypatch.setattr("aquaticy.homeassistant.HomeAssistant.domains", lambda self: {})
+    session._settings = dataclasses.replace(
+        session.settings(), ha_url="http://192.168.1.5:8123", ha_token="gespeichert"
+    )
+    _, body = client("POST", "/api/ha", {"url": "http://fremd.example:8123", "token": ""})
+    assert json.loads(body)["ok"] is False and "neue Adresse" in json.loads(body)["error"]
+    assert gesehen == []
+    _, body = client("POST", "/api/ha", {"url": "192.168.1.5", "token": ""})
+    assert json.loads(body)["ok"] is True, "dieselbe Adresse (vervollstaendigt) geht"
+    _, body = client("POST", "/api/ha", {"url": "http://fremd.example:8123", "token": "neu"})
+    assert json.loads(body)["ok"] is True
+    assert gesehen == [("http://192.168.1.5:8123", "gespeichert"),
+                       ("http://fremd.example:8123", "neu")]
 
 
 def test_an_empty_ha_token_keeps_the_stored_one(

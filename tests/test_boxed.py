@@ -108,9 +108,11 @@ def test_outside_a_box_none_of_that_counts_as_a_hole(monkeypatch: pytest.MonkeyP
     Gemeldet wird nur, was die Kiste undicht macht -- sonst waere die
     Ausgabe ausserhalb der Kiste ein Alarm ohne Anlass.
     """
+    monkeypatch.setattr(boxed.Path, "exists", _existiert("/var/run/docker.sock"))
     monkeypatch.setattr(boxed.os, "geteuid", lambda: 0)
     monkeypatch.setattr(boxed.os, "access", lambda pfad, modus: True)
     assert boxed.posture().holes == ()
+    assert not any(zeile.startswith("LOCH:") for zeile in boxed.describe(boxed.posture()))
 
 
 @pytest.mark.parametrize("modul,name", [

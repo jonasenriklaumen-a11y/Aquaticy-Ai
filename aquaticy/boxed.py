@@ -149,7 +149,10 @@ def posture() -> Posture:
     if innen:
         offen.append(f"innere Kiste fuer die Werkstatt ({innen})")
 
-    for pfad in reachable_host_sockets():
+    # Nur in der Kiste ist der Sockel ein Loch. Auf dem eigenen Rechner ist
+    # er normal -- die Werkstatt braucht ihn sogar. Bis 9.5.12 stand dort
+    # trotzdem ein rotes LOCH, und `aquaticy sandbox` endete mit Fehlercode.
+    for pfad in reachable_host_sockets() if boxed else ():
         loecher.append(
             f"{pfad} ist erreichbar -- darueber laesst sich der Wirt steuern. "
             "Diesen Sockel nicht in die Kiste reichen."
