@@ -30,6 +30,7 @@ import json
 from dataclasses import dataclass, field
 from typing import Any
 
+from aquaticy import metering
 from aquaticy.config import Settings
 from aquaticy.pace import paced
 from aquaticy.subagents import Task, as_task
@@ -187,7 +188,8 @@ def _json_call(
     litellm.suppress_debug_info = True
     try:
         with paced(model):
-            response = litellm.completion(
+            response = metering.completion(
+                settings,
                 model=model,
                 messages=[{"role": "user", "content": prompt}],
                 max_tokens=max_tokens,

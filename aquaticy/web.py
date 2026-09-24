@@ -399,6 +399,10 @@ _INT_SETTINGS = {
 }
 
 
+#: So gross darf das Kontextfenster lokaler Modelle bei normalen Konten sein.
+NORMAL_CONTEXT_CAP = 32_768
+
+
 def _profile_settings(profile: Path, plan: str) -> Settings:
     """Kopiert die Servervorgaben und legt die Werte eines Kontos darueber."""
     base = get_settings()
@@ -453,6 +457,20 @@ def _profile_settings(profile: Path, plan: str) -> Settings:
         # gehoert zu Pro. Ein "an" in der .env eines normalen Kontos zaehlt
         # hier nicht.
         settings.vm_user_mode = False
+        # Das Kontingent gilt fuer jeden Modellaufruf, nicht nur vor der
+        # Anfrage (aquaticy/metering.py).
+        settings.token_limit = NORMAL_TOKEN_LIMIT
+        # Wohin der Server Anfragen schickt, bestimmt bei normalen Konten der
+        # Betreiber: eine eigene Modell- oder SearXNG-Adresse wuerde Anfragen
+        # (samt Schluessel des Betreibers) an beliebige Rechner lenken -- auch
+        # ins Heimnetz, das normalen Konten sonst verschlossen ist.
+        settings.api_base = base.api_base
+        settings.searxng_url = base.searxng_url
+        # Das Kontextfenster eines lokalen Modells belegt Arbeitsspeicher auf
+        # dem Rechner des Betreibers -- zwei Millionen Token wuerden ihn
+        # sprengen. Normale Konten bleiben im ueblichen Rahmen.
+        obergrenze = max(int(base.context_tokens or 0), NORMAL_CONTEXT_CAP)
+        settings.context_tokens = min(int(settings.context_tokens or 0), obergrenze)
     settings.data_dir.mkdir(parents=True, exist_ok=True)
     return settings
 
@@ -1330,6 +1348,15 @@ def save_values(payload: dict[str, Any]) -> Path:
             "LAN-Suche, Home Assistant, Lagerverwaltung und die Plus-Werkstatt "
             "brauchen ein Pro-Konto."
         )
+    if not session.pro:
+        base = get_settings()
+        for key, erlaubt in (("AQUATICY_API_BASE", base.api_base),
+                             ("AQUATICY_SEARXNG_URL", base.searxng_url)):
+            if key in payload and str(payload.get(key) or "").strip() != (erlaubt or ""):
+                raise ValueError(
+                    "Eigene Adressen für Modell oder SearXNG brauchen ein Pro-Konto — bei "
+                    "normalen Konten legt sie der Betreiber fest."
+                )
     guard_off = "AQUATICY_LEGAL_GUARD" in payload and not guard_on(
         str(payload.get("AQUATICY_LEGAL_GUARD", ""))
     )
@@ -1612,6 +1639,10 @@ class TooLarge(ValueError):
     """Der Anfragekoerper sprengt die Grenze -- 413 statt 500."""
 
 
+class BadRequest(ValueError):
+    """Eine Anfrage, die so nicht gemeint sein kann -- 400 statt 500."""
+
+
 def chat_markdown(title: str, entries: list[Any]) -> str:
     """Ein ganzer Chat als Markdown -- Frage als Ueberschrift, Antwort darunter.
 
@@ -1776,6 +1807,10 @@ class Handler(BaseHTTPRequestHandler):
             if not self.responded:
                 with contextlib.suppress(OSError):
                     self._json({"error": str(exc)}, 413)
+        except BadRequest as exc:
+            if not self.responded:
+                with contextlib.suppress(OSError):
+                    self._json({"error": str(exc)}, 400)
         except Exception as exc:
             print(f"  [Fehler] {self.command} {self.path}: {type(exc).__name__}: {exc}")
             if not self.responded:
@@ -1893,7 +1928,12 @@ class Handler(BaseHTTPRequestHandler):
         self.wfile.write(body)
 
     def _read_json(self) -> dict[str, Any]:
-        length = int(self.headers.get("Content-Length") or 0)
+        roh = (self.headers.get("Content-Length") or "0").strip()
+        # Nur eine nicht-negative Zahl. "-1" hiesse fuer read(): lies, bis die
+        # Verbindung zu ist -- also so viel, wie jemand schickt.
+        if not roh.isdigit() or len(roh) > 12:
+            raise BadRequest("Ungueltige Laenge der Anfrage.")
+        length = int(roh)
         if not length:
             return {}
         if length > MAX_BODY_BYTES:
@@ -2745,10 +2785,21 @@ p{{margin:0 0 8px;color:#57534a}}</style></head><body><main>
         settings = SESSION.settings()
         model = fix_model_id(str(payload.get("AQUATICY_MODEL", "")).strip()) or settings.model
         api_key = str(payload.get(API_KEY_FIELD, "")).strip()
+        eigener_schluessel = bool(api_key)
         if not api_key:
             name = api_key_name_for(model)
-            api_key = os.environ.get(name, "") if name else ""
+            api_key = (settings.api_keys.get(name) or os.environ.get(name, "")) if name else ""
         api_base = str(payload.get("AQUATICY_API_BASE", settings.api_base) or "").strip()
+        if not SESSION.pro:
+            # Normale Konten testen gegen die Adressen des Betreibers -- nicht
+            # gegen eine eingetippte (siehe _profile_settings).
+            api_base = settings.api_base
+        bekannt = {settings.api_base or "", get_settings().api_base or ""}
+        if api_base and api_base not in bekannt and not eigener_schluessel:
+            # Ein gespeicherter Schluessel geht nur an die Adresse, fuer die er
+            # eingerichtet ist. Wer eine andere testet, tippt den Schluessel
+            # dafuer selbst ein.
+            api_key = ""
         if api_base and not base_fits(api_base, model):
             # Dieselbe Regel wie im Betrieb -- sonst testet man etwas anderes,
             # als spaeter laeuft, und der Test luegt.
@@ -2761,6 +2812,8 @@ p{{margin:0 0 8px;color:#57534a}}</style></head><body><main>
             search_key = os.environ.get(name, "") if name else ""
         engines = str(payload.get("AQUATICY_SEARCH_ENGINES", settings.search_engines) or "").strip()
         instance = str(payload.get("AQUATICY_SEARXNG_URL", settings.searxng_url) or "").strip()
+        if not SESSION.pro:
+            instance = settings.searxng_url
 
         llm_ok, llm_msg = check_llm(model, api_key, api_base)
         search_ok, search_msg = check_search(backend, search_key, engines, instance)

@@ -49,6 +49,8 @@ import re
 from collections.abc import Callable
 from typing import Any
 
+from aquaticy import metering
+
 #: Die Groesse des Bildschirms in der Werkstatt (siehe aquaticy-desktop).
 WIDTH, HEIGHT = 1280, 800
 
@@ -392,7 +394,8 @@ def ask_vision(image: bytes, prompt: str, settings: Any, max_tokens: int = 600) 
     litellm.suppress_debug_info = True
     url = "data:image/jpeg;base64," + base64.b64encode(image).decode("ascii")
     with paced(model):
-        response = litellm.completion(
+        response = metering.completion(
+            settings,
             model=model,
             messages=[{"role": "user", "content": [
                 {"type": "text", "text": prompt},

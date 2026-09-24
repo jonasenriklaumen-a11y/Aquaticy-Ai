@@ -322,8 +322,14 @@ def coerce(preference: Preference, value: str) -> str:
     return raw
 
 
-def store(preference: Preference, value: str) -> Path:
+def store(preference: Preference, value: str, profile_env: Path | None = None) -> Path:
     """Schreibt den Wert in die `.env` und laedt sie neu.
+
+    Args:
+        profile_env: Die `.env` eines Kontos. Dann wird NUR dorthin geschrieben
+            -- nie in die `.env` des Servers und nie in dessen Umgebung. Sonst
+            aenderte ein Satz im Chat eines Kontos die Grundeinstellungen aller
+            anderen Konten (bis 9.5.10 war genau das der Fall).
 
     Returns:
         Die Datei, in die geschrieben wurde.
@@ -336,6 +342,12 @@ def store(preference: Preference, value: str) -> Path:
         write_env_file,
     )
 
+    if profile_env is not None:
+        from aquaticy.memory import secure_file
+
+        written = write_env_file({preference.key: value}, profile_env)
+        secure_file(written)
+        return written
     target = find_env_file() or DEFAULT_ENV_PATH
     written = write_env_file({preference.key: value}, target)
     # Ohne override gewaenne die schon gesetzte Umgebungsvariable, und die

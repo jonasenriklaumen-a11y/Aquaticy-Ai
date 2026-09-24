@@ -359,6 +359,9 @@ class Settings:
     #: Das Hauptmodell je Nachricht automatisch waehlen (Dev settings, fuer jedes
     #: Konto; siehe aquaticy/router.py). Die Agenten bleiben dabei unveraendert.
     auto_model: bool = False
+    #: Token-Kontingent des Kontos -- nur normale Konten haben eins (gesetzt vom
+    #: Webserver, nie aus der .env). None = unbegrenzt. Siehe aquaticy/metering.py.
+    token_limit: int | None = None
     #: Netz, das dabei durchsucht wird. Leer = das eigene automatisch erkennen.
     lan_subnet: str = ""
     fetch_timeout: float = 15.0

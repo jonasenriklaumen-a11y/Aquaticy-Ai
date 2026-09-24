@@ -137,7 +137,7 @@ aquaticy "welche Bahnstrecken in NRW sind gerade gesperrt?"
 $ aquaticy --location "Mönchengladbach" --lang de
 
 ╭──────────────────────────────────────────────────────╮
-│ Aquaticy AI 9.5.10                                     │
+│ Aquaticy AI 9.5.11                                     │
 │ Modell mistral/mistral-large-latest · Suche duckduckgo │
 │ Frag einfach los. /help zeigt die Befehle.           │
 ╰──────────────────────────────────────────────────────╯
@@ -1019,7 +1019,7 @@ er erreichbar ist — im heimischen Netz und über Tailscale:
 
 ```
 ╭───────────────────────────────────────────────────────────────────╮
-│ Aquaticy AI 9.5.10                                                  │
+│ Aquaticy AI 9.5.11                                                  │
 │ Diese Adresse im Browser oeffnen:                                 │
 │   http://192.168.1.44:8765/    im heimischen Netz                 │
 │   http://100.81.120.100:8765/  ueber Tailscale                    │
@@ -2293,6 +2293,33 @@ zusätzlich die LAN-Suche, Home Assistant, die Lagerverwaltung, den User mode un
 Werkstatt-Add-ons (WhatsApp Web, Signal, Telegram Web, Blender) verwenden. Nur Pro-Konten
 können unter **Dev settings** die Rechts-Leitplanken abschalten (siehe unten).
 
+**Was bei normalen Konten fest bleibt (seit 9.5.11 geprüft wie von einem kundigen Nutzer):**
+
+- **Das Kontingent gilt für jeden Modellaufruf** — Hauptmodell, Agenten, Master, Planer,
+  Bildbeschreibung, Rechtsprüfer — und vor jeder Runde, nicht nur vor der Anfrage. Ist es
+  aufgebraucht, endet der Lauf sofort. Ein erstelltes Bild zählt pauschal 5.000 Token.
+- **Wohin der Server Anfragen schickt, legt der Betreiber fest:** Die eigene Modell-Adresse
+  und die SearXNG-Adresse sind für normale Konten fest (im Formular schreibgeschützt, am
+  Server abgelehnt). Der Test-Knopf schickt einen gespeicherten Schlüssel nie an eine frisch
+  eingetippte Adresse — wer die testen will, tippt den Schlüssel dafür selbst ein.
+- **Eine Einstellung aus dem Chat bleibt im Konto:** Sie landet in der `.env` des Kontos, nie
+  in der des Servers und nie in dessen Umgebung.
+- **Das Kontextfenster lokaler Modelle** ist für normale Konten auf 32.768 Token begrenzt
+  (oder den Wert des Betreibers, falls höher) — es belegt Arbeitsspeicher auf dem Rechner des
+  Betreibers.
+- User mode, Plus-Werkstatt, LAN-Suche, Home Assistant, Lager, Werkstatt-Add-ons,
+  Auslastungsanzeige und das Abschalten der Rechts-Leitplanken bleiben Pro — geprüft über
+  echtes HTTP, auch an der Oberfläche vorbei. Ein Pro-Konto entsteht nur mit dem genauen
+  Pro-Code; Konten sehen einander nicht.
+- Anfragen mit ungültiger Längenangabe (negativ, keine Zahl) lehnt der Server ab, bevor er
+  liest.
+
+Was bleibt, ehrlich: Wer die Adresse eines öffentlichen Bildes oder Feeds prüft und sie danach
+abruft, fragt den Namensdienst zweimal. Ein Namensdienst, der zwischen beiden Fragen die
+Antwort wechselt, könnte theoretisch auf eine interne Adresse umlenken. Wer Aquaticy für
+Fremde öffnet, sollte den Server deshalb nicht im selben Netz wie empfindliche Geräte
+betreiben.
+
 ```bash
 aquaticy list       # Nutzername, E-Mail, Kontotyp, Token- und Speicherverbrauch
 aquaticy pro-code   # geheimen Pro-Code anzeigen
@@ -2444,6 +2471,7 @@ aquaticy/
   desktop.py     # User mode: sehen, klicken, tippen -- jede Handlung vorher geprüft
   addons.py      # Add-ons: installieren, schalten, anmelden, Rechte; GitHub, Wetter, Feeds
   router.py      # automatische Modellwahl: welches Hauptmodell passt zur Nachricht
+  metering.py    # jeder Modellaufruf zählt; das Kontingent gilt auch mitten im Lauf
   images.py      # Bilder erstellen (FLUX.1 schnell bei NVIDIA, Mistral)
   jobs.py        # Aufträge: Fragen, die sich von selbst stellen
   usage.py       # der Token-Zähler (drei Zeichen sind ein Token)

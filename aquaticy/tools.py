@@ -17,6 +17,7 @@ from collections.abc import Callable
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
+from pathlib import Path
 from typing import Any
 
 from aquaticy.cache import Cache, cache_key
@@ -2086,6 +2087,25 @@ class Toolbox:
         return {"changed": entry}
 
     # -- Werkzeug: Einstellungen ------------------------------------------
+    def _profile_env(self) -> Path | None:
+        """Die `.env` des Kontos -- oder None, wenn Aquaticy allein laeuft.
+
+        Im Webserver hat jedes Konto seine eigene `.env` im Kontoordner. Sie
+        ist dann das einzige Ziel einer Aenderung aus dem Chat.
+        """
+        from aquaticy.config import DEFAULT_ENV_PATH, find_env_file
+
+        eigen = getattr(self.settings, "env_path", None)
+        if not eigen:
+            return None
+        server = find_env_file() or DEFAULT_ENV_PATH
+        try:
+            if Path(eigen).resolve() == Path(server).resolve():
+                return None
+        except OSError:
+            pass
+        return Path(eigen)
+
     def change_setting(self, setting: str, value: str) -> dict[str, Any]:
         """Aendert eine Einstellung -- soweit sie dafuer vorgesehen ist."""
         from aquaticy import preferences
@@ -2124,7 +2144,7 @@ class Toolbox:
             }
 
         try:
-            written = preferences.store(preference, stored)
+            written = preferences.store(preference, stored, self._profile_env())
         except OSError as exc:
             return {"error": f"Konnte die Einstellung nicht speichern: {exc}"}
 
@@ -2275,10 +2295,16 @@ class Toolbox:
 
     def create_image(self, prompt: str, fmt: str = "quadrat") -> dict[str, Any]:
         """Erstellt ein Bild und legt es wie jedes Bild im Chat ab -- als KI-Bild."""
-        from aquaticy import images
+        from aquaticy import images, metering
         from aquaticy.media import save_snapshot
 
         fmt = fmt.strip().lower() if isinstance(fmt, str) else "quadrat"
+        try:
+            # Ein Bild zaehlt pauschal -- und nur, wenn das Kontingent es noch traegt.
+            metering.check(self.settings, need=metering.IMAGE_TOKENS)
+        except metering.QuotaExceeded as exc:
+            return {"error": str(exc) + f" (Ein Bild zählt {metering.IMAGE_TOKENS:,} Token.)"
+                    .replace(",", ".")}
         self._emit("image_create", prompt=prompt[:160])
         try:
             bild = images.generate(self.settings, prompt, fmt, model=self.image_model)
@@ -2290,6 +2316,7 @@ class Toolbox:
                                      keep=True)
         except (OSError, ValueError) as exc:
             return {"error": f"Das Bild liess sich nicht ablegen: {exc}"}
+        metering.charge_image(self.settings, bild["modell"])
         self.stats.images_created += 1
         self.stats.visuals.append(
             {

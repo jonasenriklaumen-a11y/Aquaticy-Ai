@@ -17,6 +17,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
+from aquaticy import metering
 from aquaticy.cache import Cache
 from aquaticy.config import Settings, selected_vision_model
 from aquaticy.guardrails import (
@@ -2325,6 +2326,19 @@ class Agent:
                 result.answer = final
                 break
 
+            # Das Kontingent eines normalen Kontos gilt vor JEDER Runde, nicht
+            # nur vor der Anfrage -- sonst liefe ein Lauf mit vielen Agenten
+            # weit darueber hinaus (aquaticy/metering.py).
+            try:
+                metering.check(self.settings)
+            except metering.QuotaExceeded as exc:
+                result.error = str(exc)
+                result.answer = str(exc)
+                self._emit("error", message=str(exc))
+                # Der Turn bleibt vollstaendig: Tool-Antworten stehen schon da,
+                # jetzt folgt eine gewoehnliche Antwort.
+                self.messages.append({"role": "assistant", "content": str(exc)})
+                break
             try:
                 self._trim_history()
                 message = self._completion_with_retry(self.messages, stream=stream)
@@ -2937,7 +2951,8 @@ class Agent:
         kwargs = self.settings.llm_kwargs_for(self.settings.effective_vision_model)
         try:
             with paced(self.settings.effective_vision_model):
-                response = litellm.completion(
+                response = metering.completion(
+                    self.settings,
                     model=self.settings.effective_vision_model,
                     messages=[
                         {
@@ -2977,7 +2992,8 @@ class Agent:
         kwargs = self.settings.llm_kwargs_for(model)
         try:
             with paced(model):
-                response = litellm.completion(
+                response = metering.completion(
+                    self.settings,
                     model=model,
                     messages=[{"role": "user", "content": [
                         {"type": "text", "text": prompt},
@@ -2998,7 +3014,8 @@ class Agent:
         litellm.suppress_debug_info = True
         try:
             with paced(self.active_model):
-                response = litellm.completion(
+                response = metering.completion(
+                    self.settings,
                     model=self.active_model,
                     messages=[
                         {

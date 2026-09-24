@@ -418,6 +418,20 @@ def normales_konto(browser: Any, port: int, log: Protokoll, fehler: list[str]) -
     pg.click("#guard-ok")
     pg.wait_for_selector("#guardbox", state="hidden")
     log.pruefe(not pg.is_checked("#usermode"), "und der User mode bleibt aus")
+    # 9.5.11: wohin der Server Anfragen schickt, legt bei normalen Konten der Betreiber fest.
+    log.pruefe(pg.eval_on_selector('[name="AQUATICY_API_BASE"]', "e => e.readOnly")
+               and pg.eval_on_selector('[name="AQUATICY_SEARXNG_URL"]', "e => e.readOnly"),
+               "Modell- und SearXNG-Adresse sind schreibgeschuetzt")
+    antwort = pg.evaluate(
+        """async () => {
+          const r = await fetch("/api/config", {method: "POST",
+            headers: {"Content-Type": "application/json"},
+            body: JSON.stringify({AQUATICY_API_BASE: "http://192.168.1.1:11434"})});
+          return await r.json();
+        }"""
+    )
+    log.pruefe(not antwort.get("ok") and "Pro" in str(antwort.get("error", "")),
+               "am Formular vorbei lehnt der Server eine eigene Adresse ab")
     antwort = pg.evaluate(
         """async () => {
           const r = await fetch("/api/config", {method: "POST",

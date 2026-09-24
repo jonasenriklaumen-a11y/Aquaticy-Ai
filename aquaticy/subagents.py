@@ -20,6 +20,7 @@ from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass, field
 from typing import Any
 
+from aquaticy import metering
 from aquaticy.cache import Cache
 from aquaticy.config import Settings
 from aquaticy.pace import paced
@@ -354,7 +355,8 @@ def plan_request(
     }
     try:
         with paced(model):
-            response = litellm.completion(
+            response = metering.completion(
+                settings,
                 model=model,
                 messages=[{"role": "user", "content": prompt}],
                 max_tokens=200,
@@ -613,7 +615,8 @@ def _run_one(
                 break
             try:
                 with paced(model_in_use):
-                    response = litellm.completion(
+                    response = metering.completion(
+                        settings,
                         model=model_in_use,
                         messages=messages,
                         tools=TOOL_SCHEMAS,
@@ -719,7 +722,8 @@ def _run_one(
             )
             try:
                 with paced(model_in_use):
-                    response = litellm.completion(
+                    response = metering.completion(
+                        settings,
                         model=model_in_use,
                         messages=messages,
                         **_subagent_kwargs(settings, model_in_use),

@@ -1937,7 +1937,7 @@ input:focus,select:focus{border-color:var(--accent)}
 const $ = (s) => document.querySelector(s);
 const thread = $("#thread"), main = $("#main"), input = $("#input"), send = $("#send");
 let busy = false;
-const aquaticyVersion = window.__AQUATICY_VERSION__ || "9.5.10";
+const aquaticyVersion = window.__AQUATICY_VERSION__ || "9.5.11";
 $("#version").textContent = "v" + aquaticyVersion;
 document.title = `Aquaticy AI ${aquaticyVersion}`;
 
@@ -3890,6 +3890,14 @@ async function loadAccount(account){
   // sich anklicken. Was dann passiert, haengt am Konto (siehe unten) -- und
   // der Server prueft es ohnehin noch einmal.
   kontoPro = pro;
+  // Wohin der Server Anfragen schickt, legt bei normalen Konten der Betreiber
+  // fest -- die Felder stehen da, lassen sich aber nicht aendern (9.5.11).
+  for (const name of ["AQUATICY_API_BASE", "AQUATICY_SEARXNG_URL"]){
+    const feld = form.elements[name];
+    if (!feld) continue;
+    feld.readOnly = !pro;
+    feld.title = pro ? "" : "Bei normalen Konten legt der Betreiber diese Adresse fest (Pro).";
+  }
   if (!pro) $("#legalguard").checked = true;
   const plus = form.elements["AQUATICY_VM_SIZE"].querySelector('option[value="plus"]');
   plus.disabled = !pro;
@@ -4897,10 +4905,12 @@ $("#showtrace").addEventListener("change", (e) => setTracing(e.target.checked));
 function gauge(name, value, sub, percent){
   const hot = percent >= 85 ? " hot" : "";
   const width = Math.max(0, Math.min(100, percent || 0));
-  return `<div class="gauge"><div class="g-name">${name}</div>
-    <div class="g-val">${value}</div>
+  // Auch Werte vom Server gehen maskiert hinein -- ein Grafikkartenname ist
+  // Text, kein HTML.
+  return `<div class="gauge"><div class="g-name">${esc(String(name))}</div>
+    <div class="g-val">${esc(String(value))}</div>
     <div class="bar${hot}"><span style="width:${width}%"></span></div>
-    <div class="g-sub">${sub}</div></div>`;
+    <div class="g-sub">${esc(String(sub))}</div></div>`;
 }
 
 // Solange der Haken steht, frischt sich die Anzeige selbst auf.
@@ -4947,7 +4957,8 @@ async function showLoad(){
 
   note.className = "note";
   note.innerHTML = `<div class="gauges">${parts.join("")}</div>`
-    + `<div style="margin-top:8px">${data.system} · Python ${data.python}</div>`;
+    + `<div style="margin-top:8px">${esc(String(data.system))} · Python ${
+      esc(String(data.python))}</div>`;
   showStorage(data.storage);
 }
 

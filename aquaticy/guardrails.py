@@ -42,6 +42,8 @@ from collections import OrderedDict
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any
 
+from aquaticy import metering
+
 if TYPE_CHECKING:
     from collections.abc import Callable
 
@@ -399,7 +401,9 @@ def _ask_model(prompt: str, model: str, settings: Settings) -> str:
 
     litellm.suppress_debug_info = True
     with paced(model):
-        response = litellm.completion(
+        response = metering.completion(
+            settings,
+            enforce=False,
             model=model,
             messages=[{"role": "user", "content": prompt}],
             max_tokens=160,
