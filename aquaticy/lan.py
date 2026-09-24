@@ -110,6 +110,11 @@ def is_private_net(network: ipaddress.IPv4Network) -> bool:
     Tailscale (100.64/10) zaehlt mit: fuer den Nutzer ist das sein eigenes
     Netz, auch wenn die Adressen offiziell dem Provider-Bereich gehoeren.
     """
+    # Nur IPv4: Aquaticy durchsucht keine IPv6-Netze. Ein IPv6-Netz haette
+    # hier frueher entweder als "privat" gegolten (2001:db8::/32) oder einen
+    # TypeError geworfen (::/32 gegen 100.64/10).
+    if not isinstance(network, ipaddress.IPv4Network):
+        return False
     if network.is_private:
         return True
     tailnet = ipaddress.ip_network("100.64.0.0/10")

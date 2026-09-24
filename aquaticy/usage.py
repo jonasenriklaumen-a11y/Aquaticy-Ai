@@ -39,12 +39,19 @@ def tokens(text: str) -> int:
     return -(-len(text) // CHARS_PER_TOKEN)
 
 
+#: So viel zaehlt ein mitgeschicktes Bild. Die Anbieter rechnen ein Bild nach
+#: seiner Groesse in Kacheln ab -- ueblich sind rund 1.000 bis 2.000 Token.
+#: Bis 9.5.11 zaehlte hier die Laenge der Base64-Daten: ein Foto von 300 KB
+#: waren damit 133.000 "Token", fast das ganze Kontingent eines normalen
+#: Kontos fuer eine einzige Bildbeschreibung.
+IMAGE_INPUT_TOKENS = 1_500
+
+
 def message_tokens(messages: list[dict[str, Any]]) -> int:
     """Was ein ganzer Nachrichtenstapel kostet.
 
-    Auch der Inhalt von Bildern zaehlt mit, denn er geht mit hinaus -- ein
-    Bild als Daten-URL ist der teuerste Anhang, den es gibt, und das soll man
-    im Zaehler sehen.
+    Auch Bilder zaehlen mit -- pauschal (IMAGE_INPUT_TOKENS), so wie die
+    Anbieter sie abrechnen, nicht nach der Laenge ihrer Daten.
     """
     gesamt = 0
     for message in messages:
@@ -55,9 +62,8 @@ def message_tokens(messages: list[dict[str, Any]]) -> int:
             for teil in content:
                 if isinstance(teil, dict):
                     gesamt += tokens(str(teil.get("text", "")))
-                    bild = teil.get("image_url")
-                    if isinstance(bild, dict):
-                        gesamt += tokens(str(bild.get("url", "")))
+                    if teil.get("image_url"):
+                        gesamt += IMAGE_INPUT_TOKENS
         for call in message.get("tool_calls") or []:
             function = call.get("function", {}) if isinstance(call, dict) else {}
             gesamt += tokens(str(function.get("name", "")))

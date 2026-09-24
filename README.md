@@ -137,7 +137,7 @@ aquaticy "welche Bahnstrecken in NRW sind gerade gesperrt?"
 $ aquaticy --location "Mönchengladbach" --lang de
 
 ╭──────────────────────────────────────────────────────╮
-│ Aquaticy AI 9.5.11                                     │
+│ Aquaticy AI 9.5.12                                     │
 │ Modell mistral/mistral-large-latest · Suche duckduckgo │
 │ Frag einfach los. /help zeigt die Befehle.           │
 ╰──────────────────────────────────────────────────────╯
@@ -1019,7 +1019,7 @@ er erreichbar ist — im heimischen Netz und über Tailscale:
 
 ```
 ╭───────────────────────────────────────────────────────────────────╮
-│ Aquaticy AI 9.5.11                                                  │
+│ Aquaticy AI 9.5.12                                                  │
 │ Diese Adresse im Browser oeffnen:                                 │
 │   http://192.168.1.44:8765/    im heimischen Netz                 │
 │   http://100.81.120.100:8765/  ueber Tailscale                    │
@@ -2297,7 +2297,10 @@ können unter **Dev settings** die Rechts-Leitplanken abschalten (siehe unten).
 
 - **Das Kontingent gilt für jeden Modellaufruf** — Hauptmodell, Agenten, Master, Planer,
   Bildbeschreibung, Rechtsprüfer — und vor jeder Runde, nicht nur vor der Anfrage. Ist es
-  aufgebraucht, endet der Lauf sofort. Ein erstelltes Bild zählt pauschal 5.000 Token.
+  aufgebraucht, endet der Lauf sofort. Ein erstelltes Bild zählt pauschal 5.000 Token, ein
+  mitgeschicktes Bild (etwa ein Foto zur Beschreibung) pauschal 1.500 — so rechnen auch die
+  Anbieter, nicht nach der Länge der Bilddaten (bis 9.5.11 war ein Foto von 300 KB hier
+  133.000 „Token“ wert).
 - **Wohin der Server Anfragen schickt, legt der Betreiber fest:** Die eigene Modell-Adresse
   und die SearXNG-Adresse sind für normale Konten fest (im Formular schreibgeschützt, am
   Server abgelehnt). Der Test-Knopf schickt einen gespeicherten Schlüssel nie an eine frisch
@@ -2521,6 +2524,12 @@ einmal mit „weniger Bewegung". Am Ende steht, was geprüft und was beanstandet
 Rückgabewert ist die Anzahl der Beanstandungen. Der Agent dahinter ist gestellt, es
 laufen also weder Modelle noch Suchanfragen. `pytest` führt ihn als eigenen Prozess mit
 aus und überspringt ihn, wo Playwright oder der Browser fehlen.
+
+**Ende zu Ende** (`tests/test_end_to_end.py`, seit 9.5.12): Hier ist nur das Modell
+gestellt — ein kleiner OpenAI-kompatibler Server auf 127.0.0.1 (`tests/fake_llm.py`), der
+wie ein Anbieter antwortet, mit Streaming, Werkzeugaufrufen und Zählerstand. Alles andere ist
+echt: Webserver, Konten, litellm, Rechtsprüfer, Werkzeug, Zähler, Kontingent und die Trennung
+der Konten.
 
 Die Tests fassen kein echtes Netz an: Suchergebnisse und LLM-Antworten sind gemockt,
 Seitenabrufe laufen über `httpx.MockTransport` gegen gespeicherte HTML-Fixtures echter

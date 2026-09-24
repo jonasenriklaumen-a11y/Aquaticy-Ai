@@ -9,7 +9,13 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from aquaticy.usage import CHARS_PER_TOKEN, UsageLog, message_tokens, tokens
+from aquaticy.usage import (
+    CHARS_PER_TOKEN,
+    IMAGE_INPUT_TOKENS,
+    UsageLog,
+    message_tokens,
+    tokens,
+)
 
 
 def test_drei_zeichen_sind_ein_token() -> None:
@@ -39,8 +45,18 @@ def test_nachrichten_zaehlen_auch_werkzeuge_und_bilder() -> None:
             ],
         },
     ]
-    # 1 + 2 + 3 (data:abc = 8 Zeichen -> 3) + 1 (Name) + 3 (Argumente)
-    assert message_tokens(messages) == 1 + 2 + 3 + 1 + 3
+    # 1 + 2 + Bild pauschal + 1 (Name) + 3 (Argumente)
+    assert message_tokens(messages) == 1 + 2 + IMAGE_INPUT_TOKENS + 1 + 3
+
+
+def test_ein_grosses_foto_frisst_nicht_das_kontingent() -> None:
+    """Gefunden in 9.5.12: die Base64-Laenge zaehlte als Token."""
+    import base64
+    import os
+
+    bild = "data:image/jpeg;base64," + base64.b64encode(os.urandom(300_000)).decode()
+    teile = [{"type": "image_url", "image_url": {"url": bild}}]
+    assert message_tokens([{"role": "user", "content": teile}]) == IMAGE_INPUT_TOKENS
 
 
 def test_bild_zaehlt_mit(tmp_path: Path) -> None:

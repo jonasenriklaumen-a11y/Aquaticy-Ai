@@ -172,3 +172,16 @@ def test_container_detection_survives_a_missing_cgroup(monkeypatch: pytest.Monke
 
     monkeypatch.setattr(lan.Path, "read_text", boom)
     assert lan.in_container() is False
+
+
+def test_ipv6_networks_are_never_private_here() -> None:
+    """9.5.12: IPv6 galt als "privat" (2001:db8::/32) oder warf einen TypeError."""
+    import ipaddress
+
+    from aquaticy.lan import is_private_net
+
+    for netz in ("::/32", "2001:db8::/32", "fe80::/32", "fc00::/32"):
+        assert is_private_net(ipaddress.ip_network(netz)) is False, netz
+    assert is_private_net(ipaddress.ip_network("192.168.1.0/24")) is True
+    assert is_private_net(ipaddress.ip_network("100.64.1.0/24")) is True
+    assert is_private_net(ipaddress.ip_network("8.8.8.0/24")) is False
