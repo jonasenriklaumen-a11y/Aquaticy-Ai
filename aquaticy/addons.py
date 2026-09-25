@@ -339,7 +339,7 @@ class AddOnError(ValueError):
 def user_agent() -> str:
     from aquaticy import __version__
 
-    return f"aquaticy/{__version__} (+https://github.com/jonasenriklaumen-a11y/thing-finder-)"
+    return f"aquaticy/{__version__} (+https://github.com/jonasenriklaumen-a11y/Aquaticy-Ai)"
 
 
 # ---------------------------------------------------------------------------

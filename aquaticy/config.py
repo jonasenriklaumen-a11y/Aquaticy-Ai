@@ -397,7 +397,7 @@ class Settings:
     #: falsche Nummer steht.
     user_agent: str = field(
         default_factory=lambda: (
-            f"aquaticy/{__version__} (+https://github.com/jonasenriklaumen-a11y/thing-finder-; "
+            f"aquaticy/{__version__} (+https://github.com/jonasenriklaumen-a11y/Aquaticy-Ai; "
             "research agent; contact via repository issues)"
         )
     )

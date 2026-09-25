@@ -34,8 +34,8 @@ $ aquaticy
 
 ```bash
 # 1. Installieren (aus diesem Repo -- Aquaticy liegt noch nicht auf PyPI)
-git clone https://github.com/jonasenriklaumen-a11y/thing-finder-
-cd thing-finder-
+git clone https://github.com/jonasenriklaumen-a11y/Aquaticy-Ai
+cd Aquaticy-Ai
 uv tool install .
 
 # 2. Einrichten -- fragt nach Modell und API-Key, testet beide
@@ -52,7 +52,7 @@ aquaticy web
 Home-Verzeichnis:
 
 ```bash
-cd ~/thing-finder-          # dorthin, wo du geklont hast
+cd ~/Aquaticy-Ai            # dorthin, wo du geklont hast
 git pull
 uv tool install . --force --reinstall
 aquaticy --version            # zeigt, ob die neue Version aktiv ist
@@ -97,9 +97,9 @@ Alles läuft auch unter Windows — in **PowerShell**:
 # uv installieren, falls noch nicht vorhanden
 powershell -c "irm https://astral.sh/uv/install.ps1 | iex"
 
-git clone --branch claude/aquaticy-ai-web-agent-yogr3j `
-  https://github.com/jonasenriklaumen-a11y/thing-finder-.git
-cd thing-finder-
+git clone --branch Aquaticy-ai `
+  https://github.com/jonasenriklaumen-a11y/Aquaticy-Ai.git
+cd Aquaticy-Ai
 uv tool install .
 uv tool update-shell        # danach PowerShell neu öffnen
 
@@ -2627,8 +2627,8 @@ aquaticy-box       # Wrapper: ./aquaticy-box "deine Frage"
 ## Entwicklung
 
 ```bash
-git clone https://github.com/jonasenriklaumen-a11y/thing-finder-
-cd thing-finder-
+git clone https://github.com/jonasenriklaumen-a11y/Aquaticy-Ai
+cd Aquaticy-Ai
 uv venv && uv pip install -e ".[dev]"
 
 uv run pytest        # alle Tests, Netzwerk und LLM gemockt

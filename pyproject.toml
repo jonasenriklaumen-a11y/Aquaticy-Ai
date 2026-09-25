@@ -43,7 +43,7 @@ dev = [
 aquaticy = "aquaticy.cli:main"
 
 [project.urls]
-Homepage = "https://github.com/jonasenriklaumen-a11y/thing-finder-"
+Homepage = "https://github.com/jonasenriklaumen-a11y/Aquaticy-Ai"
 
 [build-system]
 requires = ["hatchling"]

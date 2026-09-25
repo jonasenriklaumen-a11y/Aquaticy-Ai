@@ -52,7 +52,7 @@ MAX_ENTPACKT = 3 * 1024 * 1024 * 1024
 TIMEOUT = 60
 
 #: Wer laedt -- ehrlich, wie ueberall bei Aquaticy.
-KENNUNG = "aquaticy-addons/" + VERSION + " (+https://github.com/jonasenriklaumen-a11y/thing-finder-)"
+KENNUNG = "aquaticy-addons/" + VERSION + " (+https://github.com/jonasenriklaumen-a11y/Aquaticy-Ai)"
 
 #: Woher die Programme kommen. Nichts anderes wird angesprochen.
 QUELLEN = {

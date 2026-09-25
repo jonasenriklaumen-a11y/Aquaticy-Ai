@@ -1301,7 +1301,7 @@ def browser_agent(settings: Any = None) -> str:
         "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) "
         "Chrome/87.0 Safari/537.36 Falkon/3.2 "
         f"aquaticy-usermode/{__version__} (KI-gesteuert; "
-        "+https://github.com/jonasenriklaumen-a11y/thing-finder-)"
+        "+https://github.com/jonasenriklaumen-a11y/Aquaticy-Ai)"
     )
 
 
