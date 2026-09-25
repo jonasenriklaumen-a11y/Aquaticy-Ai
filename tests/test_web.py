@@ -433,7 +433,10 @@ def test_ui_file_offers_every_setting() -> None:
         if key == "AQUATICY_MAX_SUBAGENTS":
             continue  # Der Turn-Regler steht jetzt direkt in der Modellauswahl.
         assert f'name="{key}"' in html, f"{key} fehlt im Formular"
-    assert f'name="{web.API_KEY_FIELD}"' in html
+    # Schluessel stehen seit 9.5.14 Seashell im eigenen Abschnitt -- ohne
+    # Formularnamen, damit sie nie mit dem allgemeinen Speichern mitgehen.
+    assert 'id="sec-schluessel"' in html and 'id="keys-summary"' in html
+    assert f'name="{web.API_KEY_FIELD}"' not in html
 
 
 def test_ui_exposes_legal_links_and_keyboard_controls() -> None:
@@ -2034,10 +2037,12 @@ def test_everything_setup_asks_for_is_in_the_web_form() -> None:
         assert f'name="{key}"' in html, f"{key} wird im Terminal gefragt, fehlt aber im Formular"
 
 
-def test_the_search_engine_key_can_be_set_in_the_browser() -> None:
-    """Brave und Tavily brauchen einen Schluessel -- den fragt das Terminal ab."""
+def test_the_search_engine_key_can_be_set_in_the_browser(client) -> None:
+    """Brave und Tavily brauchen einen Schluessel -- er hat seinen Platz unter API-Schluessel."""
+    plaetze = {slot["name"] for slot in json.loads(client("GET", "/api/keys")[1])["slots"]}
+    assert {"BRAVE_API_KEY", "TAVILY_API_KEY"} <= plaetze
     html = web.UI_FILE.read_text(encoding="utf-8")
-    assert f'name="{web.SEARCH_KEY_FIELD}"' in html
+    assert 'id="search-keyname"' in html and "API-Schlüssel" in html
 
 
 def test_saving_stores_the_search_key_under_the_right_name(
@@ -2048,8 +2053,8 @@ def test_saving_stores_the_search_key_under_the_right_name(
     monkeypatch.setattr(web, "find_env_file", lambda: target)
     monkeypatch.setattr(web.SESSION, "reload", lambda: None)
 
-    web.save_values({"AQUATICY_SEARCH_BACKEND": "brave", web.SEARCH_KEY_FIELD: "bsa-xyz"})
-    assert "BRAVE_API_KEY=bsa-xyz" in target.read_text(encoding="utf-8")
+    web.save_values({"AQUATICY_SEARCH_BACKEND": "brave", web.SEARCH_KEY_FIELD: "bsa-xyz123456"})
+    assert "BRAVE_API_KEY=bsa-xyz123456" in target.read_text(encoding="utf-8")
 
 
 def test_an_empty_search_key_means_unchanged(
@@ -2082,7 +2087,7 @@ def test_the_probe_endpoint_tests_the_form_values(client, monkeypatch: pytest.Mo
     """Getestet wird, was im Formular steht -- sonst prueft man den alten Stand."""
     seen: dict[str, Any] = {}
 
-    def fake_llm(model, api_key="", api_base=""):
+    def fake_llm(model, api_key="", api_base="", **_):
         seen["model"] = model
         seen["key"] = api_key
         return True, "ok"
@@ -2129,7 +2134,7 @@ def test_a_leftover_ollama_base_is_ignored_in_the_probe(
     seen: dict[str, Any] = {}
     monkeypatch.setattr(
         "aquaticy.probe.check_llm",
-        lambda model, api_key="", api_base="": (seen.update(base=api_base), (True, "ok"))[1],
+        lambda model, api_key="", api_base="", **_: (seen.update(base=api_base), (True, "ok"))[1],
     )
     monkeypatch.setattr("aquaticy.probe.check_search", lambda *a, **k: (True, "ok"))
     client(
@@ -4144,7 +4149,7 @@ def test_the_probe_counts_for_a_normal_account(
 
     gefragt: list[str] = []
     monkeypatch.setattr("aquaticy.probe.check_llm",
-                        lambda m, k, b: gefragt.append(m) or (True, "ok"))
+                        lambda m, k, b, **_: gefragt.append(m) or (True, "ok"))
     monkeypatch.setattr("aquaticy.probe.check_search", lambda *a: (True, "ok"))
     session._settings.quota = Quota(tmp_path / "konten.sqlite3", "k", time.time() - 60)
     antwort = json.loads(client("POST", "/api/probe", {})[1])

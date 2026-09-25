@@ -23,6 +23,7 @@ from typing import Any
 from aquaticy import metering
 from aquaticy.cache import Cache
 from aquaticy.config import Settings
+from aquaticy.pace import key_of as pace_key_of
 from aquaticy.pace import paced
 from aquaticy.tools import TOOL_SCHEMAS, EventHook, Toolbox
 
@@ -354,7 +355,7 @@ def plan_request(
         "context": f"Bisheriges Gespraech:\n{context}\n\n" if context.strip() else "",
     }
     try:
-        with paced(model):
+        with paced(model, pace_key_of(settings, model)):
             response = metering.completion(
                 settings,
                 model=model,
@@ -614,7 +615,7 @@ def _run_one(
                 result.error = result.error or "Abgebrochen."
                 break
             try:
-                with paced(model_in_use):
+                with paced(model_in_use, pace_key_of(settings, model_in_use)):
                     response = metering.completion(
                         settings,
                         model=model_in_use,
@@ -721,7 +722,7 @@ def _run_one(
                 }
             )
             try:
-                with paced(model_in_use):
+                with paced(model_in_use, pace_key_of(settings, model_in_use)):
                     response = metering.completion(
                         settings,
                         model=model_in_use,

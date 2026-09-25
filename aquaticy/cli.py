@@ -16,7 +16,7 @@ from rich.console import Console
 from rich.panel import Panel
 from rich.table import Table
 
-from aquaticy import __version__
+from aquaticy import VERSION_LABEL
 from aquaticy.cache import Cache
 from aquaticy.config import (
     DEFAULT_ENV_PATH,
@@ -440,7 +440,7 @@ def cache_command(
 @app.command("version")
 def version_command() -> None:
     """Gibt die Version aus."""
-    console.print(f"aquaticy {__version__}")
+    console.print(f"aquaticy {VERSION_LABEL}")
 
 
 @app.command("sandbox")
@@ -469,8 +469,8 @@ def list_users_command() -> None:
     settings = get_settings()
     store = AuthStore(settings.data_dir, pro_code_for(settings.data_dir))
     accounts = store.accounts()
-    table = Table("Nutzername", "E-Mail", "Konto", "Sitzung (5 Std.)", "Woche", "Speicher",
-                  box=None, pad_edge=False)
+    table = Table("Nutzername", "E-Mail", "Konto", "Sitzung (5 Std.)", "Woche",
+                  "Eigene Schlüssel", "Speicher", box=None, pad_edge=False)
     for account in accounts:
         profile = store.profile_dir(account.id)
         if account.pro:
@@ -480,12 +480,18 @@ def list_users_command() -> None:
             sitzung = (f"{stand['session']['percent']} %" if stand["session"]["active"]
                        else "—")
             woche = f"{stand['week']['percent']} %"
+        # Nur wie viele -- welche und was darin steht, sieht auch der Betreiber hier nicht.
+        try:
+            eigene = str(store.vault(account).count())
+        except Exception:
+            eigene = "?"
         table.add_row(
             account.username,
             account.email,
             "Pro" if account.pro else "Normal",
             sitzung,
             woche,
+            eigene,
             human_size(folder_bytes(profile)),
         )
     if accounts:
@@ -584,7 +590,7 @@ def web_command(
     settings = get_settings()
     found = addresses_for(bind, port, access)
     width = max(len(url) for url, _ in found)
-    lines = [f"[bold]Aquaticy AI[/bold] [dim]{__version__}[/dim]"]
+    lines = [f"[bold]Aquaticy AI[/bold] [dim]{VERSION_LABEL}[/dim]"]
     if public:
         lines.append("[dim]Diese Adresse im Browser oeffnen:[/dim]")
     lines += [f"  [green]{url:<{width}}[/green]  [dim]{note}[/dim]" for url, note in found]
@@ -1382,7 +1388,7 @@ HELP_TEXT = """\
 def _banner(settings: Settings) -> Panel:
     location = settings.location or "kein Ortsfilter"
     return Panel.fit(
-        f"[bold]Aquaticy AI[/bold] [dim]{__version__}[/dim]\n"
+        f"[bold]Aquaticy AI[/bold] [dim]{VERSION_LABEL}[/dim]\n"
         f"[dim]Modell {settings.model} · Suche {settings.search_backend} · {location}[/dim]\n"
         "[dim]Frag einfach los. /help zeigt die Befehle.[/dim]",
         border_style="cyan",
@@ -1920,7 +1926,7 @@ def main() -> None:
     """
     argv = sys.argv[1:]
     if argv and argv[0] in ("--version", "-V"):
-        console.print(f"aquaticy {__version__}")
+        console.print(f"aquaticy {VERSION_LABEL}")
         return
     # Ein einzelnes Wort mit Bindestrich ist fast sicher ein vertippter oder
     # unbekannter Unterbefehl. Den als Rechercheanfrage ans LLM zu schicken

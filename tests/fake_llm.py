@@ -34,10 +34,25 @@ class H(BaseHTTPRequestHandler):
                         for t in body.get("tools") or []
                     ),
                     "auth": self.headers.get("Authorization", "")[:12],
+                    # Welcher Server gefragt wurde -- Betreiber oder "Anbieter".
+                    "port": self.server.server_address[1],
                 }
             )
             + "\n"
         )
+        schluessel = self.headers.get("Authorization", "").removeprefix("Bearer ").strip()
+        if "leak" in schluessel:
+            # Wie ein echter Anbieter: ein falscher Schluessel wird in der
+            # Fehlermeldung zitiert. Aquaticy darf ihn nie weitergeben.
+            fehler = json.dumps({"error": {
+                "message": f"Incorrect API key provided: {schluessel}",
+                "type": "invalid_request_error", "code": "invalid_api_key"}}).encode()
+            self.send_response(401)
+            self.send_header("Content-Type", "application/json")
+            self.send_header("Content-Length", str(len(fehler)))
+            self.end_headers()
+            self.wfile.write(fehler)
+            return
         rf = (body.get("response_format") or {}).get("json_schema", {}).get("name")
         letzte = max((i for i, m in enumerate(msgs) if m.get("role") == "user"), default=-1)
         user = str(msgs[letzte].get("content")) if letzte >= 0 else ""

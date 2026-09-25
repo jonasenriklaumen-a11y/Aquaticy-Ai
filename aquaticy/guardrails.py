@@ -397,10 +397,11 @@ def _ask_model(prompt: str, model: str, settings: Settings) -> str:
     """Ein Aufruf beim Modell -- die einzige Stelle mit Netz in diesem Modul."""
     import litellm
 
+    from aquaticy.pace import key_of as pace_key_of
     from aquaticy.pace import paced
 
     litellm.suppress_debug_info = True
-    with paced(model):
+    with paced(model, pace_key_of(settings, model)):
         response = metering.completion(
             settings,
             enforce=False,

@@ -222,6 +222,50 @@ def snapshot(data_dir: Path | str | None = None) -> dict[str, Any]:
 # ---------------------------------------------------------------------------
 # Auswahl der Modelle
 # ---------------------------------------------------------------------------
+#: Wie die Herkunft eines Modells in der Auswahl heisst (seit 9.5.14 Seashell).
+SOURCE_LABELS: dict[str, str] = {"own": "Dein Schlüssel", "operator": "Gestellt"}
+
+
+def key_origin(settings: Any, provider: str) -> str:
+    """Wer den Schluessel fuer *provider* stellt: "own", "operator" -- oder "" (keiner).
+
+    "own" heisst: der Schluessel steht im Schluesselbund DIESES Kontos
+    (aquaticy/keyvault.py). "operator": der Betreiber hat einen (Umgebung des
+    Servers). Ein eigener gewinnt -- damit sieht jedes Konto seine eigenen
+    Modelle, und nur seine.
+    """
+    key_name = PROVIDER_KEYS.get(provider, "")
+    if not key_name:
+        return ""
+    eigene: frozenset[str] = frozenset(getattr(settings, "own_key_names", ()) or ())
+    schluessel = getattr(settings, "api_keys", {}) or {}
+    if key_name in eigene and str(schluessel.get(key_name, "")).strip():
+        return "own"
+    if os.environ.get(key_name, "").strip() or str(schluessel.get(key_name, "")).strip():
+        return "operator"
+    return ""
+
+
+def model_origin(settings: Any, model_id: str, fallback: str = "operator") -> str:
+    """Wer DIESEN Aufruf bezahlt -- ``Settings.key_source``, sonst *fallback*.
+
+    Genauer als :func:`key_origin`: ein Modell, das auf einem Server des
+    Betreibers laeuft, ist gestellt, auch wenn das Konto einen Schluessel
+    fuer den Anbieter hat.
+    """
+    quelle = getattr(settings, "key_source", None)
+    try:
+        return str(quelle(model_id)) if callable(quelle) else fallback
+    except Exception:
+        return fallback
+
+
+def _mit_herkunft(eintrag: dict[str, str], herkunft: str) -> dict[str, str]:
+    eintrag["source"] = herkunft
+    eintrag["source_label"] = SOURCE_LABELS.get(herkunft, "")
+    return eintrag
+
+
 def strongest_models(
     settings: Any, limit: int = 3, purpose: str = "work"
 ) -> list[dict[str, str]]:
@@ -247,26 +291,34 @@ def strongest_models(
 
     ranked: list[dict[str, str]] = []
 
-    def dazu(model_id: str, kind: str, note: str) -> None:
+    def dazu(model_id: str, kind: str, note: str, herkunft: str = "operator") -> None:
         model_id = (model_id or "").strip()
         if not model_id or any(eintrag["id"] == model_id for eintrag in ranked):
             return
-        ranked.append(
+        ranked.append(_mit_herkunft(
             {
                 "id": model_id,
                 "label": model_id.split("/", 1)[-1],
                 "kind": kind,
                 "note": note,
-            }
-        )
+            },
+            herkunft,
+        ))
 
     wanted = str(getattr(settings, "code_model", "") or "").strip()
     if wanted:
-        dazu(wanted, PROVIDER_LABELS.get(provider_of(wanted), "eigenes"), "von dir eingetragen")
+        dazu(wanted, PROVIDER_LABELS.get(provider_of(wanted), "eigenes"), "von dir eingetragen",
+             model_origin(settings, wanted))
 
-    for provider in CODING_ORDER:
+    # Anbieter mit eigenem Schluessel zuerst: wer einen hinterlegt, will ihn
+    # benutzen -- und ihn kostet das Modell das Kontingent nicht.
+    anbieter = sorted(
+        (p for p in CODING_ORDER if key_origin(settings, p)),
+        key=lambda p: (key_origin(settings, p) != "own", CODING_ORDER.index(p)),
+    )
+    for provider in anbieter:
         key_name = PROVIDER_KEYS.get(provider, "")
-        if not key_name or not os.environ.get(key_name, "").strip():
+        if not key_name:
             continue
         stark = (
             CODING_MODELS.get(provider) if purpose == "code" else ""
@@ -277,6 +329,7 @@ def strongest_models(
             "Fürs Programmieren"
             if purpose == "code" and CODING_MODELS.get(provider) == stark
             else PROVIDER_NOTES.get(provider, "Über die Schnittstelle des Anbieters"),
+            model_origin(settings, stark, key_origin(settings, provider)),
         )
 
     base = getattr(settings, "api_base", "") or DEFAULT_OLLAMA_URL
@@ -338,58 +391,70 @@ def available_models(settings: Any) -> list[dict[str, str]]:
     base = getattr(settings, "api_base", "") or DEFAULT_OLLAMA_URL
     for name in installed_models(base):
         model = known_model(name)
-        found.append(
+        found.append(_mit_herkunft(
             {
                 "id": f"ollama_chat/{name}",
                 "label": name,
                 "kind": "lokal",
                 "note": model.note if model else "Läuft auf deinem Rechner",
-            }
-        )
+            },
+            "operator",
+        ))
 
     current = getattr(settings, "model", "")
-    for provider, key_name in PROVIDER_KEYS.items():
-        if not os.environ.get(key_name, "").strip():
-            continue
+    # Eigene Schluessel zuerst (seit 9.5.14 Seashell): diese Modelle sieht nur
+    # dieses Konto -- gestellte sieht jedes.
+    anbieter = sorted(
+        (p for p in PROVIDER_KEYS if key_origin(settings, p)),
+        key=lambda p: key_origin(settings, p) != "own",
+    )
+    for provider in anbieter:
+        herkunft = key_origin(settings, provider)
         model_id = PROVIDER_MODELS.get(provider, "")
         if not model_id:
             continue
         # Laeuft gerade ein anderes Modell dieses Anbieters, ist das gemeint.
         if provider_of(current) == provider:
             model_id = current
-        found.append(
+        found.append(_mit_herkunft(
             {
                 "id": model_id,
                 "label": model_id.split("/", 1)[-1],
                 "kind": PROVIDER_LABELS.get(provider, provider),
                 "note": PROVIDER_NOTES.get(provider, "Über die Schnittstelle des Anbieters"),
-            }
-        )
+            },
+            model_origin(settings, model_id, herkunft),
+        ))
         # Dazu das schnelle kleine Modell desselben Anbieters. Nicht jede
         # Frage braucht das Arbeitspferd -- wer vor allem Tempo will, waehlt
         # hier, und niemand muss dafuer eine Modell-ID von Hand eintippen.
         schnell = FAST_MODELS.get(provider, "")
         if schnell and schnell != model_id:
-            found.append(
+            found.append(_mit_herkunft(
                 {
                     "id": schnell,
                     "label": schnell.split("/", 1)[-1],
                     "kind": PROVIDER_LABELS.get(provider, provider),
                     "note": "Klein und schnell: kurze Antworten in Sekunden",
-                }
-            )
+                },
+                model_origin(settings, schnell, herkunft),
+            ))
 
     # Das laufende Modell gehoert in die Liste, auch wenn es sonst nirgends
     # auftaucht -- sonst steht die Auswahl auf nichts.
     if current and not any(item["id"] == current for item in found):
         provider = provider_of(current)
+        herkunft = model_origin(settings, current)
         found.insert(
             0,
-            {
-                "id": current,
-                "label": current.split("/", 1)[-1],
-                "kind": PROVIDER_LABELS.get(provider, provider or "eigenes"),
-                "note": "Aktuell eingestellt",
-            },
+            _mit_herkunft(
+                {
+                    "id": current,
+                    "label": current.split("/", 1)[-1],
+                    "kind": PROVIDER_LABELS.get(provider, provider or "eigenes"),
+                    "note": "Aktuell eingestellt",
+                },
+                herkunft,
+            ),
         )
     return found

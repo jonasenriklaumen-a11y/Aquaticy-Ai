@@ -335,6 +335,22 @@ def anmelden(pg: Any, port: int) -> None:
     pg.wait_for_selector("#auth-gate", state="hidden", timeout=15_000)
 
 
+def warte_auf_text(pg: Any, auswahl: str, teil: str, sekunden: float = 10.0) -> str:
+    """Wartet, bis *teil* im Text von *auswahl* steht -- und gibt den Text zurueck.
+
+    ``wait_for_function`` scheidet aus: die Content-Security-Policy der Seite
+    verbietet ``eval``, und genau so wertet Playwright die Bedingung aus.
+    """
+    ende = time.time() + sekunden
+    text = ""
+    while time.time() < ende:
+        text = pg.inner_text(auswahl)
+        if teil in text:
+            break
+        pg.wait_for_timeout(100)
+    return text
+
+
 def normales_konto(browser: Any, port: int, log: Protokoll, fehler: list[str]) -> None:
     """Ein normales Konto: die Rechts-Leitplanken bleiben an, was es auch tut.
 
@@ -375,6 +391,28 @@ def normales_konto(browser: Any, port: int, log: Protokoll, fehler: list[str]) -
                f"im Konto steht Prozent: {pg.inner_text('#account-tokens')!r}")
     log.pruefe(not pg.inner_text("#zaehler").strip(),
                "Tokenzahlen sieht ein normales Konto nicht")
+    # 9.5.14 Seashell: eigene API-Schluessel -- nur dieses Konto, nie im Browser.
+    pg.click('#secnav button:has-text("API-Schlüssel")')
+    pg.wait_for_timeout(700)
+    log.pruefe(pg.inner_text("#keys-summary") == "Du hast keinen API-Schlüssel hinzugefügt.",
+               "API-Schlüssel: darunter steht, dass noch keiner hinterlegt ist")
+    log.pruefe("nicht in dein Limit" in pg.inner_text("#keys-quota"),
+               "und dass eigene Schlüssel nicht ins Limit zählen")
+    zeile = pg.locator('#keys .key-row[data-name="MISTRAL_API_KEY"]')
+    zeile.locator("input").fill("rundgang-mistral-4711x")
+    zeile.locator("button", has_text="Speichern").click()
+    satz = warte_auf_text(pg, "#keys-summary", "hinzugefügt: Mistral.")
+    log.pruefe(satz == "Du hast einen API-Schlüssel hinzugefügt: Mistral.",
+               f"nach dem Speichern: {satz!r}")
+    status = pg.locator('#keys .key-row[data-name="MISTRAL_API_KEY"] .key-name span').inner_text()
+    log.pruefe(status.startswith("Hinterlegt ••••711x"),
+               f"nur die letzten vier Zeichen: {status!r}")
+    log.pruefe("rundgang-mistral" not in pg.content(), "der Schlüssel steht nirgends auf der Seite")
+    pg.once("dialog", lambda dialog: dialog.accept())
+    pg.locator('#keys .key-row[data-name="MISTRAL_API_KEY"] button',
+               has_text="Entfernen").click()
+    satz = warte_auf_text(pg, "#keys-summary", "keinen")
+    log.pruefe(satz == "Du hast keinen API-Schlüssel hinzugefügt.", "und wieder entfernt")
     log.pruefe(
         pg.is_checked("#legalguard") and pg.is_enabled("#legalguard"),
         "der Schalter ist an und nicht ausgegraut",

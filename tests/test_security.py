@@ -219,8 +219,9 @@ def test_the_probe_never_hands_the_servers_key_to_a_typed_address(
 
     monkeypatch.setenv("MISTRAL_API_KEY", "server-geheim")
     gesehen: list[tuple[str, str, str]] = []
-    monkeypatch.setattr(probe, "check_llm",
-                        lambda model, key, base: gesehen.append((model, key, base)) or (True, ""))
+    monkeypatch.setattr(
+        probe, "check_llm",
+        lambda model, key, base, **_: gesehen.append((model, key, base)) or (True, ""))
     monkeypatch.setattr(probe, "check_search", lambda *a: (True, ""))
     handler = web.Handler.__new__(web.Handler)
     for plan in ("normal", "pro"):

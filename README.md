@@ -137,7 +137,7 @@ aquaticy "welche Bahnstrecken in NRW sind gerade gesperrt?"
 $ aquaticy --location "Mönchengladbach" --lang de
 
 ╭──────────────────────────────────────────────────────╮
-│ Aquaticy AI 9.5.14                                     │
+│ Aquaticy AI 9.5.14 Seashell                            │
 │ Modell mistral/mistral-large-latest · Suche duckduckgo │
 │ Frag einfach los. /help zeigt die Befehle.           │
 ╰──────────────────────────────────────────────────────╯
@@ -412,10 +412,11 @@ laufen live mit, die Antwort wird Wort für Wort gestreamt.
   springt hin, statt durch das ganze Formular zu scrollen. Ein Test hält den Inhalt
   dauerhaft in Deckung mit dem Terminal: kommt dort eine Frage dazu, schlägt er fehl,
   bis das Formular nachzieht. Enthalten sind Haupt-, Vision- und Subagenten-Modell,
-  API-Key, API-Basis, Suchmaschine samt Engine-Liste und SearXNG-URL, Ort/Sprache/Land, Subagenten an/aus samt Budget und
+  API-Basis, Suchmaschine samt Engine-Liste und SearXNG-URL, Ort/Sprache/Land, Subagenten an/aus samt Budget und
   Parallelität, Werkzeug-Budget, Kontextfenster, Planungs-Zeitlimit und der
   Playwright-Fallback. Gespeichert wird in dieselbe `.env`, danach lädt der Agent neu.
-  Ein leeres API-Key-Feld bedeutet „unverändert" — der vorhandene Key bleibt stehen.
+  Die API-Schlüssel haben seit 9.5.14 Seashell einen eigenen Abschnitt (siehe unten);
+  ein leeres Feld dort ändert nichts — der vorhandene Schlüssel bleibt stehen.
 * **Dateien anhängen** über die Büroklammer, per Drag-and-drop irgendwo aufs
   Fenster oder mit <kbd>Strg</kbd>+<kbd>V</kbd> aus der Zwischenablage. Bilder gehen
   ans Vision-Modell, PDFs werden ausgelesen, Text-, Markdown-, CSV- und JSON-Dateien
@@ -924,8 +925,9 @@ laufen live mit, die Antwort wird Wort für Wort gestreamt.
   ein- und ausgeblendet.
 * **Verbindung testen** im Feld *Suche*: schickt eine winzige Anfrage ans Modell und
   eine Testsuche los — dasselbe, was `aquaticy setup` am Ende macht. Geprüft wird, was
-  gerade im Formular steht, nicht der gespeicherte Stand; so sieht man vor dem
-  Speichern, ob ein Schlüssel stimmt.
+  gerade im Formular steht, nicht der gespeicherte Stand — Modell und Adresse so, wie sie
+  nach dem Speichern liefen, mit dem Schlüssel, der dann gälte. Einen einzelnen Schlüssel
+  prüft *Testen* neben ihm im Abschnitt *API-Schlüssel*.
 * **Auslastung** für Pro-Konten unter *Einstellungen → Auslastung*: Der Haken „Auslastung des
   Rechners anzeigen" blendet Prozessor, Arbeitsspeicher, Festplatte, Grafikkarte und
   den belegten Speicher als Kacheln ein — alle vier Sekunden aufgefrischt, solange das
@@ -951,6 +953,17 @@ laufen live mit, die Antwort wird Wort für Wort gestreamt.
   Argumente der Werkzeugaufrufe. Der Verbrauch hängt am Konto und wird auf dem Server
   gerechnet (siehe *Konten und Pro*); Verlauf oder Speicher zu löschen setzt ihn nicht
   zurück.
+* **API-Schlüssel** unter *Einstellungen → API-Schlüssel* (seit 9.5.14 Seashell): Jedes
+  Konto — normal oder Pro — kann eigene Schlüssel hinterlegen: NVIDIA NIM, Mistral, einen
+  für jeden anderen Anbieter, den LiteLLM kennt, und die Suchdienste Brave und Tavily. Je
+  Schlüssel gibt es *Speichern* (danach *Ersetzen*), *Testen* und *Entfernen*; angezeigt
+  werden nur die letzten vier Zeichen und seit wann er hinterlegt ist. Darunter steht, was
+  da ist: „Du hast keinen API-Schlüssel hinzugefügt.“, „Du hast einen API-Schlüssel
+  hinzugefügt: Mistral.“ oder „Du hast 2 API-Schlüssel hinzugefügt: NVIDIA NIM, Tavily.“
+  Die Modelle, die ein eigener Schlüssel freischaltet, stehen in der Modellauswahl nur bei
+  diesem Konto — in einer eigenen Gruppe *Mit deinem Schlüssel · zählt nicht in dein
+  Limit*, darunter die gestellten. Wie das geschützt ist und was ins Limit zählt, steht
+  unter *Konten und Pro → Eigene API-Schlüssel*.
 * **Der erste Satz an ein örtliches Modell** sagt, dass gewartet wird. Ollama lädt
   ein großes Modell zehn bis sechzig Sekunden von der Platte; vorher stand in der
   Zeit nichts da und es sah aus, als hänge die Seite. Jetzt steht als erster
@@ -1028,7 +1041,7 @@ er erreichbar ist — im heimischen Netz und über Tailscale:
 
 ```
 ╭───────────────────────────────────────────────────────────────────╮
-│ Aquaticy AI 9.5.14                                                  │
+│ Aquaticy AI 9.5.14 Seashell                                         │
 │ Diese Adresse im Browser oeffnen:                                 │
 │   http://192.168.1.44:8765/    im heimischen Netz                 │
 │   http://100.81.120.100:8765/  ueber Tailscale                    │
@@ -2212,6 +2225,10 @@ wofür, wie schnell es antwortet, wie viele Anfragen pro Minute es verträgt.
 | [NVIDIA NIM](https://build.nvidia.com/) | `nvidia_nim/` | `NVIDIA_NIM_API_KEY` | offene Modelle, 40 Anfragen/Minute |
 | Ollama (lokal) | `ollama_chat/` | — | kostet nichts, verlässt den Rechner nicht |
 
+Die Schlüssel des Betreibers stehen in der `.env` des Servers (`aquaticy setup`). Mit Konten
+kann außerdem jedes Konto eigene hinterlegen — sie gelten nur dort (siehe *Konten und Pro →
+Eigene API-Schlüssel*).
+
 Je Anbieter kennt Aquaticy **drei Rollen**, und wählt selbst die passende:
 
 | Rolle | Wofür | Mistral | NVIDIA NIM |
@@ -2235,8 +2252,9 @@ abgelehnte Anfrage wird wiederholt, die Wiederholungen laufen wieder in dieselbe
 Aquaticy hält das Maß deshalb selbst ein (`aquaticy/pace.py`): zwischen zwei Aufrufen an
 denselben Anbieter liegen mindestens `60 / rpm` Sekunden, und mehr als eine Handvoll
 Anfragen sind nie gleichzeitig offen. Prozessweit, denn die Grenze gilt für den
-Schlüssel, nicht für den einzelnen Agenten. Lokale Modelle und selbst eingetragene
-Anbieter werden nicht gebremst.
+Schlüssel, nicht für den einzelnen Agenten — und deshalb hat der eigene Schlüssel eines
+Kontos seit 9.5.14 Seashell auch seinen eigenen Takt. Lokale Modelle und selbst
+eingetragene Anbieter werden nicht gebremst.
 
 | Variable | Bedeutung | Default |
 |---|---|---|
@@ -2321,9 +2339,10 @@ können unter **Dev settings** die Rechts-Leitplanken abschalten (siehe unten).
 
 **Was bei normalen Konten fest bleibt (seit 9.5.11 geprüft wie von einem kundigen Nutzer):**
 
-- **Das Kontingent gilt für jeden Modellaufruf** — Hauptmodell, Agenten, Master, Planer,
-  Bildbeschreibung, Rechtsprüfer — und vor jeder Runde, nicht nur vor der Anfrage. Ist
-  Sitzung oder Woche aufgebraucht, endet der Lauf sofort. Ein erstelltes Bild zählt
+- **Das Kontingent gilt für jeden gestellten Modellaufruf** — Hauptmodell, Agenten, Master,
+  Planer, Bildbeschreibung, Rechtsprüfer — und vor jeder Runde, nicht nur vor der Anfrage.
+  Ist Sitzung oder Woche aufgebraucht, endet der Lauf sofort. Modelle mit eigenem Schlüssel
+  zählen nicht, die Arbeit des Servers schon (siehe *Eigene API-Schlüssel* unten). Ein erstelltes Bild zählt
   pauschal 5.000 Token (2,5 % einer Sitzung), ein
   mitgeschicktes Bild (etwa ein Foto zur Beschreibung) pauschal 1.500 — so rechnen auch die
   Anbieter, nicht nach der Länge der Bilddaten (bis 9.5.11 war ein Foto von 300 KB hier
@@ -2331,7 +2350,9 @@ können unter **Dev settings** die Rechts-Leitplanken abschalten (siehe unten).
 - **Wohin der Server Anfragen schickt, legt der Betreiber fest:** Die eigene Modell-Adresse
   und die SearXNG-Adresse sind für normale Konten fest (im Formular schreibgeschützt, am
   Server abgelehnt). Der Test-Knopf schickt einen gespeicherten Schlüssel nie an eine frisch
-  eingetippte Adresse — wer die testen will, tippt den Schlüssel dafür selbst ein.
+  eingetippte Adresse, und die Modell-Adresse des Betreibers gilt nur für sein eigenes
+  Modell — bis 9.5.14 landete das Mistral-Modell eines Kontos beim LM Studio des
+  Betreibers, wenn dort eines eingetragen war.
 - **Eine Einstellung aus dem Chat bleibt im Konto:** Sie landet in der `.env` des Kontos, nie
   in der des Servers und nie in dessen Umgebung.
 - **Das Kontextfenster lokaler Modelle** ist für normale Konten auf 32.768 Token begrenzt
@@ -2360,7 +2381,8 @@ Fremde öffnet, sollte den Server deshalb nicht im selben Netz wie empfindliche 
 betreiben.
 
 ```bash
-aquaticy list       # Nutzername, E-Mail, Kontotyp, Token- und Speicherverbrauch
+aquaticy list       # Nutzername, E-Mail, Kontotyp, Sitzung und Woche in Prozent,
+                    # Zahl der eigenen API-Schlüssel (nie welche), Speicher
 aquaticy pro-code   # geheimen Pro-Code anzeigen
 ```
 
@@ -2377,6 +2399,72 @@ geltenden Textfassung gespeichert.
 Aquaticy enthält keine Werbe- oder Tracking-SDKs, veröffentlicht keine
 Nutzerbewertungen und verarbeitet selbst keine Zahlungen. Verlangt ein Betreiber Geld für den
 Zugang, muss er Preise, Kündigung und Erstattung vor dem Kauf selbst klar ausweisen.
+
+### Eigene API-Schlüssel (seit 9.5.14 Seashell)
+
+Jedes Konto, normal oder Pro, kann unter *Einstellungen → API-Schlüssel* eigene Schlüssel
+hinterlegen: NVIDIA NIM, Mistral, einen allgemeinen für jeden anderen Anbieter, den LiteLLM
+kennt (die Modell-ID steht dann unter *Hauptmodell*, etwa `groq/llama-3.3-70b-versatile`),
+dazu Brave Search und Tavily. Unter dem Bereich steht, ob keiner, einer oder mehrere
+hinterlegt sind — mit den Namen der Anbieter.
+
+**Ein Schlüssel gehört genau einem Konto, egal was passiert:**
+
+- Er liegt verschlüsselt (Fernet: AES mit HMAC) in der Kontendatenbank, an der Kennung des
+  Kontos. Den Schlüssel dafür leitet Aquaticy je Konto aus einem Geheimnis des Servers
+  (`vault.key`, nur für den Server-Benutzer lesbar) und der Kontokennung ab. Eine Zeile, die
+  jemand in ein anderes Konto kopiert, lässt sich dort nicht entschlüsseln; wer nur die
+  Datenbank hat — etwa eine Sicherung —, hat nichts.
+- Er steht nie in der `.env` des Servers oder eines Profils und nie in der Umgebung des
+  Prozesses, denn die gilt für alle Konten zugleich. Schlüssel, die ältere Versionen in die
+  `.env` eines Profils geschrieben haben, wandern beim ersten Laden in den Schlüsselbund und
+  verschwinden aus der Datei.
+- In den Browser geht er nie, auch nicht zu seinem Besitzer: Die Oberfläche bekommt den
+  Anbieter, die letzten vier Zeichen und das Datum. Kein Endpunkt nimmt eine fremde
+  Kontokennung an. `aquaticy list` zeigt dem Betreiber nur, *wie viele* ein Konto hat.
+- Fehlermeldungen von Anbietern zitieren gern den Schlüssel („Incorrect API key provided:
+  …“). Aquaticy ersetzt jeden Schlüssel in Meldungen, Zwischenschritten und Testergebnissen
+  durch `••••`, bevor etwas den Server verlässt.
+
+**Wohin er geht:** nur an die Schnittstelle des Anbieters — oder, bei Pro, an eine
+Modell-Adresse, die das Konto selbst eingetragen hat. Nie an einen Server des Betreibers:
+Läuft ein Modell auf dessen Adresse (etwa ein LM Studio des Betreibers), bleibt es
+*gestellt*, auch wenn das Konto einen Schlüssel für den Anbieter hat. Umgekehrt geht an eine
+Adresse, die ein Konto eingetragen hat, nie ein Schlüssel des Betreibers — bis 9.5.14 holte
+LiteLLM ihn sich dort still aus der Umgebung. Jeder eigene Schlüssel hat außerdem seinen
+eigenen Takt (`aquaticy/pace.py`): Die Grenzen der Anbieter gelten je Schlüssel, ein Konto
+mit eigenem Schlüssel bremst also niemanden aus und wird von niemandem ausgebremst.
+
+**Welche Modelle wer sieht:** Die Modelle eines eigenen Schlüssels stehen nur in der Auswahl
+dieses Kontos, als eigene Gruppe *Mit deinem Schlüssel* und mit der Marke *Dein Schlüssel*.
+Darunter stehen die gestellten — lokal auf dem Server (Ollama) oder mit einem Schlüssel des
+Betreibers —, die jedes Konto sieht.
+
+**Was ins Limit zählt:** Ein Modell mit eigenem Schlüssel bezahlt das Konto beim Anbieter
+selbst; seine Token zählen weder in die Sitzung noch in die Woche (in der Statistik des
+Profils stehen sie trotzdem). Gestellte Modelle zählen wie bisher — auch Ollama auf dem
+Server. Was auf dem Server arbeitet, zählt immer, egal mit wessen Schlüssel das Modell
+läuft. Es wird in Token umgerechnet (`WORK_COSTS` in `aquaticy/metering.py`), damit es in
+dasselbe Limit passt:
+
+| Arbeit auf dem Server | zählt |
+|---|---|
+| eine Werkstatt starten | 750 Token |
+| Rechenzeit in der Werkstatt | 150 Token je angefangene Sekunde |
+| eine Datei in die Werkstatt oder aus ihr | 50 Token |
+| eine Webseite abrufen (auch Feeds, öffentliche Bilder) | 100 Token — aus dem Zwischenspeicher nichts |
+| eine Suchanfrage (auch Orte, Wetter, GitHub, Profilsuche) | 50 Token je Formulierung — aus dem Zwischenspeicher nichts |
+| eine Handlung im User mode (sehen, klicken, tippen) | 100 Token |
+| ein Bild auf dem Server ablegen | 100 Token (gestellt gemalt: pauschal 5.000) |
+
+Fehlversuche zählen nicht. Ist das Limit erreicht, antwortet ein Modell mit eigenem Schlüssel
+weiter; Werkstatt, Suche und Seitenabrufe lehnen dann mit dem Satz ab, wann es weitergeht,
+und das Modell antwortet ohne sie.
+
+Was ehrlich dazugehört: Um in deinem Namen beim Anbieter anzufragen, muss der Server den
+Schlüssel entschlüsseln — wer den Server betreibt, könnte das also auch. Gegen andere Konten,
+Datensicherungen und neugierige Blicke in den Browser schützt der Schlüsselbund; gegen den
+Betreiber selbst schützt nur, ihm zu trauen — oder Aquaticy selbst zu betreiben.
 
 ## Modell automatisch wählen (Dev settings)
 
@@ -2597,6 +2685,16 @@ gestellt — ein kleiner OpenAI-kompatibler Server auf 127.0.0.1 (`tests/fake_ll
 wie ein Anbieter antwortet, mit Streaming, Werkzeugaufrufen und Zählerstand. Alles andere ist
 echt: Webserver, Konten, litellm, Rechtsprüfer, Werkzeug, Zähler, Kontingent und die Trennung
 der Konten.
+
+**Eigene Schlüssel** (`tests/test_own_keys.py`, seit 9.5.14 Seashell): zwei gestellte
+Modellserver — einer für den Betreiber, einer als „Anbieter“ hinter eigenen
+NVIDIA-Schlüsseln. Geprüft wird, dass ein Schlüssel nur verschlüsselt und nur im eigenen
+Konto liegt (umkopiert wertlos, in keiner Datei im Klartext, nicht in der Umgebung, von
+keinem Endpunkt zurückgegeben), dass der Satz unter dem Bereich stimmt, dass nur dieses Konto
+seine Modelle sieht, dass ein eigenes Modell beim Anbieter läuft und nicht zählt, ein
+gestelltes beim Betreiber und schon, dass am Limit das eigene Modell weiter antwortet und
+die Werkzeuge des Servers ablehnen, und dass ein Anbieter, der den Schlüssel in seiner
+Fehlermeldung zitiert, ihn nie bis in den Browser bringt.
 
 Die Tests fassen kein echtes Netz an: Suchergebnisse und LLM-Antworten sind gemockt,
 Seitenabrufe laufen über `httpx.MockTransport` gegen gespeicherte HTML-Fixtures echter

@@ -182,6 +182,8 @@ class AuthStore:
         secure_directory(self.data_dir)
         secure_directory(self.users_dir)
         self._pepper = self._load_pepper()
+        #: Das Geheimnis fuer den Schluesselbund -- erst geladen, wenn es gebraucht wird.
+        self._vault_secret: bytes | None = None
         self._setup()
 
     def _load_pepper(self) -> bytes:
@@ -389,6 +391,18 @@ class AuthStore:
         from aquaticy.quota import Quota
 
         return Quota(self.db_path, account.id, float(account.created_at or 0.0))
+
+    def vault(self, account: Account) -> Any:
+        """Der Schluesselbund eines Kontos (aquaticy/keyvault.py) -- in dieser Datenbank.
+
+        Verschluesselt mit einem Schluessel je Konto, abgeleitet aus
+        ``vault.key`` neben der Datenbank. Nur fuer genau dieses Konto.
+        """
+        from aquaticy.keyvault import KeyVault, load_secret
+
+        if self._vault_secret is None:
+            self._vault_secret = load_secret(self.data_dir / "vault.key")
+        return KeyVault(self.db_path, account.id, self._vault_secret)
 
     def accounts(self) -> list[Account]:
         with self._connect() as conn:

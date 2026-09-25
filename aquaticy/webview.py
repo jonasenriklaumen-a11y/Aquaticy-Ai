@@ -197,9 +197,10 @@ def provider_view() -> list[dict[str, str]]:
     liste = []
     for kennung, name, schluessel, beispiel, form in PROVIDERS:
         if schluessel:
-            hinweis = (f"{name} braucht {schluessel}"
-                       + (f" — er beginnt mit {form}" if form else "")
-                       + ". Trag ihn rechts ein, er landet in deiner .env.")
+            hinweis = (f"{name} braucht einen Schlüssel ({schluessel}"
+                       + (f", beginnt mit {form}" if form else "")
+                       + "). Hast du einen eigenen, trag ihn im Abschnitt API-Schlüssel ein "
+                       "— sonst gilt der gestellte, falls der Betreiber einen hat.")
         else:
             hinweis = f"{name} läuft auf deinem Rechner. Kein Schlüssel nötig."
         liste.append({
@@ -283,7 +284,7 @@ def export_filename(title: str, suffix: str = "md") -> str:
 
 
 def picker_view(mode: str, models: list[dict[str, Any]],
-                strong: list[dict[str, Any]]) -> dict[str, Any]:
+                strong: list[dict[str, Any]], limited: bool = True) -> dict[str, Any]:
     """Die Modellauswahl je Modus: Ueberschrift, Liste und welches Feld sie setzt.
 
     Im Code- und im Pro-Modus antwortet das staerkste erreichbare Modell --
@@ -292,11 +293,24 @@ def picker_view(mode: str, models: list[dict[str, Any]],
     sie beim naechsten Wechsel in den Standardmodus alles umgestellt.
     """
     nur_starke = mode in ("code", "pro")
+    liste = list(strong if nur_starke else models)
+    # Seit 9.5.14 Seashell: Modelle mit dem eigenen Schluessel des Kontos
+    # stehen fuer sich -- sie sieht nur dieses Konto, und sie zaehlen nicht ins
+    # Limit. Gruppiert wird nur, wenn es eigene gibt.
+    eigene = [m for m in liste if m.get("source") == "own"]
+    gruppen: list[dict[str, Any]] = [
+        {"title": "Mit deinem Schlüssel",
+         # Ohne Limit (Pro, lokal) gibt es nichts, worin es nicht zaehlte.
+         "note": "zählt nicht in dein Limit" if limited else "auf deine Rechnung beim Anbieter",
+         "models": eigene},
+        {"title": "Gestellt", "note": "", "models": [m for m in liste if m.get("source") != "own"]},
+    ] if eigene else []
     return {
         "heading": ("Stärkstes Code-Modell wählen" if mode == "code"
                     else "Stärkstes Modell wählen" if nur_starke else "Modell wählen"),
-        "models": list(strong if nur_starke else models),
+        "models": liste,
+        "groups": [g for g in gruppen if g["models"]],
         "field": "AQUATICY_CODE_MODEL" if nur_starke else "AQUATICY_MODEL",
-        "empty": ("Kein Modell gefunden. Trag unter Einstellungen einen Anbieter samt "
-                  "Schlüssel ein, oder installiere eins mit aquaticy install-model."),
+        "empty": ("Kein Modell gefunden. Hinterleg unter Einstellungen → API-Schlüssel einen "
+                  "eigenen Schlüssel, oder installiere eins mit aquaticy install-model."),
     }

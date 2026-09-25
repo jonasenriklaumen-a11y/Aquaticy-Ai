@@ -18,8 +18,15 @@ PROBE_QUESTION = "Antworte mit genau dem Wort: ok"
 PROBE_SEARCH = "wetter berlin"
 
 
-def check_llm(model: str, api_key: str = "", api_base: str = "") -> tuple[bool, str]:
-    """Schickt eine winzige Testanfrage an das Modell."""
+def check_llm(
+    model: str, api_key: str = "", api_base: str = "", pace_key: str = ""
+) -> tuple[bool, str]:
+    """Schickt eine winzige Testanfrage an das Modell.
+
+    Args:
+        pace_key: In wessen Takt der Test laeuft (``aquaticy.pace.own_gate``
+            fuer einen eigenen Schluessel, leer fuer einen gestellten).
+    """
     try:
         import litellm
 
@@ -31,7 +38,9 @@ def check_llm(model: str, api_key: str = "", api_base: str = "") -> tuple[bool, 
             kwargs["api_base"] = api_base
         from aquaticy.pace import paced
 
-        with paced(model):
+        # Ein Test mit eigenem Schluessel laeuft in dessen eigenem Takt, einer
+        # mit dem gestellten in dem des Betreibers.
+        with paced(model, pace_key):
             response = litellm.completion(
                 model=model,
                 messages=[{"role": "user", "content": PROBE_QUESTION}],

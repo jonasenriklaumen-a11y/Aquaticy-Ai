@@ -751,6 +751,32 @@ body.dragging::after{animation:fade-in var(--t-fast) var(--ease-out)}
   .limit-banner .limit-bar{flex:1 1 100%;order:3}
   .limit-banner .txt{flex:1 1 0}}
 
+/* API-Schluessel (9.5.14 Seashell): eine Zeile je Platz, darunter der Satz,
+   wie viele hinterlegt sind. Den Schluessel selbst zeigt die Seite nie. */
+.keys{display:grid;gap:10px;margin-top:10px}
+.key-row{display:grid;grid-template-columns:minmax(130px,1fr) minmax(160px,2fr) auto;
+  gap:6px 12px;align-items:center;padding:10px 12px;border:1px solid var(--line-2);
+  border-radius:12px;background:var(--surface)}
+.key-row .key-name strong{display:block;font-size:13.5px}
+.key-row .key-name span{display:block;font-size:12px;color:var(--text-3);margin-top:2px}
+.key-row.gesetzt .key-name span{color:var(--accent-text)}
+.key-row input{width:100%}
+.key-row .key-knoepfe{display:flex;gap:6px;flex-wrap:wrap;justify-content:flex-end}
+.key-row .key-note{grid-column:1/-1;font-size:11.5px;color:var(--text-3)}
+.key-row .key-meldung{grid-column:1/-1;font-size:12px}
+.key-row .key-meldung.ok{color:var(--accent-text)}
+.key-row .key-meldung.bad{color:var(--err)}
+.keys-summary{margin-top:12px;padding:9px 12px;border-radius:10px;background:var(--accent-soft);
+  color:var(--accent-text);font-size:13px;font-weight:600}
+.search-key-note{margin:6px 0 0}
+@media (max-width:560px){.key-row{grid-template-columns:1fr}
+  .key-row .key-knoepfe{justify-content:flex-start}}
+/* Modellauswahl: Gruppen fuer eigene und gestellte Modelle. */
+.pick-group{font-size:11px;letter-spacing:.04em;text-transform:uppercase;color:var(--text-3);
+  margin:10px 12px 4px;display:flex;gap:8px;align-items:baseline}
+.pick-group span{text-transform:none;letter-spacing:0}
+.pick .src{font-size:10.5px;color:var(--accent-text);margin-left:6px}
+
 /* Der Zaehler: drei Kacheln und darunter die Aufschluesselung. */
 .zaehler{display:grid;grid-template-columns:repeat(3,1fr);gap:10px;margin-top:12px}
 .kachel{background:var(--surface);border:1px solid var(--line-2);border-radius:12px;
@@ -1567,15 +1593,20 @@ input:focus,select:focus{border-color:var(--accent)}
             <select id="provider">
               <option value="">— aus der Modell-ID übernehmen —</option>
             </select></label>
-          <label><span class="lbl">Schlüssel <span id="keyname"></span></span>
-            <input type="password" name="__API_KEY__"
-                   placeholder="leer lassen = unverändert"></label>
         </div>
-        <div class="note" id="provider-note"></div>
+        <div class="note" id="provider-note">Eigene Schlüssel trägst du im Abschnitt
+          <b>API-Schlüssel</b> ein.</div>
         <div class="actions section">
           <span class="note" id="model-note"></span>
           <button type="button" class="btn primary" id="save-model">Modell speichern</button>
         </div>
+      </fieldset>
+
+      <fieldset id="sec-schluessel"><legend>API-Schlüssel</legend>
+        <p class="lead" id="keys-privacy">Deine eigenen Schlüssel für Modelle und Suche.</p>
+        <div class="keys" id="keys"></div>
+        <div class="keys-summary" id="keys-summary" role="status"></div>
+        <div class="note" id="keys-quota"></div>
       </fieldset>
 
       <fieldset id="workshop-settings"><legend>Werkstatt</legend>
@@ -1879,10 +1910,9 @@ input:focus,select:focus{border-color:var(--accent)}
         <label><span class="lbl">SearXNG-Adresse</span>
           <input type="text" name="AQUATICY_SEARXNG_URL" placeholder="http://localhost:8080"></label>
         <div class="row">
-          <label><span class="lbl">Schlüssel der Suchmaschine
-            <span class="why" id="search-keyname">nur bei Brave und Tavily nötig</span></span>
-            <input type="password" name="__SEARCH_KEY__" placeholder="leer lassen = unverändert"
-                   autocomplete="off"></label>
+          <div class="note search-key-note"><b>Schlüssel der Suchmaschine</b>
+            <span id="search-keyname">nur bei Brave und Tavily nötig</span> — eintragen
+            im Abschnitt <b>API-Schlüssel</b>.</div>
           <label><span class="lbl">Formulierungen je Suche
             <span class="why">Dieselbe Frage anders gestellt findet mehr. 2 bis 3 ist
               das Maß, 1 schaltet es ab.</span></span>
@@ -1984,7 +2014,7 @@ input:focus,select:focus{border-color:var(--accent)}
 const $ = (s) => document.querySelector(s);
 const thread = $("#thread"), main = $("#main"), input = $("#input"), send = $("#send");
 let busy = false;
-const aquaticyVersion = window.__AQUATICY_VERSION__ || "9.5.14";
+const aquaticyVersion = window.__AQUATICY_VERSION__ || "9.5.14 Seashell";
 $("#version").textContent = "v" + aquaticyVersion;
 document.title = `Aquaticy AI ${aquaticyVersion}`;
 
@@ -3794,7 +3824,7 @@ async function openPicker(){
     return;
   }
   list.innerHTML = "";
-  models.forEach(model => {
+  const zeichne = (model) => {
     const item = document.createElement("button");
     item.className = "pick" + (model.id === currentModel ? " active" : "");
     item.innerHTML = `<span class="top"><span class="nm"></span><span class="kind"></span></span>
@@ -3802,10 +3832,33 @@ async function openPicker(){
     item.querySelector(".nm").textContent = model.label;
     item.querySelector(".kind").textContent = model.kind;
     item.querySelector(".note").textContent = model.note || "";
+    if (model.source === "own"){
+      const src = document.createElement("span");
+      src.className = "src"; src.textContent = model.source_label || "Dein Schlüssel";
+      item.querySelector(".top").appendChild(src);
+    }
     item.title = model.id;
     item.addEventListener("click", () => chooseModel(model, auswahl.field));
     list.appendChild(item);
-  });
+  };
+  // Gibt es Modelle mit dem eigenen Schluessel, stehen sie fuer sich --
+  // die Gruppen stellt der Server zusammen (nur dieses Konto sieht sie).
+  if ((auswahl.groups || []).length){
+    for (const gruppe of auswahl.groups){
+      const kopf = document.createElement("div");
+      kopf.className = "pick-group";
+      kopf.textContent = gruppe.title;
+      if (gruppe.note){
+        const zusatz = document.createElement("span");
+        zusatz.textContent = "· " + gruppe.note;
+        kopf.appendChild(zusatz);
+      }
+      list.appendChild(kopf);
+      gruppe.models.forEach(zeichne);
+    }
+  } else {
+    models.forEach(zeichne);
+  }
   stagger(list.querySelectorAll(".pick"), 22);
 }
 
@@ -3909,9 +3962,8 @@ $("#btn-settings").addEventListener("click", async () => {
   const wanted = START.load === true;
   $("#showload").checked = wanted;
   if (wanted) $("#showload").dispatchEvent(new Event("change"));
-  $("#keyname").textContent = cfg.key_name ? `(${cfg.key_name})` : "(nicht nötig)";
   searchKeyHint();
-  if (cfg.search_key_set) $("#search-keyname").textContent += " · gesetzt";
+  loadKeys();
   $("#probe-note").textContent = ""; $("#probe-note").className = "note";
   $("#google-step").hidden = true;
   showGoogle(cfg.google);
@@ -4443,6 +4495,94 @@ function closeSettings(){
 $("#cancel").addEventListener("click", closeSettings);
 overlay.addEventListener("click", (e) => { if (e.target === overlay) closeSettings(); });
 
+/* ---------- API-Schluessel (9.5.14 Seashell) ---------- */
+// Was hinterlegt ist, sagt der Server -- den Schluessel selbst bekommt die
+// Seite nie zu sehen, nur Anbieter, die letzten vier Zeichen und das Datum.
+// Getippte Schluessel gehen einmal zum Server und werden dann geleert.
+async function keysTun(body, zeile){
+  const meldung = zeile ? zeile.querySelector(".key-meldung") : null;
+  if (meldung){ meldung.className = "key-meldung"; meldung.textContent = "Moment …"; }
+  let data;
+  try {
+    const res = await api("/api/keys", {
+      method: "POST", headers: {"Content-Type": "application/json"}, body: JSON.stringify(body),
+    });
+    data = await res.json();
+  } catch { data = { ok: false, error: "Der Server antwortet nicht." }; }
+  if (data.slots) zeichneKeys(data);
+  // Nach dem Neuzeichnen die Meldung an dieselbe Stelle schreiben.
+  const neu = document.querySelector(`.key-row[data-name="${body.name}"] .key-meldung`);
+  if (neu){
+    neu.className = "key-meldung " + (data.ok ? "ok" : "bad");
+    neu.textContent = data.message || data.error || "";
+  }
+  if (data.ok && body.action !== "test") refreshHeader();
+  return data;
+}
+
+function zeichneKeys(data){
+  const box = $("#keys");
+  box.innerHTML = "";
+  $("#keys-privacy").textContent = data.privacy || "";
+  for (const slot of data.slots || []){
+    const zeile = document.createElement("div");
+    zeile.className = "key-row" + (slot.set ? " gesetzt" : "");
+    zeile.dataset.name = slot.name;
+    zeile.innerHTML = '<div class="key-name"><strong></strong><span></span></div>'
+      // Kein Name: das Feld gehoert nicht zum Einstellungsformular. Die
+      // data-Attribute bitten Passwortmanager, es nicht als Passwort der
+      // Seite zu speichern -- ein API-Schluessel ist keins.
+      + '<input type="password" autocomplete="off" spellcheck="false" data-lpignore="true"'
+      + ' data-1p-ignore="true" data-bwignore="true" data-form-type="other">'
+      + '<div class="key-knoepfe"></div><div class="key-note"></div>'
+      + '<div class="key-meldung" role="status"></div>';
+    zeile.querySelector("strong").textContent = slot.label;
+    zeile.querySelector(".key-name span").textContent = slot.status;
+    const feld = zeile.querySelector("input");
+    feld.placeholder = slot.placeholder || "Schlüssel einfügen";
+    feld.setAttribute("aria-label", `${slot.label}: Schlüssel`);
+    zeile.querySelector(".key-note").textContent = slot.note || "";
+    const knoepfe = zeile.querySelector(".key-knoepfe");
+    const knopf = (text, klasse, tun) => {
+      const b = document.createElement("button");
+      b.type = "button"; b.className = "btn" + (klasse ? " " + klasse : ""); b.textContent = text;
+      b.addEventListener("click", async () => { b.disabled = true; await tun(); b.disabled = false; });
+      knoepfe.appendChild(b);
+    };
+    knopf(slot.set ? "Ersetzen" : "Speichern", "primary", async () => {
+      const wert = feld.value.trim();
+      if (!wert){ feld.focus(); return; }
+      feld.value = "";
+      await keysTun({ action: "set", name: slot.name, value: wert }, zeile);
+    });
+    // Enter speichert diesen Schluessel -- nicht das ganze Formular drumherum.
+    feld.addEventListener("keydown", (e) => {
+      if (e.key !== "Enter") return;
+      e.preventDefault();
+      knoepfe.querySelector(".btn.primary").click();
+    });
+    knopf("Testen", "", async () => {
+      const wert = feld.value.trim();
+      await keysTun({ action: "test", name: slot.name, value: wert }, zeile);
+    });
+    if (slot.set){
+      knopf("Entfernen", "", async () => {
+        if (!confirm(`Deinen ${slot.label}-Schlüssel entfernen?`)) return;
+        await keysTun({ action: "remove", name: slot.name }, zeile);
+      });
+    }
+    box.appendChild(zeile);
+  }
+  // Der Satz unter dem Bereich: keiner, einer oder mehrere (vom Server).
+  $("#keys-summary").textContent = data.summary || "";
+  $("#keys-quota").textContent = data.quota_note || "";
+}
+
+async function loadKeys(){
+  try { zeichneKeys(await (await api("/api/keys")).json()); }
+  catch { $("#keys-summary").textContent = "Die Schlüssel ließen sich nicht laden."; }
+}
+
 /* ---------- Nutzung ---------- */
 // Seit 9.5.14 rechnet der Server alles: Prozent, Ruecksetzzeiten, Warnsaetze
 // und die Statistik fuer Konten ohne Limit. Hier wird nur gezeichnet.
@@ -4912,8 +5052,6 @@ function fillProviders(liste){
     if (!found) return;
     const model = form.elements["AQUATICY_MODEL"];
     if (!model.value.startsWith(select.value + "/")) model.value = found.example;
-    form.elements["__API_KEY__"].placeholder = found.placeholder;
-    $("#keyname").textContent = found.key_label;
     $("#provider-note").textContent = found.note;
   });
 }
@@ -4928,8 +5066,6 @@ $("#save-model").addEventListener("click", async () => {
   note.className = "note"; note.textContent = "Speichere …";
   const values = {};
   MODEL_FIELDS.forEach(name => { values[name] = form.elements[name].value; });
-  const key = form.elements["__API_KEY__"].value;
-  if (key.trim()) values["__API_KEY__"] = key;
 
   let data;
   try {
@@ -4951,7 +5087,6 @@ $("#save-model").addEventListener("click", async () => {
   const saved = fresh.values.AQUATICY_MODEL;
   const vision = fresh.values.AQUATICY_VISION_MODEL || saved;
   form.elements["AQUATICY_MODEL"].value = saved;
-  form.elements["__API_KEY__"].value = "";
   note.textContent = (saved !== values.AQUATICY_MODEL
     ? `Gespeichert als ${saved} — das Anbieter-Kürzel hat gefehlt.`
     : `${saved} ist jetzt aktiv.`) + ` Bildanalyse: ${vision}.`;
@@ -5190,8 +5325,6 @@ $("#probe").addEventListener("click", async () => {
     AQUATICY_SEARCH_BACKEND: form.elements["AQUATICY_SEARCH_BACKEND"].value,
     AQUATICY_SEARCH_ENGINES: form.elements["AQUATICY_SEARCH_ENGINES"].value.trim(),
     AQUATICY_SEARXNG_URL: form.elements["AQUATICY_SEARXNG_URL"].value.trim(),
-    __API_KEY__: form.elements["__API_KEY__"].value.trim(),
-    __SEARCH_KEY__: form.elements["__SEARCH_KEY__"].value.trim(),
   };
   let data;
   try {

@@ -386,6 +386,7 @@ def ask_vision(image: bytes, prompt: str, settings: Any, max_tokens: int = 600) 
     import litellm
 
     from aquaticy.config import selected_vision_model
+    from aquaticy.pace import key_of as pace_key_of
     from aquaticy.pace import paced
 
     model = selected_vision_model(settings)
@@ -393,7 +394,7 @@ def ask_vision(image: bytes, prompt: str, settings: Any, max_tokens: int = 600) 
         raise DesktopError(NO_VISION)
     litellm.suppress_debug_info = True
     url = "data:image/jpeg;base64," + base64.b64encode(image).decode("ascii")
-    with paced(model):
+    with paced(model, pace_key_of(settings, model)):
         response = metering.completion(
             settings,
             model=model,

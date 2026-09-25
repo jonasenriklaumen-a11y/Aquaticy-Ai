@@ -91,7 +91,10 @@ def available(settings: Any) -> list[Backend]:
         backend = BACKENDS.get(provider)
         if backend and backend not in gefunden and _key(settings, backend.key):
             gefunden.append(backend)
-    return gefunden
+    # Mit eigenem Schluessel des Kontos zuerst (9.5.14 Seashell): den bezahlt
+    # das Konto selbst, das Kontingent zaehlt dann nur das Ablegen.
+    eigene: frozenset[str] = frozenset(getattr(settings, "own_key_names", ()) or ())
+    return sorted(gefunden, key=lambda b: b.key not in eigene)
 
 
 def backend_for(settings: Any, model: str = "") -> Backend | None:
@@ -114,7 +117,8 @@ def generate(
     """Erstellt ein Bild.
 
     Returns:
-        {"bytes": ..., "mime": "image/png"|"image/jpeg", "modell": Label}
+        {"bytes": ..., "mime": "image/png"|"image/jpeg", "modell": Label,
+         "model_id": Kennung (fuers Abrechnen: eigener oder gestellter Schluessel)}
 
     Raises:
         ImageError: Kein Anbieter, abgelehnt, Zeitueberschreitung ...
@@ -153,7 +157,7 @@ def generate(
         mime = _mime(daten)
     except ValueError as exc:
         raise ImageError(f"{backend.label} hat unerwartet geantwortet (kein Bild).") from exc
-    return {"bytes": daten, "mime": mime, "modell": backend.label}
+    return {"bytes": daten, "mime": mime, "modell": backend.label, "model_id": backend.model}
 
 
 def _mime(daten: bytes) -> str:

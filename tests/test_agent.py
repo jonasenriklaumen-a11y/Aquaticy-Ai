@@ -3693,7 +3693,8 @@ def test_the_three_strongest_are_offered(monkeypatch: pytest.MonkeyPatch) -> Non
     settings = Settings(model="ollama_chat/klein")
     liste = strongest_models(settings, limit=3)
     assert len(liste) == 3
-    assert all(set(eintrag) == {"id", "label", "kind", "note"} for eintrag in liste)
+    assert all(set(eintrag) == {"id", "label", "kind", "note", "source", "source_label"}
+               for eintrag in liste)
     # Die Cloud-Anbieter stehen vor dem lokalen Modell.
     assert liste[-1]["id"] == "ollama_chat/gross:70b"
     assert "GB" in liste[-1]["note"]

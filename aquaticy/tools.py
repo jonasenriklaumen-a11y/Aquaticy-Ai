@@ -11,6 +11,7 @@ Ausschnitt.
 
 from __future__ import annotations
 
+import contextlib
 import subprocess
 import time
 from collections.abc import Callable
@@ -20,6 +21,7 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
+from aquaticy import metering
 from aquaticy.cache import Cache, cache_key
 from aquaticy.config import Settings
 from aquaticy.extract import extract_product, has_spec_heading
@@ -974,6 +976,20 @@ BLENDER_SCHEMA: dict[str, Any] = {
     },
 }
 
+#: Welche Werkzeuge Arbeit auf dem Server machen -- und in welcher Einheit
+#: sie zaehlen (aquaticy/metering.py, WORK_COSTS). Was hier fehlt (rechnen,
+#: merken, nachfragen ...), kostet den Server nichts Nennenswertes.
+WORK_TOOLS: dict[str, str] = {
+    "web_search": "suche", "search_news": "suche", "local_places": "suche",
+    "find_profiles": "suche", "weather": "suche", "github": "suche",
+    "fetch_page": "seite", "inspect_public_visual": "seite", "read_feeds": "seite",
+    "vm_run": "werkstatt", "blender_run": "werkstatt",
+    "vm_write": "datei", "vm_read": "datei", "vm_files": "datei",
+    "desktop_look": "desktop", "desktop_click": "desktop", "desktop_type": "desktop",
+    "desktop_key": "desktop", "desktop_open": "desktop", "desktop_scroll": "desktop",
+    "desktop_windows": "desktop",
+}
+
 VM_SCHEMAS: tuple[dict[str, Any], ...] = (
     VM_RUN_SCHEMA,
     VM_WRITE_SCHEMA,
@@ -1619,13 +1635,16 @@ class Toolbox:
                 results = fresh
 
         self._emit("search_done", query=label, hits=len(results), queries=used)
-        payload = {
+        payload: dict[str, Any] = {
             "query": label,
             "queries": used,
             "country": country,
             "lang": lang,
             "results": [result.as_tool_dict() for result in results],
         }
+        if cached is not None:
+            # Aus dem Zwischenspeicher: keine neue Arbeit auf dem Server.
+            payload["cached"] = True
         if skipped:
             payload["note"] = (
                 f"{skipped} Treffer von bereits gelesenen Seiten sind aussortiert -- "
@@ -2299,12 +2318,17 @@ class Toolbox:
         from aquaticy.media import save_snapshot
 
         fmt = fmt.strip().lower() if isinstance(fmt, str) else "quadrat"
+        wer = images.backend_for(self.settings, self.image_model)
+        bildmodell = wer.model if wer is not None else ""
         try:
-            # Ein Bild zaehlt pauschal -- und nur, wenn das Kontingent es noch traegt.
-            metering.check(self.settings, need=metering.IMAGE_TOKENS)
+            # Ein Bild zaehlt pauschal -- und nur, wenn das Kontingent es noch
+            # traegt. Mit eigenem Bildschluessel nur das Ablegen (9.5.14 Seashell).
+            metering.check_image(self.settings, bildmodell)
         except metering.QuotaExceeded as exc:
-            return {"error": str(exc) + " (Ein Bild braucht "
-                    f"{metering.share_of_session(metering.IMAGE_TOKENS)} einer Sitzung.)"}
+            anteil = (metering.share_of_session(metering.work_cost("bild"))
+                      if metering.is_own(self.settings, bildmodell)
+                      else metering.share_of_session(metering.IMAGE_TOKENS))
+            return {"error": str(exc) + f" (Ein Bild braucht {anteil} einer Sitzung.)"}
         self._emit("image_create", prompt=prompt[:160])
         try:
             bild = images.generate(self.settings, prompt, fmt, model=self.image_model)
@@ -2316,7 +2340,9 @@ class Toolbox:
                                      keep=True)
         except (OSError, ValueError) as exc:
             return {"error": f"Das Bild liess sich nicht ablegen: {exc}"}
-        metering.charge_image(self.settings, bild["modell"])
+        # Abgerechnet wird nach der Kennung, nicht nach dem Anzeigenamen -- nur
+        # so ist klar, ob der Schluessel des Kontos oder des Betreibers malte.
+        metering.charge_image(self.settings, str(bild.get("model_id") or bildmodell))
         self.stats.images_created += 1
         self.stats.visuals.append(
             {
@@ -2443,6 +2469,62 @@ class Toolbox:
             return 0
 
     def call(self, name: str, arguments: dict[str, Any]) -> dict[str, Any]:
+        """Fuehrt den Tool-Call *name* aus -- und bucht, was er auf dem Server kostet.
+
+        Serverarbeit (Werkstatt, Seitenabrufe, Suchen, User mode) zaehlt ins
+        Kontingent eines normalen Kontos, egal mit wessen Schluessel das Modell
+        laeuft (aquaticy/metering.py, seit 9.5.14 Seashell). Ist nichts mehr
+        uebrig, lehnt das Werkzeug ab -- das Modell antwortet dann ohne.
+        """
+        art = WORK_TOOLS.get(name)
+        if art is None or metering.quota_of(self.settings) is None:
+            return self._call(name, arguments)
+        try:
+            metering.check_work(self.settings, art)
+        except metering.QuotaExceeded as exc:
+            return {"error": str(exc), "kontingent": True}
+        vorher = getattr(self._sandbox_box, "name", "") or ""
+        payload = self._call(name, arguments)
+        with contextlib.suppress(Exception):
+            self._charge_work(name, art, payload, vorher)
+        return payload
+
+    def _charge_work(self, name: str, art: str, payload: Any, vorher: str) -> None:
+        """Bucht, was wirklich auf dem Server gearbeitet hat -- keine Fehlversuche."""
+        if not isinstance(payload, dict):
+            return
+        if art in ("werkstatt", "datei"):
+            jetzt = getattr(self._sandbox_box, "name", "") or ""
+            if jetzt and jetzt != vorher:
+                metering.charge_work(self.settings, "werkstatt_start")
+            if art == "werkstatt":
+                if "exit_code" in payload:
+                    metering.charge_work(self.settings, "werkstatt",
+                                         float(payload.get("seconds") or 0.0))
+            elif not payload.get("error"):
+                metering.charge_work(self.settings, "datei")
+            return
+        if name == "fetch_page":
+            ohne_abruf = {"invalid_url", "blocked_by_list", "robots_disallowed", "legal_guard",
+                          "timeout", "network_error"}
+            if payload.get("via") != "cache" and payload.get("skipped_reason") not in ohne_abruf:
+                metering.charge_work(self.settings, "seite")
+            return
+        if payload.get("error"):
+            return
+        if name in ("web_search", "search_news"):
+            if not payload.get("cached"):
+                anzahl = len(payload.get("queries") or []) or 1
+                metering.charge_work(self.settings, "suche", anzahl)
+        elif name == "find_profiles":
+            anzahl = len(payload.get("profiles") or []) + len(payload.get("not_found") or [])
+            metering.charge_work(self.settings, "suche", anzahl or 1)
+        elif name == "read_feeds":
+            metering.charge_work(self.settings, "seite", int(payload.get("feeds") or 1))
+        else:
+            metering.charge_work(self.settings, art)
+
+    def _call(self, name: str, arguments: dict[str, Any]) -> dict[str, Any]:
         """Fuehrt den Tool-Call *name* mit *arguments* aus."""
         if self.guard is not None and name in SENSITIVE_TOOLS:
             verdict = self.guard.check_call(name, arguments)

@@ -32,6 +32,7 @@ from typing import Any
 
 from aquaticy import metering
 from aquaticy.config import Settings
+from aquaticy.pace import key_of as pace_key_of
 from aquaticy.pace import paced
 from aquaticy.subagents import Task, as_task
 
@@ -187,7 +188,7 @@ def _json_call(
 
     litellm.suppress_debug_info = True
     try:
-        with paced(model):
+        with paced(model, pace_key_of(settings, model)):
             response = metering.completion(
                 settings,
                 model=model,

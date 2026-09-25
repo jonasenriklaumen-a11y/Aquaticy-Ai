@@ -135,6 +135,12 @@ def selected_vision_model(settings: Settings) -> str:
     return main if any(marker in lowered for marker in VISION_MODEL_MARKERS) else ""
 
 
+#: Was statt eines Schluessels mitgeht, wenn keiner mitgehen darf: an eine
+#: Adresse, die ein Konto selbst eingetragen hat, geht nie ein Schluessel des
+#: Betreibers. Ohne ausdrueckliche Angabe holte LiteLLM ihn sich selbst aus der
+#: Umgebung. Lokale Server (LM Studio, Ollama) brauchen ohnehin keinen.
+NO_KEY = "kein-schluessel"
+
 #: Fuer Anbieter, die in PROVIDER_KEYS nicht stehen. LiteLLM kennt weit mehr
 #: Provider, als hier sinnvoll aufzuzaehlen sind -- damit laesst sich jeder
 #: davon nutzen, ohne dass aquaticy angepasst werden muss.
@@ -364,6 +370,19 @@ class Settings:
     #: Woche) -- nur normale Konten haben eins. Gesetzt vom Webserver, nie aus
     #: der .env. None = unbegrenzt. Siehe aquaticy/metering.py.
     quota: Any = None
+    #: Welche Schluessel in ``api_keys``/``search_keys`` dem Konto selbst
+    #: gehoeren (sein Schluesselbund, aquaticy/keyvault.py). Alles andere ist
+    #: gestellt: vom Betreiber (Umgebung des Servers) oder lokal (Ollama).
+    own_key_names: frozenset[str] = frozenset()
+    #: Eine Modell-Adresse, die das Konto SELBST eingetragen hat (nur Pro).
+    #: Nur dorthin darf ein eigener Schluessel neben dem Anbieter selbst gehen
+    #: -- nie an eine Adresse des Betreibers.
+    own_api_base: str = ""
+    #: Fuer welches Modell der Betreiber ``api_base`` eingetragen hat. Ein
+    #: Konto waehlt vielleicht ein anderes Hauptmodell -- die Adresse des
+    #: Betreibers gilt trotzdem nur fuer dessen Anbieter. Leer (lokal, ohne
+    #: Konten): das Hauptmodell selbst.
+    api_base_for: str = ""
     #: Netz, das dabei durchsucht wird. Leer = das eigene automatisch erkennen.
     lan_subnet: str = ""
     fetch_timeout: float = 15.0
@@ -451,12 +470,103 @@ class Settings:
 
     @property
     def api_key_name(self) -> str:
-        return api_key_name_for(self.model)
+        return self.key_name_for(self.model)
 
     @property
     def api_key(self) -> str:
-        name = self.api_key_name
-        return (self.api_keys.get(name) or _env_str(name)) if name else ""
+        return self.key_for(self.model)
+
+    def key_name_for(self, model: str) -> str:
+        """Unter welchem Namen der Schluessel fuer *model* gesucht wird.
+
+        Wie :func:`api_key_name_for` -- nur dass auch ein allgemeiner Schluessel
+        des KONTOS zaehlt, nicht bloss einer in der Umgebung des Servers.
+        """
+        provider = provider_of(model)
+        if provider in PROVIDER_KEYS:
+            return PROVIDER_KEYS[provider]
+        if self.api_keys.get(GENERIC_KEY_NAME) or _env_str(GENERIC_KEY_NAME):
+            return GENERIC_KEY_NAME
+        return ""
+
+    def key_for(self, model: str) -> str:
+        """Der Schluessel, mit dem *model* wirklich laeuft.
+
+        Der eigene des Kontos, wenn der Aufruf auf seine Rechnung geht
+        (:meth:`key_source`), sonst der gestellte. Hat das Konto zwar einen
+        Schluessel fuer diesen Anbieter, laeuft das Modell aber auf einem
+        Server des Betreibers, gilt dessen Schluessel -- der eigene geht dort
+        nie hin.
+        """
+        name = self.key_name_for(model)
+        if not name:
+            return ""
+        if self.key_source(model) == "own":
+            return self.api_keys[name]
+        if name in self.own_key_names:
+            return _env_str(name)
+        return self.api_keys.get(name) or _env_str(name)
+
+    def route(self, model: str) -> tuple[str, bool]:
+        """Wohin ein Aufruf mit *model* geht: (Adresse, ob das Konto sie eingetragen hat).
+
+        Leer heisst: zum Anbieter selbst. Eine eingetragene Adresse gilt nur
+        beim Anbieter des Hauptmodells, und nur wenn sie zum Modell passt
+        (Ollama-Port, siehe base_fits). Eingetragen hat sie entweder der
+        Betreiber (in der Umgebung des Servers) oder -- nur Pro -- das Konto
+        selbst (``own_api_base``).
+        """
+        if not self.api_base:
+            return "", False
+        des_kontos = self.api_base == self.own_api_base
+        # Die Adresse des Betreibers gehoert zu SEINEM Modell -- nicht zu dem,
+        # das ein Konto gerade gewaehlt hat (bis 9.5.14 landete so zum
+        # Beispiel ein Mistral-Modell beim LM Studio des Betreibers).
+        bezug = self.model if des_kontos or not self.api_base_for else self.api_base_for
+        if provider_of(model) != provider_of(bezug) or not base_fits(self.api_base, model):
+            return "", False
+        return self.api_base, des_kontos
+
+    def key_source(self, model: str) -> str:
+        """Wer bezahlt diesen Aufruf? "own" = das Konto mit eigenem Schluessel.
+
+        Alles andere ist "operator": ein Schluessel des Betreibers, ein lokales
+        Modell auf dem Server (Ollama), ein Anbieter, bei dem LiteLLM sich den
+        Schluessel selbst aus der Umgebung des Servers holt -- und jedes
+        Modell, das auf einem Server des Betreibers laeuft. Dort ist es
+        gestellt, auch wenn das Konto einen Schluessel fuer den Anbieter hat:
+        sonst liefe es mit dem eigenen Schluessel beim Betreiber und zaehlte
+        nicht, oder der Aufruf ginge an den falschen Rechner.
+        """
+        name = self.key_name_for(model)
+        if not (name and name in self.own_key_names and self.api_keys.get(name)):
+            return "operator"
+        adresse, des_kontos = self.route(model)
+        if adresse and not des_kontos:
+            return "operator"
+        return "own"
+
+    def pace_key(self, model: str) -> str:
+        """Wofuer der Takt gilt: eigene Schluessel haben ihren eigenen (aquaticy/pace.py).
+
+        Die Grenzen der Anbieter gelten je Schluessel. Ein Konto mit eigenem
+        Schluessel soll weder die anderen ausbremsen noch von ihnen
+        ausgebremst werden. Im Namen steht nur ein Hash, nie der Schluessel.
+        """
+        if self.key_source(model) != "own":
+            return ""
+        from aquaticy.pace import own_gate
+
+        return own_gate(self.key_for(model))
+
+    def secrets(self) -> list[str]:
+        """Alle Schluessel, die in keiner Meldung auftauchen duerfen -- eigene und gestellte."""
+        namen = set(PROVIDER_KEYS.values()) | set(SEARCH_BACKEND_KEYS.values()) | {
+            GENERIC_KEY_NAME}
+        werte = {self.api_keys.get(n, "") for n in namen} | {self.search_keys.get(n, "")
+                                                             for n in namen}
+        werte |= {_env_str(n) for n in namen if n}
+        return sorted(w for w in werte if w and len(w) >= 8)
 
     @property
     def search_key_name(self) -> str:
@@ -467,6 +577,14 @@ class Settings:
     def search_api_key(self) -> str:
         name = self.search_key_name
         return (self.search_keys.get(name) or _env_str(name)) if name else ""
+
+    @property
+    def search_key_source(self) -> str:
+        """"own", wenn die Suchmaschine mit dem Schluessel des Kontos laeuft."""
+        name = self.search_key_name
+        if name and name in self.own_key_names and self.search_keys.get(name):
+            return "own"
+        return "operator"
 
     def llm_kwargs(self) -> dict[str, object]:
         """Zusatzargumente fuer `litellm.completion` mit dem Hauptmodell."""
@@ -486,11 +604,35 @@ class Settings:
         abgeschnitten -- das Modell "vergisst" dann die letzte Frage.
         """
         kwargs: dict[str, object] = {}
-        if provider_of(model) == provider_of(self.model):
-            if self.api_base and base_fits(self.api_base, model):
-                kwargs["api_base"] = self.api_base
-            if self.api_key:
-                kwargs["api_key"] = self.api_key
+        gleich = provider_of(model) == provider_of(self.api_base_for or self.model)
+        # Die eingetragene Adresse -- und ob das KONTO sie eingetragen hat
+        # (nur Pro). Dann ist sie fremd fuer alles, was dem Betreiber gehoert.
+        adresse, adresse_des_kontos = self.route(model)
+        if self.key_source(model) == "own":
+            # Ein eigener Schluessel des Kontos (9.5.14 Seashell): fuer JEDES
+            # Modell dieses Anbieters, nicht nur fuers Hauptmodell -- sonst
+            # holte sich LiteLLM fuer Agenten und Bildmodell den Schluessel
+            # des Betreibers aus der Umgebung. Er geht nur an den Anbieter
+            # selbst oder an eine Adresse, die das Konto selbst eingetragen
+            # hat -- nie an eine des Betreibers (dann ist das Modell gestellt,
+            # siehe key_source).
+            kwargs["api_key"] = self.key_for(model)
+            if adresse_des_kontos:
+                kwargs["api_base"] = adresse
+        elif adresse_des_kontos:
+            # Umgekehrt: an eine Adresse, die ein Konto selbst eingetragen hat,
+            # geht NIE ein Schluessel des Betreibers -- auch nicht ueber die
+            # Umgebung, aus der LiteLLM ihn sich sonst selbst holen wuerde.
+            # Bis 9.5.14 konnte ein Pro-Konto so die Schluessel des Servers an
+            # einen eigenen Rechner umleiten.
+            kwargs["api_base"] = adresse
+            kwargs["api_key"] = NO_KEY
+        elif gleich:
+            if adresse:
+                kwargs["api_base"] = adresse
+            schluessel = self.key_for(model)
+            if schluessel:
+                kwargs["api_key"] = schluessel
         if provider_of(model) in ("ollama", "ollama_chat") and self.context_tokens > 0:
             kwargs["num_ctx"] = self.context_tokens
         return kwargs

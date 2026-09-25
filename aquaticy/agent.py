@@ -29,6 +29,7 @@ from aquaticy.guardrails import (
     rules_prompt,
 )
 from aquaticy.models import Product
+from aquaticy.pace import key_of as pace_key_of
 from aquaticy.pace import paced
 from aquaticy.storage import normalize_access as storage_access
 from aquaticy.tools import (
@@ -2082,7 +2083,7 @@ class Agent:
         litellm.suppress_debug_info = True
         # Durch den Taktgeber: der Anbieter hat ein Mass, und das haelt Aquaticy
         # ein, statt es auszureizen und die Fehler zu wiederholen.
-        with paced(self.active_model):
+        with paced(self.active_model, pace_key_of(self.settings, self.active_model)):
             response = litellm.completion(
                 model=self.active_model,
                 messages=messages,
@@ -2326,7 +2327,10 @@ class Agent:
             # nur vor der Anfrage -- sonst liefe ein Lauf mit vielen Agenten
             # weit darueber hinaus (aquaticy/metering.py).
             try:
-                metering.check(self.settings)
+                # Mit eigenem Schluessel des Kontos kostet die Runde das
+                # Kontingent nichts -- dann laeuft sie auch am Limit weiter;
+                # nur die Serverarbeit (Werkstatt, Abrufe) wird abgelehnt.
+                metering.check(self.settings, model=self.active_model)
             except metering.QuotaExceeded as exc:
                 result.error = str(exc)
                 result.answer = str(exc)
@@ -2733,7 +2737,7 @@ class Agent:
         # Sicherheitsnetz gegen kaputte Tool-Argumente gehoert auch hierher.
         sanitize_history(self.messages)
         try:
-            with paced(self.active_model):
+            with paced(self.active_model, pace_key_of(self.settings, self.active_model)):
                 response = litellm.completion(
                     model=self.active_model,
                     messages=self.messages,
@@ -2946,7 +2950,8 @@ class Agent:
 
         kwargs = self.settings.llm_kwargs_for(self.settings.effective_vision_model)
         try:
-            with paced(self.settings.effective_vision_model):
+            with paced(self.settings.effective_vision_model,
+                       pace_key_of(self.settings, self.settings.effective_vision_model)):
                 response = metering.completion(
                     self.settings,
                     model=self.settings.effective_vision_model,
@@ -2987,7 +2992,7 @@ class Agent:
         )
         kwargs = self.settings.llm_kwargs_for(model)
         try:
-            with paced(model):
+            with paced(model, pace_key_of(self.settings, model)):
                 response = metering.completion(
                     self.settings,
                     model=model,
@@ -3009,7 +3014,7 @@ class Agent:
 
         litellm.suppress_debug_info = True
         try:
-            with paced(self.active_model):
+            with paced(self.active_model, pace_key_of(self.settings, self.active_model)):
                 response = metering.completion(
                     self.settings,
                     model=self.active_model,

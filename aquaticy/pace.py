@@ -108,19 +108,28 @@ def limits_for(provider: str) -> tuple[int, int]:
     return (_env_int("AQUATICY_RPM") or rpm, _env_int("AQUATICY_PARALLEL_CALLS") or parallel)
 
 
-def gate_for(model: str) -> Gate:
-    """Der Taktgeber fuer das Modell -- oder einer, der nichts tut."""
+def gate_for(model: str, key: str = "") -> Gate:
+    """Der Taktgeber fuer das Modell -- oder einer, der nichts tut.
+
+    Args:
+        key: Wessen Schluessel (seit 9.5.14 Seashell, ``Settings.pace_key``).
+            Die Grenzen der Anbieter gelten je Schluessel: wer mit eigenem
+            Schluessel arbeitet, hat seinen eigenen Takt und bremst niemanden
+            aus. Leer = der gestellte Schluessel des Betreibers. Im Namen
+            steht nur ein Hash, nie der Schluessel.
+    """
     from aquaticy.config import provider_of
 
     provider = provider_of(model or "")
     rpm, parallel = limits_for(provider)
     if not rpm and not parallel:
         return FREE
+    name = f"{provider}|{key}" if key else provider
     with _lock:
-        gate = _gates.get(provider)
+        gate = _gates.get(name)
         if gate is None or (gate.rpm, gate.parallel) != (rpm, parallel):
             gate = Gate(rpm, parallel)
-            _gates[provider] = gate
+            _gates[name] = gate
         return gate
 
 
@@ -130,8 +139,28 @@ def forget_gates() -> None:
         _gates.clear()
 
 
+def own_gate(api_key: str) -> str:
+    """Der Taktname fuer einen EIGENEN Schluessel -- nur ein Hash, nie der Schluessel.
+
+    Ueberall gleich gebildet (Betrieb, Verbindungstest, Schluesseltest): ein
+    Schluessel, ein Takt. Leer bei leerem Schluessel.
+    """
+    import hashlib
+
+    return "own:" + hashlib.sha256(api_key.encode("utf-8")).hexdigest()[:16] if api_key else ""
+
+
+def key_of(settings: object, model: str) -> str:
+    """``settings.pace_key(model)`` -- und "" fuer alles, was keinen kennt (Tests, alt)."""
+    eigen = getattr(settings, "pace_key", None)
+    try:
+        return str(eigen(model)) if callable(eigen) else ""
+    except Exception:
+        return ""
+
+
 @contextmanager
-def paced(model: str) -> Iterator[None]:
-    """Kurzform: ``with paced(model): litellm.completion(...)``."""
-    with gate_for(model).slot():
+def paced(model: str, key: str = "") -> Iterator[None]:
+    """Kurzform: ``with paced(model, settings.pace_key(model)): litellm.completion(...)``."""
+    with gate_for(model, key).slot():
         yield
