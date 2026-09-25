@@ -225,6 +225,15 @@ def _runs(binary: str, *args: str, timeout: float = 8.0) -> subprocess.Completed
     )
 
 
+#: Befehle, die ueber der Grenze noch laufen duerfen -- einzeln, ohne Verkettung.
+_CLEANUP_RE = re.compile(r"^\s*(rm|rmdir|truncate|du|ls|df)(\s[^;&|`$<>(){}\n]*)?$")
+
+
+def cleanup_command(command: str) -> bool:
+    """Ist das ein reiner Aufraeumbefehl -- ohne Verkettung, Umleitung oder Ersetzung?"""
+    return bool(_CLEANUP_RE.fullmatch(command or ""))
+
+
 def _runs_capped(
     binary: str, *args: str, timeout: float = 8.0
 ) -> subprocess.CompletedProcess[str]:
@@ -491,6 +500,9 @@ class Sandbox:
         self._lock = threading.RLock()
         self._timer: threading.Timer | None = None
         self._quota_warned = False
+        #: Ueber der Grenze (nur wo die Laufzeit keine Quote kann): dann laufen
+        #: nur noch Aufraeumbefehle (seit 9.5.15).
+        self._over_quota = False
         #: Kann die Laufzeit eine Platzquote? Wird beim ersten Start geklaert.
         self._quota_ok = True
         #: Wann zuletzt nachgemessen wurde (nur ohne Quote noetig).
@@ -889,8 +901,25 @@ class Sandbox:
         name = self.ensure()
         runtime = self.runtime
         assert runtime is not None
+        if self._over_quota and not cleanup_command(command):
+            # Hart (9.5.15): ueber der Grenze laeuft nur noch Aufraeumen.
+            return RunResult(
+                exit_code=125, stdout="",
+                stderr=(f"[Werkstatt] Voll: mehr als {self.disk_gb} GB belegt. Erst aufräumen "
+                        "-- erlaubt sind jetzt nur rm, rmdir, truncate, du, ls und df, "
+                        "jeweils einzeln."),
+                seconds=0.0,
+            )
         self._emit("vm_run", command=command[:200])
         started = time.monotonic()
+        # Kann die Laufzeit keine echte Quote, wacht ein Aufpasser waehrend des
+        # Befehls: ueber der Grenze wird er abgebrochen, nicht erst hinterher
+        # gewarnt (bis 9.5.14).
+        stop = threading.Event()
+        waechter = None
+        if not self._quota_ok:
+            waechter = threading.Thread(target=self._watch_disk, args=(stop,), daemon=True)
+            waechter.start()
         try:
             done = _runs_capped(
                 runtime.binary,
@@ -919,32 +948,52 @@ class Sandbox:
                 seconds=time.monotonic() - started,
                 timed_out=True,
             )
+        finally:
+            stop.set()
+            if waechter is not None:
+                waechter.join(timeout=5)
         self.touch()
         self._check_quota(result)
         self._emit("vm_done", exit_code=result.exit_code, seconds=round(result.seconds, 2))
         return result
 
-    def _check_quota(self, result: RunResult) -> None:
-        """Misst den Platz nach, wo die Laufzeit keine Quote kann.
+    def _refuse_if_full(self) -> None:
+        """Ueber der Grenze wird nichts mehr hineingeschrieben (9.5.15)."""
+        if self._over_quota:
+            raise ValueError(f"Die Werkstatt ist voll (mehr als {self.disk_gb} GB) -- "
+                             "erst aufräumen.")
 
-        Nicht nach jedem Befehl: `du` kostet einen Prozessstart, und in
-        dreissig Sekunden laeuft an einem Kern keine Platte voll.
+    #: So oft misst der Aufpasser waehrend eines Befehls (Sekunden).
+    WATCH_SECONDS = 3.0
+
+    def _watch_disk(self, stop: threading.Event) -> None:
+        """Misst waehrend eines Befehls -- ueber der Grenze wird abgebrochen."""
+        while not stop.wait(self.WATCH_SECONDS):
+            if self.usage_gb() > self.disk_gb:
+                self._over_quota = True
+                self._kill_processes()
+                return
+
+    def _check_quota(self, result: RunResult) -> None:
+        """Misst den Platz nach jedem Befehl, wo die Laufzeit keine Quote kann.
+
+        Ueber der Grenze ist die Werkstatt gesperrt -- bis aufgeraeumt ist,
+        laufen nur noch Aufraeumbefehle (``cleanup_command``). Bis 9.5.14 gab
+        es hier nur eine Warnung.
         """
         if self._quota_ok:
             return
-        jetzt = time.monotonic()
-        if jetzt - self._last_quota_check < 30 and not self._quota_warned:
-            return
-        self._last_quota_check = jetzt
+        self._last_quota_check = time.monotonic()
         voll = self.usage_gb()
         if voll <= self.disk_gb:
+            self._over_quota = False
             self._quota_warned = False
             return
-        if not self._quota_warned:
-            self._quota_warned = True
+        self._over_quota = True
+        self._quota_warned = True
         result.stderr = (
-            f"[Werkstatt] {voll} GB belegt, erlaubt sind {self.disk_gb} GB. "
-            "Raeum auf (rm), bevor du weiterschreibst.\n" + result.stderr
+            f"[Werkstatt] {voll} GB belegt, erlaubt sind {self.disk_gb} GB. Der Befehl wurde "
+            "abgebrochen bzw. ist gesperrt, bis aufgeräumt ist (rm, einzeln).\n" + result.stderr
         )
 
     def _kill_processes(self) -> None:
@@ -977,6 +1026,7 @@ class Sandbox:
         name = self.ensure()
         runtime = self.runtime
         assert runtime is not None
+        self._refuse_if_full()
         data = (text or "").encode("utf-8")
         if len(data) > 4 * 1024 * 1024:
             raise ValueError("Die Datei ist zu gross fuer den Weg durch das Werkzeug (4 MB).")
@@ -1034,6 +1084,7 @@ class Sandbox:
                 f"({MAX_FILE_BYTES // (1024 * 1024)} MB sind das Hoechste)."
             )
         name = self.ensure()
+        self._refuse_if_full()
         runtime = self.runtime
         assert runtime is not None
         parent = full.rsplit("/", 1)[0] or WORKDIR

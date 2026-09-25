@@ -5,15 +5,19 @@ Bewusst klein gehalten -- zwei Tabellen, keine ORM-Schicht.
 
 from __future__ import annotations
 
+import contextlib
 import hashlib
 import json
 import sqlite3
+import threading
 import time
 from collections.abc import Iterator
 from contextlib import closing, contextmanager
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
+
+from aquaticy.media import KEEP_MARK, delete_snapshot, media_ids_in
 
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS cache (
@@ -107,6 +111,12 @@ class HistoryEntry:
     meta: dict[str, Any]
 
 
+#: Wie oft Abgelaufenes weggeraeumt wird (je Datenbank).
+PURGE_EVERY = 600.0
+_LAST_PURGE: dict[str, float] = {}
+_PURGE_LOCK = threading.Lock()
+
+
 class Cache:
     """Schmaler Wrapper um eine SQLite-Datei."""
 
@@ -116,6 +126,22 @@ class Cache:
         self.db_path.parent.mkdir(parents=True, exist_ok=True)
         with self._connect() as conn:
             conn.executescript(SCHEMA)
+        self._maybe_purge()
+
+    def _maybe_purge(self) -> None:
+        """Raeumt Abgelaufenes weg -- hoechstens alle zehn Minuten je Datei (9.5.15).
+
+        ``purge_expired`` gab es schon, nur rief es niemand regelmaessig auf:
+        abgelaufene Eintraege blieben liegen, bis jemand genau sie las.
+        """
+        jetzt = time.monotonic()
+        schluessel = str(self.db_path)
+        with _PURGE_LOCK:
+            if _LAST_PURGE.get(schluessel, -PURGE_EVERY) + PURGE_EVERY > jetzt:
+                return
+            _LAST_PURGE[schluessel] = jetzt
+        with contextlib.suppress(sqlite3.Error):
+            self.purge_expired()
 
     @contextmanager
     def _connect(self) -> Iterator[sqlite3.Connection]:
@@ -158,6 +184,14 @@ class Cache:
         now = time.time()
         ttl_seconds = self.ttl_seconds if ttl is None else max(0, ttl)
         payload = json.dumps(value, ensure_ascii=False)
+        # Der Zwischenspeicher zaehlt zum 400-MB-Deckel (aquaticy/budget.py).
+        # Ist kein Platz, wird eben nicht zwischengespeichert -- das kostet
+        # nur einen spaeteren zweiten Abruf, nie eine Antwort.
+        from aquaticy.budget import has_room
+
+        self._maybe_purge()
+        if not has_room(self.db_path.parent, len(payload.encode("utf-8"))):
+            return
         with self._connect() as conn:
             conn.execute(
                 "INSERT OR REPLACE INTO cache (key, kind, label, payload, created_at, expires_at)"
@@ -197,6 +231,15 @@ class Cache:
         answer: str,
         meta: dict[str, Any] | None = None,
     ) -> int:
+        """Legt einen Austausch ab.
+
+        Raises:
+            StorageFull: Das Profil hat seine 400 MB erreicht (aquaticy/budget.py).
+        """
+        from aquaticy.budget import ensure_room
+
+        daten = json.dumps(meta or {}, ensure_ascii=False)
+        ensure_room(self.db_path.parent, len(question) + len(answer) + len(daten))
         with self._connect() as conn, closing(conn.cursor()) as cur:
             cur.execute(
                 "INSERT INTO history (session_id, created_at, question, answer, meta)"
@@ -206,7 +249,7 @@ class Cache:
                     time.time(),
                     question,
                     answer,
-                    json.dumps(meta or {}, ensure_ascii=False),
+                    daten,
                 ),
             )
             return int(cur.lastrowid or 0)
@@ -399,10 +442,21 @@ class Cache:
         if not session_id:
             return 0
         with self._connect() as conn, closing(conn.cursor()) as cur:
+            # Die KI-Bilder und Momentaufnahmen dieses Chats gehen mit ihm
+            # (9.5.15) -- bis 9.5.14 blieben die Dateien liegen. Bilder von
+            # Auftraegen ("fest") gehoeren dem Auftrag und bleiben.
+            cur.execute("SELECT meta FROM history WHERE session_id = ?", (session_id,))
+            bilder: set[str] = set()
+            for zeile in cur.fetchall():
+                with contextlib.suppress(json.JSONDecodeError, TypeError):
+                    bilder |= media_ids_in(json.loads(zeile["meta"] or "{}"))
             cur.execute("DELETE FROM history WHERE session_id = ?", (session_id,))
             removed = cur.rowcount
             cur.execute("DELETE FROM chat_titles WHERE session_id = ?", (session_id,))
             conn.commit()
+        for media_id in bilder:
+            if KEEP_MARK not in media_id:
+                delete_snapshot(self.db_path.parent, media_id)
         return max(0, removed)
 
     def chat_history(self, session_id: str, limit: int = 100) -> list[HistoryEntry]:

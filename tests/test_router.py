@@ -302,7 +302,9 @@ def test_the_image_tool_saves_a_labelled_ai_image(settings: Settings,
     assert bild["caption"] == "a lighthouse"
     datei = snapshot_path(settings.data_dir, bild["media_id"])
     assert datei is not None and datei.read_bytes() == PNG
-    assert "-fest" in bild["media_id"], "erstellte Bilder werden nicht weggeraeumt"
+    # Seit 9.5.15 ein KI-Bild: es gehoert zu seinem Chat und geht mit ihm --
+    # nicht mehr "fest" fuer immer.
+    assert bild["media_id"].endswith("-ki.png"), "als KI-Bild abgelegt"
 
 
 def test_no_image_tool_without_a_provider(settings: Settings,

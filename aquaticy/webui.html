@@ -1193,9 +1193,10 @@ input:focus,select:focus{border-color:var(--accent)}
                minlength="2" maxlength="40"></label>
       <label><span class="lbl">E-Mail-Adresse</span>
         <input type="email" id="auth-email" required autocomplete="email" maxlength="254"></label>
-      <label><span class="lbl">Passwort <span class="why">mindestens 7 Zeichen</span></span>
+      <label><span class="lbl">Passwort <span class="why" id="auth-password-hint">mindestens
+          12 Zeichen</span></span>
         <input type="password" id="auth-password" required autocomplete="new-password"
-               minlength="7" maxlength="128"></label>
+               minlength="12" maxlength="128"></label>
       <label id="pro-code-row" hidden><span class="lbl">9-stelliger Pro-Code</span>
         <input type="password" id="auth-pro-code" inputmode="text" maxlength="9"
                autocomplete="one-time-code"></label>
@@ -2014,7 +2015,7 @@ input:focus,select:focus{border-color:var(--accent)}
 const $ = (s) => document.querySelector(s);
 const thread = $("#thread"), main = $("#main"), input = $("#input"), send = $("#send");
 let busy = false;
-const aquaticyVersion = window.__AQUATICY_VERSION__ || "9.5.14 Seashell";
+const aquaticyVersion = window.__AQUATICY_VERSION__ || "9.5.15 Seashell";
 $("#version").textContent = "v" + aquaticyVersion;
 document.title = `Aquaticy AI ${aquaticyVersion}`;
 
@@ -2284,6 +2285,10 @@ function setAuthMode(mode){
     ? "Erstelle dein Konto. Danach gehören Chats und Einstellungen nur dir."
     : "Melde dich an, um deine Chats und Einstellungen auf diesem Gerät zu öffnen.";
   $("#auth-password").autocomplete = registering ? "new-password" : "current-password";
+  // Neue Passwoerter: mindestens 12 Zeichen (9.5.15). Beim Anmelden gilt das
+  // nicht -- aeltere Konten haben noch kuerzere, und die bleiben gueltig.
+  $("#auth-password").minLength = registering ? 12 : 1;
+  $("#auth-password-hint").hidden = !registering;
   $("#auth-error").textContent = "";
   showProCode();
 }
@@ -3241,7 +3246,9 @@ async function wiederAufnehmen(){
   setBusy(true);
   await verfolge(() => {
     running = new AbortController();
-    return api("/api/run?since=0", { signal: running.signal });
+    // Genau dieser Lauf (9.5.15) -- nicht "der letzte", der inzwischen ein anderer sein kann.
+    return api("/api/run?since=0&id=" + encodeURIComponent(stand.id || ""),
+               { signal: running.signal });
   }, steps, bubble, stand.question || "");
 }
 
@@ -5238,6 +5245,7 @@ function showGoogle(state){
   }
 }
 
+let googleState = "";
 $("#google-connect").addEventListener("click", async () => {
   const data = await googleCall({
     action:"start", client_id: form.elements["__GOOGLE_ID__"].value.trim(),
@@ -5250,6 +5258,9 @@ $("#google-connect").addEventListener("click", async () => {
     note.textContent = data ? data.error : "Keine Antwort vom Server.";
     return;
   }
+  // Der einmalige state dieser Anmeldung (9.5.15) -- nur fuer den Fall, dass
+  // jemand nur den Code statt der ganzen Adresse einfuegt.
+  googleState = data.state || "";
   $("#google-link").href = data.url;
   $("#google-redirect").textContent = data.redirect;
   $("#google-step").hidden = false;
@@ -5261,7 +5272,8 @@ $("#google-connect").addEventListener("click", async () => {
 $("#google-save").addEventListener("click", async () => {
   const note = $("#google-state");
   note.className = "note"; note.textContent = "Löse den Code ein …";
-  const data = await googleCall({ action:"finish", code: $("#google-code").value.trim() });
+  const data = await googleCall({ action:"finish", code: $("#google-code").value.trim(),
+                                  state: googleState });
   if (!data || !data.ok){
     note.className = "note bad";
     note.textContent = data ? data.error : "Keine Antwort vom Server.";

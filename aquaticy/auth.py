@@ -60,6 +60,28 @@ def _secret_hash(value: str, pepper: bytes) -> str:
     return hmac.new(pepper, value.encode("utf-8"), hashlib.sha256).hexdigest()
 
 
+#: Wie streng eine Sitzung an die Adresse gebunden ist (AQUATICY_SESSION_IP):
+#: "netz" (Standard): dasselbe /16-Netz bei IPv4, dasselbe /48 bei IPv6;
+#: "genau": dieselbe Adresse; "aus": gar nicht.
+SESSION_IP_MODE = (os.environ.get("AQUATICY_SESSION_IP", "netz").strip().lower() or "netz")
+
+
+def ip_scope(ip: str) -> str:
+    """Das, woran eine Sitzung haengt: das Netz der Adresse (oder die Adresse)."""
+    import ipaddress
+
+    try:
+        adresse = ipaddress.ip_address(str(ip or "").split("%", 1)[0])
+    except ValueError:
+        return str(ip or "")
+    if isinstance(adresse, ipaddress.IPv6Address) and adresse.ipv4_mapped is not None:
+        adresse = adresse.ipv4_mapped
+    if SESSION_IP_MODE == "genau":
+        return str(adresse)
+    praefix = 16 if adresse.version == 4 else 48
+    return str(ipaddress.ip_network(f"{adresse}/{praefix}", strict=False))
+
+
 def normalize_email(email: str) -> str:
     value = (email or "").strip().lower()
     if len(value) > 254 or not EMAIL_RE.fullmatch(value):
@@ -67,9 +89,14 @@ def normalize_email(email: str) -> str:
     return value
 
 
+#: Mindestlaenge neuer Passwoerter (seit 9.5.15; vorher 7). Bestehende
+#: Passwoerter bleiben gueltig -- die Grenze gilt beim Anlegen.
+MIN_PASSWORD = 12
+
+
 def validate_password(password: str) -> None:
-    if len(password) < 7:
-        raise ValueError("Das Passwort braucht mindestens 7 Zeichen.")
+    if len(password) < MIN_PASSWORD:
+        raise ValueError(f"Das Passwort braucht mindestens {MIN_PASSWORD} Zeichen.")
     if len(password) > 128:
         raise ValueError("Das Passwort darf höchstens 128 Zeichen lang sein.")
 
@@ -158,9 +185,15 @@ class RateLimiter:
         self._events: dict[str, deque[float]] = defaultdict(deque)
         self._lock = threading.Lock()
 
+    #: Ab so vielen Eintraegen wird aufgeraeumt (seit 9.5.15). Bis dahin blieb
+    #: fuer jede Adresse, die je angefragt hatte, ein Eintrag fuer immer liegen.
+    SWEEP_AT = 10_000
+
     def allow(self, key: str) -> bool:
         now = time.monotonic()
         with self._lock:
+            if len(self._events) >= self.SWEEP_AT:
+                self._sweep(now)
             events = self._events[key]
             while events and now - events[0] >= self.window:
                 events.popleft()
@@ -168,6 +201,14 @@ class RateLimiter:
                 return False
             events.append(now)
             return True
+
+    def _sweep(self, now: float) -> None:
+        """Wirft alle Eintraege weg, deren letzte Anfrage aus dem Fenster ist."""
+        for key in [k for k, ev in self._events.items() if not ev or now - ev[-1] >= self.window]:
+            self._events.pop(key, None)
+
+    def __len__(self) -> int:
+        return len(self._events)
 
 
 class AuthStore:
@@ -348,23 +389,40 @@ class AuthStore:
                     _secret_hash(token, self._pepper),
                     account.id,
                     _secret_hash(device, self._pepper),
-                    _secret_hash(ip, self._pepper),
+                    # Das Netz, nicht die genaue Adresse (siehe session_account).
+                    _secret_hash(ip_scope(ip), self._pepper),
                     now,
                     now + SESSION_DAYS * 86400,
                 ),
             )
         return token
 
-    def session_account(self, token: str, device: str) -> Account | None:
+    def session_account(self, token: str, device: str, ip: str | None = None) -> Account | None:
+        """Das Konto zu einem Sitzungskeks.
+
+        Args:
+            ip: Die Adresse der Anfrage. Seit 9.5.15 wird sie geprueft -- nicht
+                genau, sondern ihr Netz (``ip_scope``): ein gestohlener Keks
+                gilt aus einem fremden Netz nicht, ein Handy, das im selben
+                Netz die Adresse wechselt, bleibt angemeldet. ``None`` nur fuer
+                interne Aufrufe ohne Anfrage.
+        """
         if not token:
             return None
         now = time.time()
         with self._connect() as conn:
             row = conn.execute(
-                "SELECT users.* FROM sessions JOIN users ON users.id=sessions.user_id "
+                "SELECT users.*, sessions.ip_hash AS _ip FROM sessions "
+                "JOIN users ON users.id=sessions.user_id "
                 "WHERE token_hash=? AND device_hash=? AND expires_at>=?",
                 (_secret_hash(token, self._pepper), _secret_hash(device, self._pepper), now),
             ).fetchone()
+        if row is None:
+            return None
+        if ip is not None and SESSION_IP_MODE != "aus":
+            erwartet = str(row["_ip"] or "")
+            if not hmac.compare_digest(erwartet, _secret_hash(ip_scope(ip), self._pepper)):
+                return None
         return self._account(row)
 
     def logout(self, token: str) -> None:

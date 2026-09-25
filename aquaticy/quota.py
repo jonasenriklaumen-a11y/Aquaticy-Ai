@@ -209,6 +209,77 @@ class Quota:
                 (self.account_id, now - KEEP_SECONDS),
             )
 
+    # -- Reservieren (seit 9.5.15) ------------------------------------------------
+    def reserve(self, tokens: int, model: str = "", now: float | None = None) -> int:
+        """Prueft und bucht in EINER Transaktion -- Returns: die Nummer der Buchung.
+
+        Bis 9.5.14 wurde erst geprueft und nach dem Aufruf gebucht. Zwanzig
+        Agenten, die gleichzeitig pruefen, sahen alle "noch frei" -- und
+        zusammen ueberzogen sie das Limit weit. Jetzt sperrt ``BEGIN
+        IMMEDIATE`` die Datenbank fuer die Dauer von Pruefen und Eintragen,
+        auch ueber Prozessgrenzen hinweg. Reserviert wird hoechstens, was noch
+        frei ist; nach dem Aufruf verrechnet ``settle`` die echten Zahlen.
+
+        Raises:
+            QuotaExceeded: Sitzung oder Woche geben nichts mehr her.
+        """
+        bedarf = max(1, int(tokens or 0))
+        now = time.time() if now is None else now
+        woche_anfang, _ = week_window(self.created_at, now)
+        with self._lock:
+            self.db_path.parent.mkdir(parents=True, exist_ok=True)
+            conn = sqlite3.connect(self.db_path, timeout=30, isolation_level=None)
+            conn.row_factory = sqlite3.Row
+            try:
+                conn.execute("BEGIN IMMEDIATE")
+                start = self._session_start(conn, now)
+                if start is None:
+                    start = now
+                    conn.execute(
+                        "INSERT INTO token_sessions (account_id, started_at) VALUES (?, ?) "
+                        "ON CONFLICT(account_id) DO UPDATE SET started_at = excluded.started_at",
+                        (self.account_id, start),
+                    )
+                frei = min(SESSION_TOKENS - self._sum(conn, start),
+                           WEEK_TOKENS - self._sum(conn, woche_anfang))
+                zeile = None
+                if frei <= 0:
+                    conn.execute("ROLLBACK")
+                else:
+                    zeile = conn.execute(
+                        "INSERT INTO token_usage (account_id, at, tokens, model) "
+                        "VALUES (?, ?, ?, ?)",
+                        (self.account_id, now, min(bedarf, frei),
+                         ("reserviert:" + str(model or ""))[:120]),
+                    )
+                    conn.execute("COMMIT")
+            except BaseException:
+                if conn.in_transaction:
+                    conn.execute("ROLLBACK")
+                raise
+            finally:
+                conn.close()
+        if zeile is None:
+            # Ausserhalb der Sperre: check() liest selbst und wirft mit dem
+            # passenden Satz (Sitzung oder Woche, wann es weitergeht).
+            self.check(1, now)
+            raise QuotaExceeded("Dein Kontingent ist aufgebraucht.", "session")
+        return int(zeile.lastrowid or 0)
+
+    def settle(self, reservation: int, tokens: int, model: str = "") -> None:
+        """Ersetzt eine Reservierung durch den echten Verbrauch (0 = freigeben)."""
+        tokens = max(0, int(tokens or 0))
+        with self._lock, self._connect() as conn:
+            if tokens <= 0:
+                conn.execute("DELETE FROM token_usage WHERE rowid = ? AND account_id = ?",
+                             (int(reservation), self.account_id))
+            else:
+                conn.execute(
+                    "UPDATE token_usage SET tokens = ?, model = ? WHERE rowid = ? "
+                    "AND account_id = ?",
+                    (tokens, str(model or "")[:120], int(reservation), self.account_id),
+                )
+
     # -- Stand ----------------------------------------------------------------
     def status(self, now: float | None = None) -> dict[str, Any]:
         """Der Stand in Prozent und Uhrzeiten -- das, was der Browser zeigt.

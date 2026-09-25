@@ -170,7 +170,11 @@ def _warte() -> None:
 
 
 def _client(user_agent: str, timeout: float) -> httpx.Client:
-    return httpx.Client(
+    # Feste, oeffentliche Dienste -- und trotzdem dieselbe Netzregel: auch eine
+    # Weiterleitung von dort fuehrt nie ins interne Netz (aquaticy/netguard.py).
+    from aquaticy import netguard
+
+    return netguard.guarded_client(
         headers={"User-Agent": user_agent, "Accept": "application/json"},
         timeout=timeout,
         follow_redirects=True,

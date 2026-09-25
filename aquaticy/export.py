@@ -5,12 +5,14 @@ from __future__ import annotations
 import csv
 import html
 import re
+from collections.abc import Sequence
 from dataclasses import dataclass, field
 from datetime import datetime
 from pathlib import Path
 
 import httpx
 
+from aquaticy import netguard
 from aquaticy.models import Product
 
 FORMATS = ("html", "md", "csv")
@@ -34,11 +36,41 @@ def _slug(text: str, limit: int = 40) -> str:
     return (slug[:limit].rstrip("-")) or "recherche"
 
 
+#: Womit eine Zelle nie beginnen darf: Excel und LibreOffice lesen sie sonst als
+#: Formel (``=HYPERLINK(...)``, ``+cmd|...``, ``@SUMME``). Die Inhalte stammen
+#: aus fremden Seiten -- ein Produktname kann genau so gebaut sein (seit 9.5.15).
+FORMULA_START = ("=", "+", "-", "@", "\t", "\r", "\n", "\uff1d", "\uff0b", "\uff0d", "\uff20")
+
+
+def csv_cell(value: object) -> object:
+    """Entschaerft eine Zelle: Text, der wie eine Formel beginnt, bekommt ein ' davor.
+
+    Zahlen bleiben Zahlen -- nur Text kann eine Formel sein.
+    """
+    if isinstance(value, str) and value.lstrip(" ").startswith(FORMULA_START):
+        return "'" + value
+    return value
+
+
+class _SafeCsv:
+    """Ein csv.writer, der jede Zelle entschaerft."""
+
+    def __init__(self, writer: object) -> None:
+        self._writer = writer
+
+    def writerow(self, row: Sequence[object]) -> None:
+        self._writer.writerow([csv_cell(zelle) for zelle in row])  # type: ignore[attr-defined]
+
+
 def default_path(turns: list[Turn], fmt: str, directory: Path) -> Path:
     """Baut einen Dateinamen aus Zeitstempel und erster Frage."""
     stamp = datetime.now().strftime("%Y%m%d-%H%M%S")
     topic = _slug(turns[0].question) if turns else "recherche"
     return directory / f"aquaticy-{stamp}-{topic}.{fmt}"
+
+
+#: Groesser ist kein Produktbild -- der Rest wird nicht erst geladen.
+MAX_IMAGE_BYTES = 8_000_000
 
 
 def download_images(turns: list[Turn], directory: Path, timeout: float = 15.0) -> dict[str, str]:
@@ -49,15 +81,20 @@ def download_images(turns: list[Turn], directory: Path, timeout: float = 15.0) -
     # gleichnamige Produkte aus verschiedenen Turns dieselbe Datei
     # ueberschreiben und auf das falsche Bild zeigen.
     counter = 0
-    with httpx.Client(timeout=timeout, follow_redirects=True) as client:
+    # Bildadressen stammen aus fremden Seiten (JSON-LD, OpenGraph): nur
+    # oeffentliche Ziele, jede Weiterleitung geprueft, Groesse beim Laden
+    # begrenzt (aquaticy/netguard.py, seit 9.5.15).
+    with netguard.image_client(timeout=timeout) as client:
         for turn in turns:
             for product in turn.products:
                 url = product.image_url
                 if not url or url in mapping:
                     continue
                 try:
-                    response = client.get(url)
+                    response = netguard.get(client, url, max_bytes=MAX_IMAGE_BYTES)
                     if response.status_code != 200:
+                        continue
+                    if not response.headers.get("content-type", "").startswith("image/"):
                         continue
                     suffix = Path(httpx.URL(url).path).suffix[:5] or ".jpg"
                     name = f"{_slug(product.name, 30)}-{counter}{suffix}"
@@ -275,7 +312,7 @@ def write_csv(turns: list[Turn], path: Path) -> Path:
         *spec_keys,
     ]
     with path.open("w", encoding="utf-8", newline="") as handle:
-        writer = csv.writer(handle)
+        writer = _SafeCsv(csv.writer(handle))
         if not products:
             # Ohne Produkte exportieren wir die Antworten selbst.
             writer.writerow(["frage", "antwort", "quellen"])

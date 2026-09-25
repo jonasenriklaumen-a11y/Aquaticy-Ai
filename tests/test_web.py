@@ -2221,7 +2221,8 @@ def test_connecting_without_credentials_says_so(client, monkeypatch: pytest.Monk
     monkeypatch.delenv("GOOGLE_CLIENT_ID", raising=False)
     monkeypatch.delenv("GOOGLE_CLIENT_SECRET", raising=False)
     web.SESSION.reload()
-    _, body = client("POST", "/api/google", {"action": "finish", "code": "abc"})
+    _, body = client("POST", "/api/google", {"action": "finish", "code": "abc",
+                                            "state": web.google_state_new("")})
     data = json.loads(body)
     assert data["ok"] is False
     assert "Client-ID" in data["error"]
@@ -2253,9 +2254,13 @@ def test_the_return_from_google_finishes_the_connection(
     monkeypatch.setattr("aquaticy.google.Google.remember", lambda self, tokens: None)
     monkeypatch.setattr("aquaticy.google.Google.account", lambda self: "jemand@example.com")
 
-    status, body = client("GET", "/google?code=4/0AX")
+    state = json.loads(client("POST", "/api/google", {"action": "start"})[1])["state"]
+    status, body = client("GET", f"/google?code=4/0AX&state={state}")
     assert status == 200
     assert b"jemand@example.com" in body
+    # Derselbe state ein zweites Mal: abgelehnt (9.5.15).
+    status, body = client("GET", f"/google?code=4/0AX&state={state}")
+    assert b"jemand@example.com" not in body and b"keiner Anmeldung" in body
 
 
 def test_a_refusal_at_google_is_shown_not_swallowed(client) -> None:
@@ -3832,7 +3837,8 @@ def test_the_page_picks_a_run_back_up() -> None:
     html = web.UI_FILE.read_text(encoding="utf-8")
     assert "async function wiederAufnehmen()" in html
     assert 'api("/api/runstate")' in html
-    assert 'api("/api/run?since=0"' in html
+    # Genau der Lauf, den runstate nannte (9.5.15) -- nicht "der letzte".
+    assert 'api("/api/run?since=0&id=" + encodeURIComponent(stand.id' in html
     assert "wiederAufnehmen();" in html, "beim Laden wird nachgesehen"
     assert "[Weiter]" in html, "und es steht dran, dass weitergelaufen wurde"
 

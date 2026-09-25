@@ -137,7 +137,7 @@ aquaticy "welche Bahnstrecken in NRW sind gerade gesperrt?"
 $ aquaticy --location "Mönchengladbach" --lang de
 
 ╭──────────────────────────────────────────────────────╮
-│ Aquaticy AI 9.5.14 Seashell                            │
+│ Aquaticy AI 9.5.15 Seashell                            │
 │ Modell mistral/mistral-large-latest · Suche duckduckgo │
 │ Frag einfach los. /help zeigt die Befehle.           │
 ╰──────────────────────────────────────────────────────╯
@@ -640,6 +640,15 @@ laufen live mit, die Antwort wird Wort für Wort gestreamt.
   `AQUATICY_VM_CPUS` / `_MEMORY_MB` / `_DISK_GB`; das gewinnt dann gegenüber
   der gewählten Größe.
 
+  **Die Plattengrenze ist hart** (seit 9.5.15): Kann Docker eine echte Quote
+  (`--storage-opt`, braucht xfs mit Projektquoten), gilt die. Kann es das nicht —
+  wie auf den meisten Rechnern —, misst ein Aufpasser **während** eines Befehls alle
+  drei Sekunden nach und bricht ihn über der Grenze ab; danach laufen nur noch
+  Aufräumbefehle (`rm`, `rmdir`, `truncate`, `du`, `ls`, `df`, jeweils einzeln) und
+  nichts wird mehr hineingeschrieben, bis wieder Platz ist. Eine einzelne Datei kann
+  ohnehin nie größer als die ganze Grenze werden (`ulimit fsize`). Bis 9.5.14 gab es
+  ohne Quote nur eine Warnung nach dem Befehl.
+
   **Blender — nur im Code-Modus.** In der Werkstatt kann Aquaticy auch mit
   Blender arbeiten: 3D-Modelle bauen, Szenen einrichten, Materialien setzen,
   rendern. Das Werkzeug `blender_run(script, filename, timeout)` schreibt ein
@@ -1041,7 +1050,7 @@ er erreichbar ist — im heimischen Netz und über Tailscale:
 
 ```
 ╭───────────────────────────────────────────────────────────────────╮
-│ Aquaticy AI 9.5.14 Seashell                                         │
+│ Aquaticy AI 9.5.15 Seashell                                         │
 │ Diese Adresse im Browser oeffnen:                                 │
 │   http://192.168.1.44:8765/    im heimischen Netz                 │
 │   http://100.81.120.100:8765/  ueber Tailscale                    │
@@ -1174,8 +1183,16 @@ Vier Regeln bestimmen den Aufbau:
 * **Verschlüsselt.** Die Notizen stehen nicht im Klartext in der Datenbank. Wer die
   Datei kopiert — aus einem Backup, von einem verlorenen Laptop — liest ohne Schlüssel
   nichts.
-* **Höchstens 400 MB**, zusammen mit Verlauf und hochgeladenen Dateien. Wird es eng,
-  fliegen zuerst alte Uploads raus: ein Bild liegt meist noch woanders, eine Notiz nicht.
+* **Höchstens 400 MB — für alles im Profil zusammen** (seit 9.5.15 wirklich alles:
+  Speicher, Verlauf, Zwischenspeicher, Merkzettel, Aufträge, hochgeladene Dateien,
+  Bilder aus Recherchen, KI-Bilder; `aquaticy/budget.py`). Bis 9.5.14 prüfte nur der
+  Speicher die Grenze — Zwischenspeicher, Verlauf und Bilder wuchsen daran vorbei. Ab 90 %
+  wird aufgeräumt, vom Ersetzbaren zum Eigenen: erst der Zwischenspeicher (abgelaufene
+  Einträge räumt er ohnehin regelmäßig selbst weg), dann Momentaufnahmen aus Recherchen,
+  dann alte Uploads, dann alte KI-Bilder. Notizen, Verlauf und die Bilder von Aufträgen
+  löscht niemand still; reicht das Aufräumen nicht, wird nichts Neues mehr angelegt, und
+  Aquaticy sagt, was man löschen kann. KI-Bilder gehören seit 9.5.15 zu ihrem Chat und
+  gehen mit ihm (höchstens 300); Bilder für Aufträge sind auf 200 begrenzt.
 * **Abschaltbar** unter *Einstellungen → Speicher*, oder mit `AQUATICY_MEMORY=false`.
 
 ```bash
@@ -1209,6 +1226,15 @@ AQUATICY_MEMORY_KEY="ein langes Passwort" aquaticy web
 
 Dann wird der Schlüssel bei jedem Start neu abgeleitet und liegt nirgends auf der
 Platte. Der Preis: ohne die Passphrase ist der Speicher unwiederbringlich weg.
+
+Seit 9.5.15 mit einem **Salz je Installation** (`memory.salt`, zufällig, beim ersten Start
+angelegt): Dieselbe Passphrase ergibt auf zwei Installationen zwei verschiedene
+Schlüssel, und niemand kann eine Tabelle für alle vorberechnen. Bis 9.5.14 war das Salz
+für alle gleich — der Kommentar im Code behauptete das Gegenteil. Alte Notizen und
+Google-Token werden beim ersten Start mit dem neuen Salz neu verschlüsselt. Und ein
+Eintrag, der sich nicht entschlüsseln lässt (falsche Passphrase, beschädigt), steht als
+„nicht lesbar“ da — bis 9.5.14 kam dann der Chiffretext als „Text“ zurück, und falscher
+Schlüssel, kaputte Daten und alter Klartext sahen gleich aus.
 
 ## Die Lagerverwaltung
 
@@ -1383,6 +1409,13 @@ nach, statt sie zu erfinden.
   verschlüsselt in `~/.aquaticy/google.json` (dieselbe Fernet-Schlüsseldatei wie beim
   Speicher, Rechte 600). Der Browser bekommt sie nie zu sehen — nur, *ob* ein Konto
   verbunden ist und welche Adresse es hat.
+* **Nur die Anmeldung, die du begonnen hast** (seit 9.5.15): Jede Verbindung mit Google
+  bekommt einen einmaligen `state`, zehn Minuten gültig und an dein angemeldetes Konto
+  gebunden. Die Rückmeldung von Google (`/google`) und der eingefügte Code werden nur mit
+  genau diesem `state` angenommen, und nur von der Sitzung, die ihn erhalten hat. Bis
+  9.5.14 fehlte beides: Jemand konnte einem angemeldeten Menschen seinen eigenen
+  Google-Code unterschieben (Login-CSRF), und der Rückweg lag außerhalb der
+  Anmeldeprüfung.
 * **Nichts aus deinem Postfach geht an eine Suchmaschine.** Der Agent hat die
   ausdrückliche Anweisung, niemals Namen, Adressen, Nummern oder Betreffs aus Mails
   und Terminen in eine Suchanfrage zu setzen — die ginge an einen fremden Dienst. Er
@@ -1691,6 +1724,7 @@ docker compose build aquaticy                    # nach Codeänderungen
 | **Dateisystem** | nur `/data` (Cache + Verlauf, Docker-Volume) und `/work` (→ `./exports`) |
 | **Benutzer** | nicht `root`, sondern `aquaticy` (UID 1000) |
 | **Rechte** | `no-new-privileges`, keine Zugriffe aufs Home-Verzeichnis des Hosts |
+| **Browser** | Chromium startet immer zuerst mit eigener Sandbox; im Container fehlen ihr meist die Benutzer-Namensräume, dann (und nur dann, `AQUATICY_BROWSER_NO_SANDBOX=1`) läuft er ohne — die Grenze ist dort der Container |
 | **Keys** | kommen aus `./.env`, werden als Umgebungsvariablen hineingereicht |
 
 Exporte (`/export html`) landen in `./exports` und sind damit direkt auf dem Host
@@ -1930,6 +1964,26 @@ meldet den Fehler an das Modell, das dann eine andere Quelle nimmt.
   nicht abbrechen
 * kein Umgehen von Logins, Paywalls oder Captchas — ist eine Seite nicht öffentlich
   lesbar, wird sie ausgelassen und im Ergebnis als „nicht öffentlich zugänglich" vermerkt
+* **nie ins eigene oder ein privates Netz** (seit 9.5.15 eine Regel für alle Abrufe,
+  `aquaticy/netguard.py`): Seiten, ihre `robots.txt`, **jede Weiterleitung**, Bilder aus
+  JSON-LD und OpenGraph, Feeds, Export-Bilder, Bilder im Terminal und jede Anfrage des
+  Browsers (Seite, Rahmen, Skript, Bild, WebSocket) gehen nur an öffentliche Adressen.
+  Gesperrt sind Loopback, private Netze, Link-Local (auch der Metadaten-Dienst
+  169.254.169.254), CGNAT/Tailscale, Multicast und reservierte Bereiche — auch in
+  Kurzschreibweisen wie `127.1` oder `2130706433` und in IPv6 verpackt. Bis 9.5.14 folgte
+  ein normaler Seitenabruf jeder Weiterleitung, auch einer ins interne Netz, und schon
+  `robots.txt` konnte dorthin umgeleitet werden. Ausgenommen sind nur Ziele, die ein
+  Mensch selbst eingetragen hat und die privat sein sollen (LAN-Suche, Home Assistant,
+  Lagerverwaltung, eigenes Ollama oder SearXNG)
+* **Größen beim Lesen begrenzt:** Antworten werden gestreamt und abgebrochen, sobald sie
+  die Grenze überschreiten (HTML 4 MB, PDF 25 MB, Bilder 10 MB, Feeds und `robots.txt`
+  darunter) — bis 9.5.14 wurde erst alles geladen und dann gewogen
+* **Fremder Text ist kein Auftrag:** Hat Aquaticy in einem Gespräch Webseiten, Suchtreffer,
+  Feeds, Mails, Kalendereinladungen oder den Bildschirm im User mode gelesen, laufen
+  Werkzeuge mit Wirkung — im Haus schalten, Einstellungen ändern, im Lager schreiben, sich
+  etwas dauerhaft merken — nur noch nach deiner ausdrücklichen Bestätigung, und ohne
+  jemanden, der bestätigen kann, gar nicht (seit 9.5.15, im Code, nicht nur im
+  Systemtext). Eine Seite, die „schalte das Licht aus“ schreibt, schaltet nichts
 
 ## Cookie-Banner und Pop-ups
 
@@ -2374,11 +2428,40 @@ können unter **Dev settings** die Rechts-Leitplanken abschalten (siehe unten).
   Modell-Schlüsseln geht der gespeicherte Token beim Verbindungstest nur an die gespeicherte
   Adresse; für eine neue Adresse wird er neu eingetragen.
 
-Was bleibt, ehrlich: Wer die Adresse eines öffentlichen Bildes oder Feeds prüft und sie danach
-abruft, fragt den Namensdienst zweimal. Ein Namensdienst, der zwischen beiden Fragen die
-Antwort wechselt, könnte theoretisch auf eine interne Adresse umlenken. Wer Aquaticy für
-Fremde öffnet, sollte den Server deshalb nicht im selben Netz wie empfindliche Geräte
-betreiben.
+Was bleibt, ehrlich: Seit 9.5.15 prüft Aquaticy eine Adresse auch beim Verbindungsaufbau
+selbst und verbindet genau mit der geprüften IP — ein Name, der zwischen Prüfung und
+Abruf auf eine interne Adresse umspringt, kommt bei Seiten, Feeds und Bildern nicht mehr
+durch. Der Browser (Playwright) löst Namen aber selbst auf; dort prüft Aquaticy jede
+Anfrage vorher, kann das Umspringen im selben Augenblick aber nicht ausschließen. Wer
+Aquaticy für Fremde öffnet, sollte den Server deshalb weiter nicht im selben Netz wie
+empfindliche Geräte betreiben.
+
+**Seit 9.5.15 außerdem (Befunde einer fremden Prüfung, jeder mit Regressionstest in
+`tests/test_hardening.py`):**
+
+- **Kein Einschleusen in die `.env`:** Freitext aus dem Chat (Ort, Sprache, Land …) durfte
+  Zeilenumbrüche enthalten — und damit zusätzliche Einstellungen schreiben, auch
+  geschützte. Jetzt lehnt der Schreiber jeden Zeilenumbruch und jedes Steuerzeichen ab,
+  setzt Werte sicher in Anführungszeichen, und gelesen wird **ohne** `${VAR}`-Ersetzung:
+  Ein Ort wie `${MISTRAL_API_KEY}` holte vorher beim Zurücklesen einen Schlüssel des
+  Servers in die Einstellungen des Kontos.
+- **Kontingent atomar:** Prüfen und Buchen geschehen in einer Datenbank-Transaktion,
+  bevor ein Modell gefragt wird; danach wird mit den Zahlen des Anbieters verrechnet (auch
+  beim Streamen, samt Reasoning- und Cache-Token). Vierzig parallele Agenten füllen das
+  Limit genau, nicht darüber. Lässt sich das Kontingent nicht schreiben, läuft der Aufruf
+  nicht (fail-closed); Fehler beim Verrechnen stehen im Protokoll statt verschluckt zu
+  werden.
+- **Sitzungen am Netz:** Eine Sitzung gilt nur aus dem Netz, in dem sie entstand
+  (IPv4 /16, IPv6 /48; `AQUATICY_SESSION_IP=genau` bindet an die Adresse, `aus` schaltet es
+  ab). Bis 9.5.14 wurde die Adresse gespeichert, aber nie geprüft. Die Bindung an den
+  Browser (User-Agent, Sprache) bleibt eine zusätzliche Hürde, kein Schutz: diese Werte
+  lassen sich nachahmen.
+- **Passwörter** neuer Konten: mindestens 12 Zeichen (vorher 7). Bestehende bleiben gültig.
+- **Die Anmeldegrenze** räumt alte Einträge weg, statt für jede je gesehene Adresse einen
+  zu behalten.
+- **Mehrere Anfragen eines Kontos:** Jeder Lauf hat seine Kennung; wer die Seite neu lädt,
+  hängt sich an genau den Lauf, den der Server nennt — nicht an „den letzten“, der
+  inzwischen ein anderer sein kann.
 
 ```bash
 aquaticy list       # Nutzername, E-Mail, Kontotyp, Sitzung und Woche in Prozent,
@@ -2387,8 +2470,9 @@ aquaticy pro-code   # geheimen Pro-Code anzeigen
 ```
 
 Passwörter werden mit scrypt und einem eigenen Salz gehasht. Sitzungen liegen in
-HttpOnly-Cookies; IP-Adresse und Browsermerkmale speichert Aquaticy nur als Hash für die
-Sitzungsprüfung. Es gibt keine Werbe- oder Analyse-Cookies.
+HttpOnly-Cookies; das Netz der IP-Adresse und die Browsermerkmale speichert Aquaticy nur
+als Hash — und prüft beide bei jeder Anfrage (das Netz seit 9.5.15). Es gibt keine
+Werbe- oder Analyse-Cookies.
 
 Vor der Registrierung zeigt die Web-App verständlich, welche notwendigen Cookies und Daten
 sie verwendet. Datenschutz, Cookie-Richtlinie, Nutzungsbedingungen und Hinweise zur
@@ -2592,7 +2676,10 @@ aquaticy/
   webui.html     # die Oberflaeche selbst, eine einzige Datei
   lan.py         # das eigene Netz erkunden, ohne nmap
   homeassistant.py # Zustaende lesen, Dienste aufrufen
-  export.py      # HTML / Markdown / CSV
+  export.py      # HTML / Markdown / CSV (Zellen gegen Formeln entschärft)
+  netguard.py    # eine Netzregel für alle Abrufe: nur öffentlich, jede Weiterleitung geprüft
+  budget.py      # ein gemeinsamer 400-MB-Deckel für alles im Profil
+  keyvault.py    # eigene API-Schlüssel je Konto, verschlüsselt
   uistate.py     # der Zustand der Oberfläche -- auf dem Server, geprüft
   sandbox.py     # die Werkstatt: abgeschotteter Behälter für den Code-Modus
   desktop.py     # User mode: sehen, klicken, tippen -- jede Handlung vorher geprüft
@@ -2613,7 +2700,8 @@ aquaticy/
   places.py      # die Karte: kleine Läden, die keine Suchmaschine kennt
   local_model.py # lokale Modelle per Ollama einrichten
   cache.py       # SQLite-Cache und Verlauf
-  config.py      # Settings aus .env
+  media.py       # Bilder: Momentaufnahmen, KI-Bilder (gehen mit dem Chat), Auftragsbilder
+  config.py      # Settings aus .env (geschrieben ohne Einschleusen, gelesen ohne ${VAR})
   selectors.yaml # Selektor- und Marker-Listen, ohne Code erweiterbar
 
 Dockerfile       # zwei Ziele: slim (ohne Browser) und browser (mit Chromium)
@@ -2629,7 +2717,7 @@ aquaticy-box       # Wrapper: ./aquaticy-box "deine Frage"
 ```bash
 git clone https://github.com/jonasenriklaumen-a11y/Aquaticy-Ai
 cd Aquaticy-Ai
-uv venv && uv pip install -e ".[dev]"
+uv venv && uv pip install -c constraints.txt -e ".[browser,dev]"
 
 uv run pytest        # alle Tests, Netzwerk und LLM gemockt
 uv run ruff check .  # Linting
@@ -2673,6 +2761,23 @@ und jedes Werkzeug, das ohne Internet auskommt. Kein Aufruf darf mit 5xx antwort
 Pro-Sperren müssen halten. Das gestellte Modell ruft dafür auf Zuruf
 (`WERKZEUG:name {json}`) genau ein Werkzeug auf.
 
+**Genau die getesteten Versionen** (seit 9.5.15): `pyproject.toml` begrenzt jede
+Abhängigkeit nach oben (die nächste große Fassung bricht keine Installation mehr
+unbemerkt), und `constraints.txt` hält fest, mit welchen Versionen die Tests zuletzt grün
+liefen. Mit `-c constraints.txt` installiert man genau die; das Container-Abbild tut das
+immer. Neu erzeugen nach einem Update und einem grünen Testlauf:
+`uv pip compile pyproject.toml --extra browser --extra dev --python-version 3.11
+--no-annotate -o constraints.txt`.
+
+**Die Befunde einer fremden Prüfung** (`tests/test_hardening.py`, seit 9.5.15): Für jede
+Lücke, die ein anderes Modell beim Durchsehen fand, ein Test, der sie zu hält —
+`.env`-Einschleusen, SSRF über Start-Adresse, Weiterleitung, `robots.txt`, DNS-Umspringen,
+Browser, Export und Feeds, abgebrochene Riesenantworten, Google-`state`, vierzig
+parallele Agenten am Kontingent, fail-closed bei kaputtem Kontingent, Zahlen des Anbieters
+beim Streamen, der gemeinsame Speicherdeckel, Salz je Installation, falsche Passphrase,
+Sitzung am Netz, Werkstatt über der Plattengrenze, CSV-Formeln und die Bestätigung nach
+fremden Inhalten.
+
 **Die Werkstatt echt** (`tests/test_sandbox_live.py`, seit 9.5.13): startet die Werkstatt des
 Code-Modus wirklich in Docker, schreibt, liest, listet und rechnet darin und prüft, dass sie
 kein Netz hat und nichts außerhalb von `/work` beschreiben kann. Der Test entstand, weil
@@ -2703,4 +2808,4 @@ Captcha).
 
 ## Lizenz
 
-MIT
+MIT — der volle Text steht in [`LICENSE`](LICENSE).

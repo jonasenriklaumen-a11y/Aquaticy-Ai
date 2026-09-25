@@ -35,9 +35,10 @@ RUN useradd --create-home --uid 1000 aquaticy \
     && chmod 0777 /data /work
 
 WORKDIR /app
-COPY pyproject.toml README.md ./
+COPY pyproject.toml README.md constraints.txt ./
 COPY aquaticy ./aquaticy
-RUN pip install --no-cache-dir .
+# Genau die getesteten Versionen (constraints.txt, seit 9.5.15).
+RUN pip install --no-cache-dir -c constraints.txt .
 
 # ---------------------------------------------------------------------------
 # Ohne Browser -- Cookie-Stufen 1 und 2 reichen fuer die allermeisten Seiten.
@@ -52,14 +53,16 @@ CMD []
 # Mit Chromium fuer den JavaScript-Fallback (Stufe 3).
 FROM base AS browser
 
-RUN pip install --no-cache-dir playwright \
+RUN pip install --no-cache-dir -c constraints.txt playwright \
     && playwright install --with-deps chromium \
     && chmod -R a+rX /browsers \
     && rm -rf /var/lib/apt/lists/* /root/.cache
 
-# Im Container uebernimmt der Container die Isolation, deshalb laeuft
-# Chromium hier ohne seine eigene Sandbox (die im Container ohnehin
-# zusaetzliche Rechte braeuchte). Ausserhalb bleibt sie aktiv.
+# Chromium versucht immer zuerst MIT seiner eigenen Sandbox (seit 9.5.15).
+# Im Container fehlen ihr meist die Benutzer-Namensraeume -- sie zu erlauben
+# hiesse, den Container zu schwaechen. Dann, und nur dann, darf er ohne
+# starten; die Isolation uebernimmt der Container (Benutzer ohne Rechte,
+# siehe README: --cap-drop ALL, no-new-privileges).
 ENV AQUATICY_BROWSER_NO_SANDBOX=1 \
     AQUATICY_ENABLE_PLAYWRIGHT=true
 

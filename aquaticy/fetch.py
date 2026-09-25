@@ -14,9 +14,7 @@ Gesperrte Inhalte (Paywall, Login, Captcha) werden **nie** umgangen.
 
 from __future__ import annotations
 
-import ipaddress
 import re
-import socket
 import threading
 import time
 import urllib.robotparser
@@ -30,6 +28,7 @@ import trafilatura
 import yaml
 from selectolax.parser import HTMLParser
 
+from aquaticy import netguard
 from aquaticy.extract import extract_product, has_spec_heading
 from aquaticy.models import PageResult, domain_of
 
@@ -46,6 +45,8 @@ MAX_PDF_BYTES = 25_000_000
 #: Webcams liefern manchmal Videostreams statt Einzelbilder. Die Bildprüfung
 #: lädt nur überschaubare Standbilder.
 MAX_VISUAL_BYTES = 10_000_000
+#: Eine robots.txt ist ein paar Kilobyte -- mehr wird nicht gelesen.
+ROBOTS_MAX_BYTES = 512_000
 #: Mehr Seiten liest niemand am Stueck; haelt auch pypdf im Zaum.
 MAX_PDF_PAGES = 40
 
@@ -287,8 +288,13 @@ class RobotsPolicy:
         return parser.can_fetch(self._user_agent, url)
 
     def _load(self, origin: str) -> urllib.robotparser.RobotFileParser | None:
+        # Auch robots.txt laeuft ueber die Netzregel (aquaticy/netguard.py):
+        # bis 9.5.14 folgte schon dieser Abruf jeder Weiterleitung -- auch
+        # einer ins interne Netz, noch bevor die Seite selbst geprueft wurde.
         try:
-            response = self._client.get(urljoin(origin, "/robots.txt"), timeout=10)
+            response = netguard.get(self._client, urljoin(origin, "/robots.txt"),
+                                    max_bytes=(lambda _kopf: (ROBOTS_MAX_BYTES, True)),
+                                    timeout=10)
         except httpx.HTTPError:
             return None
         if response.status_code >= 400:
@@ -415,15 +421,24 @@ class PublicVisual:
 
 
 def public_web_url(url: str) -> bool:
-    """Erlaubt nur öffentliche HTTP-Ziele; schützt die Bildsuche vor SSRF."""
-    parsed = urlparse((url or "").strip())
-    if parsed.scheme not in ("http", "https") or not parsed.hostname:
-        return False
-    try:
-        addresses = {item[4][0] for item in socket.getaddrinfo(parsed.hostname, parsed.port)}
-        return bool(addresses) and all(ipaddress.ip_address(value).is_global for value in addresses)
-    except (OSError, ValueError):
-        return False
+    """Erlaubt nur öffentliche HTTP-Ziele -- dieselbe Regel wie überall (netguard)."""
+    return netguard.url_allowed(url)
+
+
+def _page_limit(headers: httpx.Headers) -> tuple[int, bool]:
+    """Wie viel eine Seite haben darf: PDF (und Unbekanntes) ganz oder gar nicht,
+    HTML wird nach MAX_HTML_BYTES abgeschnitten -- mehr liest ohnehin niemand."""
+    art = headers.get("content-type", "").lower()
+    if "pdf" in art or "octet-stream" in art:
+        return MAX_PDF_BYTES, False
+    return MAX_HTML_BYTES, True
+
+
+def _visual_limit(headers: httpx.Headers) -> tuple[int, bool]:
+    art = headers.get("content-type", "").split(";", 1)[0].lower()
+    if art.startswith("image/"):
+        return MAX_VISUAL_BYTES, False
+    return MAX_HTML_BYTES, True
 
 
 class Fetcher:
@@ -444,7 +459,9 @@ class Fetcher:
         self.respect_robots = respect_robots
         self.enable_browser = enable_browser
         # Cookies bleiben nur im Speicher -- nichts landet auf der Platte.
-        self._client = httpx.Client(
+        # Abgesichert (aquaticy/netguard.py): verbunden wird nur mit
+        # oeffentlichen Adressen, jede Anfrage wird vorher geprueft.
+        self._client = netguard.guarded_client(
             headers={
                 "User-Agent": user_agent,
                 "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
@@ -453,8 +470,7 @@ class Fetcher:
                 "Sec-GPC": "1",
             },
             timeout=timeout,
-            follow_redirects=True,
-            max_redirects=5,
+            follow_redirects=False,
         )
         self.robots = RobotsPolicy(self._client, user_agent)
         self.throttle = DomainThrottle(delay_seconds)
@@ -490,6 +506,11 @@ class Fetcher:
             result.skipped_reason = "blocked_by_list"
             return result
 
+        if not netguard.url_allowed(url):
+            # Nie ins eigene oder ein privates Netz (SSRF) -- siehe netguard.
+            result.skipped_reason = "not_public"
+            return result
+
         if self.respect_robots and not self.robots.allows(url):
             result.skipped_reason = "robots_disallowed"
             return result
@@ -497,7 +518,15 @@ class Fetcher:
         self.throttle.wait(domain)
 
         try:
-            response = self._client.get(url)
+            # Jede Weiterleitung wird einzeln geprueft, die Antwort beim Lesen
+            # begrenzt (bis 9.5.14: erst ganz geladen, dann gewogen).
+            response = netguard.get(self._client, url, max_bytes=_page_limit)
+        except netguard.BlockedTarget:
+            result.skipped_reason = "not_public"
+            return result
+        except netguard.TooLarge:
+            result.skipped_reason = "too_large"
+            return result
         except httpx.TimeoutException:
             result.skipped_reason = "timeout"
             return result
@@ -576,11 +605,17 @@ class Fetcher:
                 # Ohne diese Bitte liefert manch ein Zwischenspeicher das Bild
                 # von vorhin -- bei einer Webcam ist genau das der Unterschied
                 # zwischen "jetzt" und "irgendwann heute".
-                response = self._client.get(
+                response = netguard.get(
+                    self._client,
                     current,
                     follow_redirects=False,
                     headers={"Cache-Control": "no-cache", "Pragma": "no-cache"},
+                    max_bytes=_visual_limit,
                 )
+            except netguard.BlockedTarget:
+                return None, "Die Adresse ist nicht öffentlich erreichbar."
+            except netguard.TooLarge:
+                return None, "Das Bild ist für eine sichere Prüfung zu groß."
             except httpx.HTTPError:
                 return None, "Die Bildquelle ist nicht erreichbar."
             if response.is_redirect:

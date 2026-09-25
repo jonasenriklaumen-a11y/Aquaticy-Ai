@@ -1387,6 +1387,8 @@ class Agent:
         Returns:
             Wie viele Werkzeug-Aufrufe das gekostet hat.
         """
+        # Die Agenten lesen fremde Seiten; ihr Ergebnis kommt hier an.
+        self.toolbox.untrusted_seen = True
         from aquaticy.master import MAX_ROUNDS, plan_mission, review_results
         from aquaticy.subagents import plan_subtasks, spread_tasks
 
@@ -1522,6 +1524,8 @@ class Agent:
         except Exception as exc:
             self._emit("error", message=f"Gegenprobe: {exc}")
             return ""
+        # Fremder Text im Gespraech -- ab jetzt mit Bestaetigung (tools.py, 9.5.15).
+        self.toolbox.untrusted_seen = True
         hits = payload.get("results") or []
         known = {domain for domain in self.toolbox.avoid_domains if domain}
         fresh = [
@@ -1630,21 +1634,43 @@ class Agent:
                 parts.append(HA_CONTROL_PROMPT)
         return "".join(parts)
 
-    def _note_usage(self, messages: list[dict[str, Any]], answer: Any) -> None:
+    def _note_usage(self, messages: list[dict[str, Any]], answer: Any,
+                    buchung: Any = None, echt: tuple[int, int] | None = None) -> None:
         """Schreibt mit, was dieser Aufruf gekostet hat.
 
-        Gezaehlt wird, was hinausgeht und was zurueckkommt. Ein Fehler beim
-        Zaehlen darf nie eine Antwort kosten -- deshalb faengt das hier alles.
+        Gezaehlt werden die Zahlen des Anbieters (``echt``) -- gibt es keine,
+        wird geschaetzt: was hinausgeht und was zurueckkommt. Die Reservierung
+        (``buchung``, aquaticy/metering.py) wird damit verrechnet. Ein Fehler
+        beim Zaehlen kostet keine Antwort, wird aber protokolliert -- und die
+        Reservierung bleibt dann stehen (lieber zu viel gezaehlt).
         """
         try:
             from aquaticy.usage import message_tokens
 
-            hinein = message_tokens(messages)
-            heraus = message_tokens([answer]) if isinstance(answer, dict) else 0
-            # Statistik des Profils UND Kontingent des Kontos (aquaticy/quota.py)
-            metering.record(self.settings, self.active_model, hinein, heraus)
-        except Exception:  # pragma: no cover - Zaehlen ist nie kritisch
-            pass
+            if echt is not None:
+                hinein, heraus = echt
+            else:
+                hinein = message_tokens(messages)
+                heraus = message_tokens([answer]) if isinstance(answer, dict) else 0
+            if buchung is not None:
+                buchung.settle(hinein, heraus)
+            else:
+                metering.record(self.settings, self.active_model, hinein, heraus)
+        except Exception:
+            import logging
+
+            logging.getLogger("aquaticy.metering").exception("Zaehlen fehlgeschlagen")
+
+    def _reserve(self, messages: list[dict[str, Any]], tools: Any = None) -> Any:
+        """Bucht den Aufruf vorab im Kontingent -- atomar (aquaticy/metering.py)."""
+        return metering.reserve(
+            self.settings, self.active_model,
+            metering.estimate(messages, self._llm_kwargs().get("max_tokens"), tools))
+
+    @staticmethod
+    def _stream_usage(stream: bool) -> dict[str, Any]:
+        """Beim Streamen die Zahlen des Anbieters anfordern -- statt sie zu schaetzen."""
+        return {"stream_options": {"include_usage": True}} if stream else {}
 
     def _llm_kwargs(self) -> dict[str, Any]:
         """Aufrufargumente fuer das Modell dieses Turns.
@@ -2083,15 +2109,21 @@ class Agent:
         litellm.suppress_debug_info = True
         # Durch den Taktgeber: der Anbieter hat ein Mass, und das haelt Aquaticy
         # ein, statt es auszureizen und die Fehler zu wiederholen.
-        with paced(self.active_model, pace_key_of(self.settings, self.active_model)):
-            response = litellm.completion(
-                model=self.active_model,
-                messages=messages,
-                tools=self.tools,
-                tool_choice="auto",
-                stream=stream,
-                **self._llm_kwargs(),
-            )
+        buchung = self._reserve(messages, self.tools)
+        try:
+            with paced(self.active_model, pace_key_of(self.settings, self.active_model)):
+                response = litellm.completion(
+                    model=self.active_model,
+                    messages=messages,
+                    tools=self.tools,
+                    tool_choice="auto",
+                    stream=stream,
+                    **self._stream_usage(stream),
+                    **self._llm_kwargs(),
+                )
+        except BaseException:
+            buchung.cancel()
+            raise
         if not stream:
             message = response.choices[0].message
             content = message.content or ""
@@ -2105,10 +2137,17 @@ class Agent:
             if content and not tool_calls:
                 self._emit("answer_chunk", text=content)
             fertig = {"role": "assistant", "content": content, "tool_calls": tool_calls}
-            self._note_usage(messages, fertig)
+            self._note_usage(messages, fertig, buchung,
+                             metering.usage_of(getattr(response, "usage", None)))
             return fertig
-        gestreamt = self._consume_stream(response)
-        self._note_usage(messages, gestreamt)
+        self._stream_zahlen: tuple[int, int] | None = None
+        try:
+            gestreamt = self._consume_stream(response)
+        except BaseException:
+            # Abgebrochen: gezaehlt wird, was bis dahin sicher hinausging.
+            self._note_usage(messages, {}, buchung, self._stream_zahlen)
+            raise
+        self._note_usage(messages, gestreamt, buchung, self._stream_zahlen)
         return gestreamt
 
     def _consume_stream(self, response: Any) -> dict[str, Any]:
@@ -2117,6 +2156,10 @@ class Agent:
         calls: dict[int, dict[str, str]] = {}
 
         for chunk in response:
+            # Die Zahlen des Anbieters kommen im letzten Stueck (include_usage).
+            zahlen = metering.usage_of(getattr(chunk, "usage", None))
+            if zahlen is not None:
+                self._stream_zahlen = zahlen
             choices = getattr(chunk, "choices", None)
             if not choices:
                 continue
@@ -2736,24 +2779,32 @@ class Agent:
         # Der einzige Sendepfad neben _completion_with_retry -- dasselbe
         # Sicherheitsnetz gegen kaputte Tool-Argumente gehoert auch hierher.
         sanitize_history(self.messages)
+        buchung = None
         try:
+            buchung = self._reserve(self.messages)
             with paced(self.active_model, pace_key_of(self.settings, self.active_model)):
                 response = litellm.completion(
                     model=self.active_model,
                     messages=self.messages,
                     stream=stream,
+                    **self._stream_usage(stream),
                     **self._llm_kwargs(),
                 )
         except Exception as exc:
+            if buchung is not None:
+                buchung.cancel()
             self._emit("error", message=f"{type(exc).__name__}: {exc}")
             return ""
+        zahlen: tuple[int, int] | None = None
         if not stream:
             text = response.choices[0].message.content or ""
+            zahlen = metering.usage_of(getattr(response, "usage", None))
             if text:
                 self._emit("answer_chunk", text=text)
         else:
             parts: list[str] = []
             for chunk in response:
+                zahlen = metering.usage_of(getattr(chunk, "usage", None)) or zahlen
                 choices = getattr(chunk, "choices", None)
                 if not choices:
                     continue
@@ -2762,7 +2813,7 @@ class Agent:
                     parts.append(piece)
                     self._emit("answer_chunk", text=piece)
             text = "".join(parts)
-        self._note_usage(self.messages, {"role": "assistant", "content": text})
+        self._note_usage(self.messages, {"role": "assistant", "content": text}, buchung, zahlen)
         self.messages.append({"role": "assistant", "content": text})
         return text
 
@@ -2905,12 +2956,17 @@ class Agent:
             visuals=result.visuals,
         )
         if self.cache and result.answer:
-            self.cache.add_history(
-                session_id=self.session_id,
-                question=question,
-                answer=result.answer,
-                meta=result.meta(),
-            )
+            try:
+                self.cache.add_history(
+                    session_id=self.session_id,
+                    question=question,
+                    answer=result.answer,
+                    meta=result.meta(),
+                )
+            except OSError as exc:
+                # Speicher voll (aquaticy/budget.py): die Antwort steht trotzdem
+                # da -- nur gemerkt wird sie nicht, und das wird auch gesagt.
+                self._emit("error", message=f"Nicht im Verlauf gespeichert: {exc}")
         # Die automatische Wahl gilt genau fuer diesen einen Turn.
         self._auto_pick = ""
         return result

@@ -610,4 +610,5 @@ def test_oversized_pdf_is_skipped() -> None:
         )
 
     with _fetcher(handler) as fetcher:
-        assert fetcher.fetch("https://x.de/riesig.pdf").skipped_reason == "pdf_error"
+        # Seit 9.5.15 schon beim Laden abgebrochen, nicht erst danach gewogen.
+        assert fetcher.fetch("https://x.de/riesig.pdf").skipped_reason == "too_large"

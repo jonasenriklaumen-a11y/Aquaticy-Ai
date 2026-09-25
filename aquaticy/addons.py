@@ -1271,8 +1271,10 @@ def read_feeds(
         grenze = 15
     worte = [wort for wort in re.findall(r"\w+", (query or "").lower()) if len(wort) > 2]
     eigener = client is None
-    client = client or httpx.Client(timeout=15, follow_redirects=False,
-                                    headers={"User-Agent": user_agent(),
+    from aquaticy import netguard
+
+    client = client or netguard.guarded_client(timeout=15, follow_redirects=False,
+                                               headers={"User-Agent": user_agent(),
                                              "Accept": "application/rss+xml, application/atom+xml, "
                                                        "application/xml;q=0.9, */*;q=0.5"})
     robots = RobotsPolicy(client, user_agent())
@@ -1288,7 +1290,9 @@ def read_feeds(
                     if not robots.allows(adresse):
                         raise ValueError("robots.txt verbietet den Abruf")
                     _takt(urlparse(adresse).hostname or adresse)
-                    antwort = client.get(adresse)
+                    # Beim Lesen begrenzt, nicht erst danach gewogen (9.5.15).
+                    antwort = netguard.get(client, adresse, follow_redirects=False,
+                                           max_bytes=MAX_FEED_BYTES)
                     if antwort.status_code in (301, 302, 303, 307, 308):
                         adresse = urljoin(adresse, antwort.headers.get("location", ""))
                         continue

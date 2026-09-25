@@ -2043,9 +2043,13 @@ def test_a_mixed_round_runs_in_order(
     )
     monkeypatch.setattr("litellm.completion", llm)
 
+    # Seit 9.5.15: nach einer gelesenen Seite fragt "merken" erst nach.
+    gefragt: list[str] = []
+    toolbox.ask_handler = lambda frage, optionen: gefragt.append(frage) or "ja"
     agent = Agent(settings, cache=None, toolbox=toolbox)
     agent.ask("Lies und merk dir was", stream=False)
     assert order == ["fetch", "remember"]
+    assert gefragt and "Inhalte aus dem Web" in gefragt[0]
 
 
 # ---------------------------------------------------------------------------

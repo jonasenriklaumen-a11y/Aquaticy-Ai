@@ -31,14 +31,24 @@ def test_normal_account_and_login(store: AuthStore) -> None:
     assert store.authenticate(account.email, "falsch und trotzdem lang genug") is None
 
 
-def test_registration_keeps_the_chosen_username_and_accepts_seven_characters(
-    store: AuthStore,
+def test_registration_keeps_the_chosen_username_and_needs_twelve_characters(
+    store: AuthStore, monkeypatch: pytest.MonkeyPatch
 ) -> None:
+    """Seit 9.5.15 mindestens 12 Zeichen -- aeltere, kuerzere bleiben gueltig."""
+    import aquaticy.auth as auth_modul
+
+    with pytest.raises(ValueError, match="12 Zeichen"):
+        store.register("kurz@example.org", "12345678901", "normal", username="Kurz", **TERMS)
     account = store.register(
-        "jonas@example.org", "1234567", "normal", username="Jonas", **TERMS
+        "jonas@example.org", "123456789012", "normal", username="Jonas", **TERMS
     )
     assert account.username == "Jonas"
-    assert store.authenticate(account.email, "1234567") == account
+    assert store.authenticate(account.email, "123456789012") == account
+    # Ein Konto aus der Zeit mit 7 Zeichen meldet sich weiter an.
+    monkeypatch.setattr(auth_modul, "MIN_PASSWORD", 7)
+    alt = store.register("alt@example.org", "1234567", "normal", username="Alt", **TERMS)
+    monkeypatch.setattr(auth_modul, "MIN_PASSWORD", 12)
+    assert store.authenticate(alt.email, "1234567") == alt
 
 
 def test_free_accounts_get_a_session_and_a_weekly_budget() -> None:
@@ -85,7 +95,7 @@ def test_pro_accepts_the_terminal_label_when_copied(store: AuthStore) -> None:
 
 
 def test_duplicate_email_and_short_password_are_rejected(store: AuthStore) -> None:
-    with pytest.raises(ValueError, match="7 Zeichen"):
+    with pytest.raises(ValueError, match="12 Zeichen"):
         store.register("a@example.org", "kurz", "normal", **TERMS)
     store.register("a@example.org", "eine sehr lange Passphrase", "normal", **TERMS)
     with pytest.raises(ValueError, match="bereits"):

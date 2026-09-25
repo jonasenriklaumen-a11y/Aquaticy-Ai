@@ -261,24 +261,59 @@ def test_paywalls_never_trigger_the_browser(fixture_html, monkeypatch) -> None:
 # ---------------------------------------------------------------------------
 # Betrieb im Container
 # ---------------------------------------------------------------------------
-def test_browser_sandbox_stays_on_by_default(monkeypatch: pytest.MonkeyPatch) -> None:
-    """Auf dem blanken System behaelt Chromium seine eigene Sandbox."""
-    monkeypatch.delenv("AQUATICY_BROWSER_NO_SANDBOX", raising=False)
-    assert launch_args() == []
+class _Chromium:
+    """Merkt sich die Startversuche -- der erste mit Sandbox scheitert auf Wunsch."""
+
+    def __init__(self, sandbox_geht: bool) -> None:
+        self.sandbox_geht = sandbox_geht
+        self.versuche: list[list[str]] = []
+
+    def launch(self, headless: bool, args: list[str]) -> str:
+        self.versuche.append(list(args))
+        if "--no-sandbox" not in args and not self.sandbox_geht:
+            raise RuntimeError("No usable sandbox!")
+        return "browser"
+
+
+def _playwright(sandbox_geht: bool):
+    from types import SimpleNamespace
+
+    return SimpleNamespace(chromium=_Chromium(sandbox_geht))
+
+
+def test_browser_sandbox_is_always_tried_first(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Seit 9.5.15: auch im Container zuerst MIT Sandbox."""
+    from aquaticy.browser import launch_browser
+
+    monkeypatch.setenv("AQUATICY_BROWSER_NO_SANDBOX", "1")
+    pw = _playwright(sandbox_geht=True)
+    assert launch_browser(pw) == "browser"
+    assert pw.chromium.versuche == [["--disable-dev-shm-usage"]]
+    assert "--no-sandbox" not in launch_args()
 
 
 @pytest.mark.parametrize("value", ["1", "true", "yes", "ja"])
-def test_container_flag_disables_the_browser_sandbox(
+def test_without_a_usable_sandbox_the_container_flag_allows_the_fallback(
     monkeypatch: pytest.MonkeyPatch, value: str
 ) -> None:
-    """Im Container uebernimmt der Container die Isolation."""
+    """Im Container ohne Namensraeume uebernimmt der Container die Isolation."""
+    from aquaticy.browser import launch_browser
+
     monkeypatch.setenv("AQUATICY_BROWSER_NO_SANDBOX", value)
-    assert launch_args() == ["--no-sandbox", "--disable-dev-shm-usage"]
+    pw = _playwright(sandbox_geht=False)
+    assert launch_browser(pw) == "browser"
+    assert pw.chromium.versuche[-1][0] == "--no-sandbox"
 
 
-def test_unset_like_values_keep_the_sandbox(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setenv("AQUATICY_BROWSER_NO_SANDBOX", "0")
-    assert launch_args() == []
+@pytest.mark.parametrize("value", ["", "0", "nein"])
+def test_without_the_flag_there_is_no_fallback(
+    monkeypatch: pytest.MonkeyPatch, value: str
+) -> None:
+    from aquaticy.browser import launch_browser
+
+    monkeypatch.setenv("AQUATICY_BROWSER_NO_SANDBOX", value)
+    with pytest.raises(RuntimeError):
+        launch_browser(_playwright(sandbox_geht=False))
 
 
 

@@ -451,13 +451,58 @@ def wait_for_live_frame(page: Any, timeout_ms: int = PLAYBACK_TIMEOUT_MS) -> str
 
 
 def launch_args() -> list[str]:
-    """Zusaetzliche Chromium-Argumente aus der Umgebung.
+    """Die Chromium-Argumente fuer den ERSTEN Versuch -- immer mit Browser-Sandbox."""
+    return ["--disable-dev-shm-usage"]
 
-    `AQUATICY_BROWSER_NO_SANDBOX=1` schaltet die Browser-eigene Sandbox ab --
-    im Container-Image ist das gesetzt, auf dem blanken System nicht.
+
+def no_sandbox_allowed() -> bool:
+    """Darf Chromium ohne eigene Sandbox starten, wenn es mit ihr nicht geht?
+
+    `AQUATICY_BROWSER_NO_SANDBOX=1` erlaubt das -- im Container-Abbild gesetzt,
+    wo Chromium ohne Benutzer-Namensraeume seine Sandbox nicht aufbauen kann
+    (und die Container-Grenze die Trennung uebernimmt). Seit 9.5.15 ist es nur
+    noch die Rueckfallebene: versucht wird immer zuerst MIT Sandbox.
     """
     flag = os.environ.get("AQUATICY_BROWSER_NO_SANDBOX", "").strip().lower()
-    return list(CONTAINER_ARGS) if flag in {"1", "true", "yes", "on", "ja"} else []
+    return flag in {"1", "true", "yes", "on", "ja"}
+
+
+def launch_browser(playwright: Any, extra: list[str] | None = None) -> Any:
+    """Startet Chromium -- mit Sandbox, und nur wo das nicht geht (und erlaubt ist) ohne."""
+    zusatz = list(extra or [])
+    try:
+        return playwright.chromium.launch(headless=True, args=[*launch_args(), *zusatz])
+    except Exception:
+        if not no_sandbox_allowed():
+            raise
+        import logging
+
+        logging.getLogger("aquaticy.browser").warning(
+            "Chromium-Sandbox nicht verfuegbar -- Start ohne (AQUATICY_BROWSER_NO_SANDBOX)")
+        return playwright.chromium.launch(headless=True, args=[*CONTAINER_ARGS, *zusatz])
+
+
+def guard_context(context: Any) -> None:
+    """Haengt die Netzregel an einen Browser-Kontext.
+
+    Eine oeffentliche Seite koennte sonst ueber Rahmen, Skripte, Bilder oder
+    WebSockets Adressen im internen Netz ansprechen -- der Browser liefe ja
+    auf dem Server. Alles, was nicht oeffentlich ist, bricht der Browser ab.
+    """
+    from aquaticy import netguard
+
+    context.route("**/*", netguard.browser_route)
+    web_socket = getattr(context, "route_web_socket", None)
+    if callable(web_socket):
+        def _socket(ws: Any) -> None:
+            ziel = str(getattr(ws, "url", "") or "")
+            pruefen = ziel.replace("wss://", "https://", 1).replace("ws://", "http://", 1)
+            if netguard.url_allowed(pruefen):
+                ws.connect_to_server()
+            else:
+                ws.close()
+
+        web_socket("**/*", _socket)
 
 
 def playwright_available() -> bool:
@@ -486,10 +531,14 @@ def render_page(
 
     rules = rules or load_rules()
     timeout_ms = int(max(timeout, 5.0) * 1000)
+    from aquaticy import netguard
+
+    if not netguard.url_allowed(url):
+        return None
 
     try:
         with sync_playwright() as playwright:
-            browser = playwright.chromium.launch(headless=True, args=launch_args())
+            browser = launch_browser(playwright)
             try:
                 # Frischer Kontext je Abruf -- nichts wird uebernommen.
                 context = browser.new_context(
@@ -501,6 +550,9 @@ def render_page(
                 )
                 context.grant_permissions([])
                 context.set_default_timeout(timeout_ms)
+                # Jede Anfrage des Browsers -- Seite, Rahmen, Skript, Bild --
+                # nur an oeffentliche Ziele (aquaticy/netguard.py, seit 9.5.15).
+                guard_context(context)
                 page = context.new_page()
                 page.goto(url, wait_until="domcontentloaded", timeout=timeout_ms)
                 # Seiten mit Dauer-Polling werden nie "idle" -- das ist kein Fehler.
@@ -544,15 +596,16 @@ def capture_visual(
 
     rules = rules or load_rules()
     timeout_ms = int(max(timeout, 5.0) * 1000)
+    from aquaticy import netguard
+
+    if not netguard.url_allowed(url):
+        return None
     try:
         with sync_playwright() as playwright:
             # Ohne diese Freigabe verweigert Chromium jedes `play()` ohne
             # Mausklick -- und genau daran scheiterte die Live-Aufnahme.
-            browser = playwright.chromium.launch(
-                headless=True,
-                args=[*launch_args(), "--autoplay-policy=no-user-gesture-required",
-                      "--mute-audio"],
-            )
+            browser = launch_browser(
+                playwright, ["--autoplay-policy=no-user-gesture-required", "--mute-audio"])
             try:
                 context = browser.new_context(
                     user_agent=user_agent,
@@ -564,6 +617,9 @@ def capture_visual(
                 )
                 context.grant_permissions([])
                 context.set_default_timeout(timeout_ms)
+                # Jede Anfrage des Browsers -- Seite, Rahmen, Skript, Bild --
+                # nur an oeffentliche Ziele (aquaticy/netguard.py, seit 9.5.15).
+                guard_context(context)
                 page = context.new_page()
                 page.goto(url, wait_until="domcontentloaded", timeout=timeout_ms)
                 with contextlib.suppress(Exception):

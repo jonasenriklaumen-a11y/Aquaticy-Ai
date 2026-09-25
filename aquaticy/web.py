@@ -13,7 +13,9 @@ from __future__ import annotations
 import base64
 import binascii
 import contextlib
+import hmac
 import json
+import logging
 import os
 import queue
 import secrets
@@ -30,8 +32,6 @@ from pathlib import Path
 from typing import Any
 from urllib.parse import parse_qs, urlsplit
 
-from dotenv import dotenv_values
-
 from aquaticy import VERSION_LABEL, __version__, webview
 from aquaticy.auth import Account, AuthStore, RateLimiter, pro_code_for
 from aquaticy.cache import Cache
@@ -45,6 +45,7 @@ from aquaticy.config import (
     get_settings,
     guard_on,
     load_env,
+    read_env_file,
     reset_settings_cache,
     resolve_model,
     selected_vision_model,
@@ -162,19 +163,40 @@ class Run:
 
 
 class RunBook:
-    """Haelt den laufenden Turn. Es gibt immer nur einen -- die Sitzung
-    reicht die Anfragen ohnehin nacheinander durch."""
+    """Die Laeufe eines Kontos -- jeder ueber seine Kennung wiederzufinden (9.5.15).
+
+    Eine zweite Anfrage darf warten, bis die erste fertig ist (die Sitzung
+    reicht sie nacheinander durch und sagt das auch). Bis 9.5.14 kannte das
+    Buch aber nur "den aktuellen" Lauf: der zweite ueberschrieb den ersten,
+    und wer die Seite neu lud, haengte sich womoeglich an den falschen. Jetzt
+    hat jeder Lauf seine Kennung, ``get`` findet genau ihn, und die
+    Oberflaeche nimmt genau den Lauf wieder auf, den ``/api/runstate`` nannte.
+    """
+
+    #: So viele fertige Laeufe bleiben abrufbar.
+    KEEP = 8
 
     def __init__(self) -> None:
         self._lock = threading.Lock()
         self.current: Run | None = None
+        self._runs: dict[str, Run] = {}
 
     def start(self, question: str) -> Run:
+        """Ein neuer Lauf -- atomar angelegt und unter seiner Kennung abgelegt."""
         with self._lock:
-            self.current = Run(secrets.token_hex(8), question)
-            return self.current
+            lauf = Run(secrets.token_hex(8), question)
+            self._runs[lauf.id] = lauf
+            while len(self._runs) > self.KEEP:
+                self._runs.pop(next(iter(self._runs)))
+            self.current = lauf
+            return lauf
+
+    def get(self, run_id: str) -> Run | None:
+        with self._lock:
+            return self._runs.get(str(run_id or ""))
 
     def latest(self) -> Run | None:
+        """Der zuletzt gestartete Lauf -- den nennt ``/api/runstate`` samt Kennung."""
         with self._lock:
             return self.current
 
@@ -602,11 +624,9 @@ def _profile_settings(profile: Path, plan: str, account: Account | None = None) 
         api_keys=dict(base.api_keys),
         search_keys=dict(base.search_keys),
     )
-    raw = {
-        str(key): str(value or "")
-        for key, value in dotenv_values(settings.env_path).items()
-        if key
-    }
+    # Ohne ${VAR}-Ersetzung (config.read_env_file): sonst holte ein Wert wie
+    # "${MISTRAL_API_KEY}" einen Schluessel des Servers in dieses Konto.
+    raw = read_env_file(settings.env_path)
     for key, attr in _STRING_SETTINGS.items():
         if key in raw:
             setattr(settings, attr, raw[key].strip())
@@ -1049,16 +1069,23 @@ class ChatSession:
             zeichen if zeichen.isascii() and (zeichen.isalnum() or zeichen in "-_.") else "_"
             for zeichen in name
         ).strip("._") or "datei"
-        with contextlib.suppress(Exception):
-            from aquaticy import metering
-            from aquaticy import sandbox as werkstatt
+        from aquaticy import metering
+        from aquaticy import sandbox as werkstatt
 
+        try:
             # Serverarbeit zaehlt ins Kontingent -- auch mit eigenem Schluessel.
             metering.check_work(self.settings(), "datei")
             antwort = werkstatt.shared(self.settings()).put_bytes(f"eingang/{schlicht}", data)
             if isinstance(antwort, dict) and antwort.get("written"):
                 metering.charge_work(self.settings(), "datei")
                 return str(antwort["written"])
+        except metering.QuotaExceeded:
+            return ""
+        except Exception:
+            # Ohne Werkstatt geht die Datei trotzdem an das Modell -- aber
+            # nicht still: das Protokoll sagt, warum sie dort nicht liegt.
+            logging.getLogger("aquaticy.web").warning(
+                "Anhang nicht in die Werkstatt gelegt", exc_info=True)
         return ""
 
     def _one_attachment(self, agent: Any, name: str, data: bytes) -> str:
@@ -1072,7 +1099,10 @@ class ChatSession:
         )
 
         if suffix in IMAGE_TYPES:
-            path = self._store(name, data)
+            try:
+                path = self._store(name, data)
+            except OSError as exc:
+                return f"[Bild {name}: nicht abgelegt -- {exc}]"
             try:
                 description = agent.describe_image(path)
             except Exception as exc:
@@ -1101,10 +1131,15 @@ class ChatSession:
 
     def _store(self, name: str, data: bytes) -> Path:
         """Legt eine hochgeladene Datei ab -- das Vision-Modell braucht einen Pfad."""
+        from aquaticy.budget import ensure_room, forget
+
         folder = self.settings().data_dir / "uploads"
         folder.mkdir(parents=True, exist_ok=True)
+        # Uploads zaehlen zum gemeinsamen 400-MB-Deckel (aquaticy/budget.py).
+        ensure_room(self.settings().data_dir, len(data))
         target = folder / f"{int(time.time() * 1000)}-{name}"
         target.write_bytes(data)
+        forget(self.settings().data_dir)
         _prune_uploads(folder)
         return target
 
@@ -1540,6 +1575,42 @@ def google_state(settings: Settings) -> dict[str, Any]:
         "connected": connected,
         "account": account,
     }
+
+
+#: Offene Google-Anmeldungen (seit 9.5.15): state -> (Konto, Ablauf). Jeder
+#: state gilt einmal, zehn Minuten lang, und nur fuer das Konto, das die
+#: Anmeldung begonnen hat. Ohne ihn konnte jemand einem angemeldeten Opfer
+#: seinen eigenen Google-Code unterschieben (Login-CSRF): dann laese Aquaticy
+#: im Konto des Opfers die Mails des Angreifers -- oder umgekehrt.
+_GOOGLE_STATES: dict[str, tuple[str, float]] = {}
+_GOOGLE_STATES_LOCK = threading.Lock()
+GOOGLE_STATE_SECONDS = 600.0
+
+
+def google_state_new(account_id: str) -> str:
+    """Ein neuer, einmaliger state fuer genau dieses Konto."""
+    import secrets as _secrets
+
+    state = _secrets.token_urlsafe(32)
+    jetzt = time.time()
+    with _GOOGLE_STATES_LOCK:
+        for alt, (_, bis) in list(_GOOGLE_STATES.items()):
+            if bis < jetzt:
+                _GOOGLE_STATES.pop(alt, None)
+        _GOOGLE_STATES[state] = (account_id, jetzt + GOOGLE_STATE_SECONDS)
+    return state
+
+
+def google_state_take(state: str, account_id: str) -> bool:
+    """Loest einen state ein -- genau einmal, rechtzeitig, vom selben Konto."""
+    if not state:
+        return False
+    with _GOOGLE_STATES_LOCK:
+        eintrag = _GOOGLE_STATES.pop(state, None)
+    if eintrag is None:
+        return False
+    konto, bis = eintrag
+    return bis >= time.time() and hmac.compare_digest(konto, account_id)
 
 
 def google_redirect(host: str = "") -> str:
@@ -2334,7 +2405,8 @@ class Handler(BaseHTTPRequestHandler):
     def _account(self) -> Account | None:
         if AUTH is None:
             return None
-        return AUTH.session_account(self._cookie(AUTH_COOKIE), self._device())
+        return AUTH.session_account(self._cookie(AUTH_COOKIE), self._device(),
+                                    self._client_ip())
 
     def _origin_ok(self) -> bool:
         origin = (self.headers.get("Origin") or "").strip()
@@ -3091,13 +3163,27 @@ class Handler(BaseHTTPRequestHandler):
         query = parse_qs(urlparse(self.path).query)
         denied = query.get("error", [""])[0]
         code = query.get("code", [""])[0]
-        settings = SESSION.settings()
+        state = query.get("state", [""])[0]
         if denied:
             self._google_page(False, f"Google hat abgelehnt: {denied}")
             return
         if not code:
             self._google_page(False, "Google hat keinen Code mitgeschickt.")
             return
+        # Nur fuer die angemeldete Sitzung, die die Anmeldung begonnen hat --
+        # und nur mit ihrem einmaligen state (9.5.15). Ohne Konto landeten
+        # die Schluessel sonst im Profil des Servers.
+        konto = self._account()
+        if AUTH is not None and konto is None:
+            self._google_page(False, "Bitte melde dich zuerst bei Aquaticy an und verbinde "
+                                     "Google dann aus den Einstellungen.")
+            return
+        if not google_state_take(state, getattr(konto, "id", "") or ""):
+            self._google_page(False, "Diese Rückmeldung von Google gehört zu keiner "
+                                     "Anmeldung, die du hier begonnen hast (oder sie ist "
+                                     "abgelaufen). Bitte in den Einstellungen neu verbinden.")
+            return
+        settings = SESSION.settings()
         if not settings.google_client_id or not settings.google_client_secret:
             self._google_page(False, "Client-ID und Secret fehlen -- erst speichern.")
             return
@@ -3217,16 +3303,29 @@ p{{margin:0 0 8px;color:#57534a}}</style></head><body><main>
             if darf_aendern is None:
                 darf_aendern = settings.google_write
             try:
+                state = google_state_new(getattr(SESSION.account, "id", "") or "")
                 return {
                     "ok": True,
-                    "url": consent_url(client_id, redirect, write=bool(darf_aendern)),
+                    "url": consent_url(client_id, redirect, state,
+                                       write=bool(darf_aendern)),
                     "redirect": redirect,
                     "write": bool(darf_aendern),
+                    "state": state,
                 }
             except GoogleError as exc:
                 return {"ok": False, "error": str(exc)}
 
         if action == "finish":
+            eingefuegt = str(payload.get("code", ""))
+            # Der state steht in der eingefuegten Adresse -- sonst schickt ihn
+            # die Oberflaeche aus dem Start mit. Ohne passenden: kein Tausch.
+            state = (parse_qs(urlsplit(eingefuegt.strip()).query).get("state") or [""])[0] \
+                if "state=" in eingefuegt else str(payload.get("state", ""))
+            if not google_state_take(state, getattr(SESSION.account, "id", "") or ""):
+                return {"ok": False, "error": (
+                    "Dieser Code gehört zu keiner Anmeldung, die du hier begonnen hast (oder "
+                    "sie ist abgelaufen). Bitte auf „Mit Google verbinden“ klicken und neu "
+                    "zustimmen.")}
             if not settings.google_client_id or not settings.google_client_secret:
                 return {
                     "ok": False,
@@ -3332,17 +3431,16 @@ p{{margin:0 0 8px;color:#57534a}}</style></head><body><main>
         try:
             # Der Test laeuft mit dem Schluessel des Betreibers -- also zaehlt er
             # wie jeder andere Aufruf ins Kontingent (seit 9.5.14).
-            if kontingent is not None:
-                kontingent.check()
             from aquaticy.pace import own_gate
+            from aquaticy.probe import PROBE_QUESTION, PROBE_TOKENS
+            from aquaticy.usage import tokens
 
+            # Atomar gebucht, bevor der Test laeuft (9.5.15).
+            # Die Buchung bleibt stehen: der Test hat den Anbieter gefragt.
+            if kontingent is not None:
+                kontingent.reserve(tokens(PROBE_QUESTION) + PROBE_TOKENS, model)
             llm_ok, llm_msg = check_llm(model, api_key, api_base,
                                         pace_key=own_gate(api_key) if quelle == "own" else "")
-            if kontingent is not None:
-                from aquaticy.probe import PROBE_QUESTION, PROBE_TOKENS
-                from aquaticy.usage import tokens
-
-                kontingent.record(tokens(PROBE_QUESTION) + PROBE_TOKENS, model)
         except Exception as exc:  # QuotaExceeded: der Satz sagt, wann es weitergeht
             llm_ok, llm_msg = False, str(exc)
         search_ok, search_msg = check_search(backend, search_key, engines, instance)
@@ -3524,14 +3622,14 @@ p{{margin:0 0 8px;color:#57534a}}</style></head><body><main>
             # Nur Dateien, kein Text: das ist eine vollstaendige Bitte.
             message = "Sieh dir das Angehaengte an und sag mir, worum es geht."
 
-        if kontingent is not None:
-            # Die 5-Stunden-Sitzung beginnt mit der ersten Nachricht -- nicht
-            # erst mit dem ersten gezaehlten Token.
-            kontingent.begin()
         # Der Lauf gehoert ab hier dem Server, nicht der Verbindung. Reisst
         # sie ab, laeuft er weiter und kann spaeter zu Ende gesehen werden.
         session = SESSION.current() if isinstance(SESSION, SessionProxy) else SESSION
         lauf = current_runs().start(message)
+        if kontingent is not None:
+            # Die 5-Stunden-Sitzung beginnt mit der ersten Nachricht -- nicht
+            # erst mit dem ersten gezaehlten Token.
+            kontingent.begin()
         seen_done = threading.Event()
         # Kein Schluessel -- eigener oder gestellter -- verlaesst den Server in
         # einer Meldung. Anbieter zitieren ihn gern in Fehlertexten.
@@ -3591,12 +3689,14 @@ p{{margin:0 0 8px;color:#57534a}}</style></head><body><main>
         self._stream_run(lauf, since=0)
 
     def _run_stream(self) -> None:
-        """Haengt sich an den laufenden Turn -- oder sagt, dass es keinen gibt."""
-        lauf = current_runs().latest()
+        """Haengt sich an einen Turn -- genau den mit dieser Kennung (seit 9.5.15)."""
+        frage = parse_qs(urlsplit(self.path).query)
+        kennung = (frage.get("id") or [""])[0]
+        lauf = current_runs().get(kennung) if kennung else current_runs().latest()
         if lauf is None:
             self._json({"error": "kein Lauf"}, 404)
             return
-        roh = (parse_qs(urlsplit(self.path).query).get("since") or ["0"])[0]
+        roh = (frage.get("since") or ["0"])[0]
         try:
             since = max(0, int(roh))
         except (TypeError, ValueError):

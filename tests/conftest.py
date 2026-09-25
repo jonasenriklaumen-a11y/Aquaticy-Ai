@@ -77,3 +77,33 @@ def _keine_echte_env(monkeypatch, tmp_path_factory):
     os.environ.clear()
     os.environ.update(vorher)
     config.reset_settings_cache()
+
+
+#: Eine oeffentliche Adresse fuer erfundene Namen (shop.example, cam.test ...).
+TEST_PUBLIC_IP = "93.184.216.34"
+
+
+@pytest.fixture(autouse=True)
+def _namensaufloesung_ohne_netz(monkeypatch):
+    """Die Netzregel (aquaticy/netguard.py) loest jeden Namen auf.
+
+    Im Test gibt es kein DNS. Erfundene Namen zeigen deshalb auf eine feste
+    oeffentliche Adresse; Adressen in Ziffern bleiben, was sie sind -- so
+    pruefen die SSRF-Tests die echte Regel. Wer einen Namen auf eine interne
+    Adresse zeigen lassen will, ersetzt ``netguard.resolve`` im Test selbst.
+    """
+    import ipaddress
+
+    from aquaticy import netguard
+
+    def aufloesen(host: str, port: int | None) -> list[str]:
+        try:
+            ipaddress.ip_address(host.split("%", 1)[0])
+        except ValueError:
+            return [TEST_PUBLIC_IP]
+        return [host]
+
+    netguard.forget()
+    monkeypatch.setattr(netguard, "resolve", aufloesen)
+    yield
+    netguard.forget()

@@ -65,9 +65,25 @@ SEARCH_WINDOW = 5_000
 KEY_FILE = "memory.key"
 
 #: Wird der Schluessel aus einer Passphrase abgeleitet, braucht das ein Salz.
-#: Es liegt offen -- ein Salz ist kein Geheimnis, es verhindert nur, dass
-#: vorberechnete Tabellen fuer alle Installationen zugleich passen.
-KEY_SALT = b"aquaticy-ai-memory-v1"
+#: Seit 9.5.15 eines je Installation, zufaellig, in dieser Datei neben dem
+#: Datenordner. Es liegt offen -- ein Salz ist kein Geheimnis. Es sorgt dafuer,
+#: dass dieselbe Passphrase auf zwei Installationen zwei verschiedene
+#: Schluessel ergibt und niemand eine Tabelle fuer alle vorberechnen kann.
+SALT_FILE = "memory.salt"
+
+#: Das feste Salz bis 9.5.14 -- fuer alle Installationen gleich. Genau das
+#: verhinderte das Vorberechnen NICHT (der alte Kommentar behauptete es).
+#: Es bleibt nur zum Lesen alter Daten; geschrieben wird damit nie mehr.
+LEGACY_KEY_SALT = b"aquaticy-ai-memory-v1"
+
+#: So beginnt jedes Fernet-Token (Version 0x80, base64). Klartext aus der
+#: Zeit vor der Verschluesselung beginnt nie so.
+FERNET_PREFIX = "gAAAAA"
+
+
+class CipherError(ValueError):
+    """Ein verschluesselter Wert laesst sich nicht lesen: falscher Schluessel
+    oder beschaedigt. Nie still als Klartext weitergereicht (seit 9.5.15)."""
 
 
 def secure_file(path: Path) -> None:
@@ -117,11 +133,18 @@ class Cipher:
     """
 
     def __init__(self, key_path: Path, passphrase: str = "") -> None:
-        from cryptography.fernet import Fernet
+        from cryptography.fernet import Fernet, MultiFernet
 
-        self._fernet = Fernet(
-            _key_from_passphrase(passphrase) if passphrase else _key_from_file(key_path)
-        )
+        if passphrase:
+            # Neu geschrieben wird mit dem Salz dieser Installation; gelesen
+            # wird auch, was noch mit dem alten, festen Salz verschluesselt ist.
+            salz = _salt_for(key_path.parent)
+            self._fernet = MultiFernet([
+                Fernet(_key_from_passphrase(passphrase, salz)),
+                Fernet(_key_from_passphrase(passphrase, LEGACY_KEY_SALT)),
+            ])
+        else:
+            self._fernet = MultiFernet([Fernet(_key_from_file(key_path))])
 
     def encrypt(self, text: str) -> str:
         if not text:
@@ -129,19 +152,35 @@ class Cipher:
         return self._fernet.encrypt(text.encode("utf-8")).decode("ascii")
 
     def decrypt(self, token: str) -> str:
-        """Entschluesselt. Klartext aus aelteren Fassungen bleibt lesbar."""
+        """Entschluesselt.
+
+        Klartext aus der Zeit vor der Verschluesselung bleibt lesbar -- er
+        sieht nie wie ein Token aus. Ein Token, das sich nicht entschluesseln
+        laesst (falsche Passphrase, beschaedigt), wirft ``CipherError``. Bis
+        9.5.14 kam dann der Chiffretext als "Text" zurueck: falscher
+        Schluessel, kaputte Daten und alter Klartext sahen gleich aus.
+
+        Raises:
+            CipherError: ein Token, das sich nicht lesen laesst.
+        """
         from cryptography.fernet import InvalidToken
 
         if not token:
             return ""
+        if not token.startswith(FERNET_PREFIX):
+            return token  # Klartext aus der Zeit vor der Verschluesselung
         try:
             return self._fernet.decrypt(token.encode("ascii")).decode("utf-8")
-        except (InvalidToken, UnicodeDecodeError, ValueError):
-            # Kein gueltiges Token: entweder eine Notiz aus der Zeit vor der
-            # Verschluesselung -- die soll lesbar bleiben -- oder ein fremder
-            # Schluessel. In beiden Faellen ist Durchreichen besser als ein
-            # Absturz mitten im Gespraech.
-            return token
+        except (InvalidToken, UnicodeDecodeError, ValueError) as exc:
+            raise CipherError(
+                "Nicht lesbar -- falscher Schlüssel (AQUATICY_MEMORY_KEY?) oder beschädigt."
+            ) from exc
+
+    def rotate(self, token: str) -> str:
+        """Verschluesselt ein Token neu mit dem aktuellen Schluessel (altes Salz -> neues)."""
+        if not token or not token.startswith(FERNET_PREFIX):
+            return self.encrypt(token) if token else ""
+        return self._fernet.rotate(token.encode("ascii")).decode("ascii")
 
 
 def _key_from_file(path: Path) -> bytes:
@@ -159,13 +198,29 @@ def _key_from_file(path: Path) -> bytes:
     return key
 
 
-def _key_from_passphrase(passphrase: str) -> bytes:
-    """Leitet den Schluessel aus einer Passphrase ab -- nichts auf der Platte."""
+def _salt_for(folder: Path) -> bytes:
+    """Das Salz dieser Installation -- beim ersten Mal zufaellig angelegt."""
+    import secrets
+
+    pfad = folder / SALT_FILE
+    if pfad.is_file():
+        salz = pfad.read_bytes()
+        if len(salz) >= 16:
+            return salz
+    salz = secrets.token_bytes(16)
+    folder.mkdir(parents=True, exist_ok=True)
+    pfad.write_bytes(salz)
+    secure_file(pfad)
+    return salz
+
+
+def _key_from_passphrase(passphrase: str, salt: bytes) -> bytes:
+    """Leitet den Schluessel aus Passphrase und Salz ab -- nie auf der Platte."""
     import base64
 
     from cryptography.hazmat.primitives.kdf.scrypt import Scrypt
 
-    raw = Scrypt(salt=KEY_SALT, length=32, n=2**14, r=8, p=1).derive(
+    raw = Scrypt(salt=salt, length=32, n=2**14, r=8, p=1).derive(
         passphrase.encode("utf-8")
     )
     return base64.urlsafe_b64encode(raw)
@@ -184,6 +239,10 @@ class Entry:
         return {"id": self.id, "topic": self.topic, "text": self.text, "when": self.created_at}
 
 
+#: Was an Stelle einer Notiz steht, die sich nicht entschluesseln laesst.
+UNREADABLE = "[nicht lesbar — falscher Schlüssel oder beschädigt]"
+
+
 class MemoryFull(RuntimeError):
     """Der Speicher ist voll und laesst sich nicht weiter aufraeumen."""
 
@@ -200,6 +259,25 @@ class Memory:
         self.db_path.parent.mkdir(parents=True, exist_ok=True)
         self._cipher = Cipher(self.data_dir / KEY_FILE, passphrase)
         self._setup()
+        if passphrase:
+            self._migrate_salt()
+
+    def _migrate_salt(self) -> None:
+        """Einmalig: Notizen mit dem alten, festen Salz neu verschluesseln (9.5.15)."""
+        marke = self.data_dir / (SALT_FILE + ".umgestellt")
+        if marke.exists():
+            return
+        with closing(self._connect()) as conn, conn:
+            for zeile in conn.execute("SELECT id, topic, text FROM memory").fetchall():
+                try:
+                    conn.execute(
+                        "UPDATE memory SET topic = ?, text = ? WHERE id = ?",
+                        (self._cipher.rotate(str(zeile["topic"] or "")),
+                         self._cipher.rotate(str(zeile["text"] or "")), zeile["id"]),
+                    )
+                except Exception:
+                    continue  # nicht lesbar (falsche Passphrase): so lassen, wie es ist
+        marke.write_text("9.5.15\n", encoding="utf-8")
 
     def _connect(self) -> sqlite3.Connection:
         conn = sqlite3.connect(self.db_path, timeout=10)
@@ -223,13 +301,15 @@ class Memory:
 
     # -- Groesse ----------------------------------------------------------
     def used_bytes(self) -> int:
-        """Wie viel Platz Speicher, Verlauf und Uploads zusammen belegen."""
-        total = 0
-        for path in (self.db_path, *self._sidecars()):
-            with contextlib.suppress(OSError):
-                total += path.stat().st_size
-        total += folder_bytes(self.data_dir / "uploads")
-        return total
+        """Wie viel Platz das ganze Profil belegt -- Speicher, Verlauf,
+        Zwischenspeicher, Uploads UND Bilder (aquaticy/budget.py, seit 9.5.15).
+
+        Bis 9.5.14 zaehlte hier nur die Datenbank und der Upload-Ordner: die
+        Bilder aus Recherchen und die KI-Bilder wuchsen an der Grenze vorbei.
+        """
+        from aquaticy.budget import used_bytes
+
+        return used_bytes(self.data_dir, fresh=True)
 
     def _sidecars(self) -> tuple[Path, ...]:
         """SQLite legt neben der Datei noch Journal und Write-Ahead-Log an."""
@@ -329,13 +409,18 @@ class Memory:
         return [self._read(row) for row in rows]
 
     def _read(self, row: sqlite3.Row) -> Entry:
-        """Eine Zeile in eine lesbare Notiz verwandeln."""
-        return Entry(
-            id=int(row["id"]),
-            text=self._cipher.decrypt(str(row["text"] or "")),
-            topic=self._cipher.decrypt(str(row["topic"] or "")),
-            created_at=str(row["created_at"] or ""),
-        )
+        """Eine Zeile in eine lesbare Notiz verwandeln.
+
+        Laesst sie sich nicht entschluesseln, steht das offen da -- der
+        Chiffretext geht weder an den Nutzer noch an das Modell.
+        """
+        try:
+            text = self._cipher.decrypt(str(row["text"] or ""))
+            topic = self._cipher.decrypt(str(row["topic"] or ""))
+        except CipherError:
+            text, topic = UNREADABLE, ""
+        return Entry(id=int(row["id"]), text=text, topic=topic,
+                     created_at=str(row["created_at"] or ""))
 
     # -- Loeschen ---------------------------------------------------------
     def forget(self, entry_id: int) -> bool:
@@ -374,7 +459,13 @@ class Memory:
         Uploads zuerst, weil ein Bild fast immer noch irgendwo liegt -- eine
         selbst geschriebene Notiz nicht.
         """
-        freed = 0
+        from aquaticy.budget import forget
+        from aquaticy.budget import make_room as gemeinsam
+
+        # Erst das Ersetzbare im ganzen Profil (Zwischenspeicher, Bilder,
+        # Uploads), dann -- nur hier, beim Speicher selbst -- alte Notizen.
+        freed = gemeinsam(self.data_dir)
+        forget(self.data_dir)
         folder = self.data_dir / "uploads"
         if folder.is_dir():
             files = sorted(

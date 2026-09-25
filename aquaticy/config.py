@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import contextlib
 import os
+import re
 from dataclasses import dataclass, field
 from functools import lru_cache
 from pathlib import Path
@@ -68,7 +69,8 @@ def load_env(path: Path | None = None, *, override: bool = False) -> Path | None
     """Laedt die `.env` in die Prozessumgebung und gibt den benutzten Pfad zurueck."""
     env_path = path or find_env_file()
     if env_path and env_path.is_file():
-        load_dotenv(env_path, override=override)
+        # Ohne ${VAR}-Ersetzung: ein Wert soll genau das sein, was dasteht.
+        load_dotenv(env_path, override=override, interpolate=False)
         return env_path
     return None
 
@@ -775,8 +777,75 @@ def reset_settings_cache() -> None:
     get_settings.cache_clear()
 
 
+#: Ein Name in der .env: Grossbuchstaben, Ziffern, Unterstrich.
+ENV_KEY_RE = re.compile(r"[A-Z_][A-Z0-9_]{0,99}")
+#: Zeichen, die in einem Wert nichts verloren haben: Zeilenumbrueche jeder Art
+#: und Steuerzeichen. Ein "\n" im Wert haette bis 9.5.14 eine zweite Zeile --
+#: also eine zweite Einstellung -- in die .env geschrieben.
+_ENV_BAD_CHARS = re.compile(r"[\x00-\x1f\x7f\x85\u2028\u2029]")
+#: Werte, die ohne Anfuehrungszeichen stehen duerfen.
+_ENV_PLAIN = re.compile(r"[A-Za-z0-9_./:@,+\-]*")
+#: Laenger ist keine Einstellung -- und keine .env soll durch einen Wert platzen.
+ENV_VALUE_MAX = 4000
+
+
+def env_value_problem(value: str) -> str:
+    """Warum *value* nicht in eine .env darf -- "" wenn er darf."""
+    if _ENV_BAD_CHARS.search(value):
+        return "Zeilenumbrüche und Steuerzeichen sind in einer Einstellung nicht erlaubt."
+    if len(value) > ENV_VALUE_MAX:
+        return f"Der Wert ist zu lang (höchstens {ENV_VALUE_MAX} Zeichen)."
+    return ""
+
+
+def env_line(key: str, value: str) -> str:
+    """Eine .env-Zeile, die genau diesen einen Wert traegt -- nichts sonst.
+
+    Einfache Werte stehen blank, alles andere in doppelten Anfuehrungszeichen
+    mit maskiertem Backslash und Anfuehrungszeichen: ein offenes Zeichen im
+    Wert kann so keine folgenden Zeilen verschlucken.
+
+    Raises:
+        ValueError: ungueltiger Name oder Wert (Zeilenumbruch, Steuerzeichen).
+    """
+    if not ENV_KEY_RE.fullmatch(key):
+        raise ValueError(f"Ungültiger Name für eine Einstellung: {key[:40]!r}")
+    wert = str(value)
+    problem = env_value_problem(wert)
+    if problem:
+        raise ValueError(problem)
+    if _ENV_PLAIN.fullmatch(wert):
+        return f"{key}={wert}"
+    return f'{key}="' + wert.replace("\\", "\\\\").replace('"', '\\"') + '"'
+
+
+def read_env_file(path: Path | None) -> dict[str, str]:
+    """Die Werte einer .env -- OHNE ``${VAR}``-Ersetzung.
+
+    python-dotenv ersetzt ``${NAME}`` sonst durch Werte aus der Umgebung des
+    Servers. Ein Ort wie ``${MISTRAL_API_KEY}`` holte so einen Schluessel des
+    Betreibers in die Einstellungen eines Kontos (bis 9.5.14).
+    """
+    from dotenv import dotenv_values
+
+    if path is None or not Path(path).is_file():
+        return {}
+    return {
+        str(key): str(value or "")
+        for key, value in dotenv_values(path, interpolate=False).items()
+        if key
+    }
+
+
 def write_env_file(values: dict[str, str], path: Path | None = None) -> Path:
-    """Schreibt/aktualisiert Schluessel in einer `.env`, ohne Fremdzeilen zu verlieren."""
+    """Schreibt/aktualisiert Schluessel in einer `.env`, ohne Fremdzeilen zu verlieren.
+
+    Raises:
+        ValueError: Ein Name oder Wert, der die Datei verbiegen wuerde. Dann
+            wird gar nichts geschrieben.
+    """
+    # Erst alles pruefen, dann schreiben -- halb geschrieben waere schlimmer.
+    zeilen = {key: env_line(key, value) for key, value in values.items()}
     target = path or find_env_file() or DEFAULT_ENV_PATH
     target.parent.mkdir(parents=True, exist_ok=True)
 
@@ -790,15 +859,16 @@ def write_env_file(values: dict[str, str], path: Path | None = None) -> Path:
         if not stripped or stripped.startswith("#") or "=" not in stripped:
             out.append(line)
             continue
-        key = stripped.split("=", 1)[0].strip()
+        key = stripped.split("=", 1)[0].strip().removeprefix("export ").strip()
         if key in remaining:
-            out.append(f"{key}={remaining.pop(key)}")
+            remaining.pop(key)
+            out.append(zeilen[key])
         else:
             out.append(line)
     if remaining:
         if out and out[-1].strip():
             out.append("")
-        out.extend(f"{key}={value}" for key, value in remaining.items())
+        out.extend(zeilen[key] for key in remaining)
 
     target.write_text("\n".join(out).rstrip("\n") + "\n", encoding="utf-8")
     # Exotische Dateisysteme koennen chmod verweigern -- kein Grund abzubrechen.

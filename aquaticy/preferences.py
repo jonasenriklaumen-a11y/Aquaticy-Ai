@@ -255,6 +255,15 @@ def coerce(preference: Preference, value: str) -> str:
         BadValue: Wenn der Wert nicht zu dieser Einstellung passt.
     """
     raw = str(value if value is not None else "").strip()
+    # Ein Zeilenumbruch im Wert haette bis 9.5.14 eine zweite Zeile in die
+    # .env geschrieben -- und damit jede Einstellung, auch die geschuetzten.
+    from aquaticy.config import env_value_problem
+
+    problem = env_value_problem(raw)
+    if problem:
+        raise BadValue(f"{preference.label}: {problem}")
+    if preference.kind == "text" and len(raw) > 200:
+        raise BadValue(f"{preference.label}: höchstens 200 Zeichen.")
 
     if preference.name == APPEARANCE:
         low = raw.lower()

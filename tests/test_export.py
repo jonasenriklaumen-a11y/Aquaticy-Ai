@@ -119,20 +119,12 @@ def test_download_images_writes_files_and_rewrites_links(
     """`--download-images` legt die Bilder neben der Exportdatei ab."""
     import httpx
 
-    class FakeClient:
-        def __init__(self, **kwargs: object) -> None:
-            pass
+    from aquaticy import netguard
 
-        def __enter__(self) -> FakeClient:
-            return self
-
-        def __exit__(self, *exc: object) -> None:
-            return None
-
-        def get(self, url: str) -> httpx.Response:
-            return httpx.Response(200, content=b"BILD", request=httpx.Request("GET", url))
-
-    monkeypatch.setattr(httpx, "Client", FakeClient)
+    # Seit 9.5.15 laufen Bilder ueber die Netzregel -- der Transport ist gestellt.
+    monkeypatch.setattr(netguard, "guarded_transport", lambda **kw: httpx.MockTransport(
+        lambda request: httpx.Response(200, headers={"content-type": "image/jpeg"},
+                                       content=b"BILD")))
     target = tmp_path / "recherche.html"
     export([_turn()], "html", path=target, with_images=True)
 
@@ -148,20 +140,13 @@ def test_failed_image_download_keeps_the_link(
 ) -> None:
     import httpx
 
-    class FailingClient:
-        def __init__(self, **kwargs: object) -> None:
-            pass
+    from aquaticy import netguard
 
-        def __enter__(self) -> FailingClient:
-            return self
+    def kein_netz(request: httpx.Request) -> httpx.Response:
+        raise httpx.ConnectError("kein Netz", request=request)
 
-        def __exit__(self, *exc: object) -> None:
-            return None
-
-        def get(self, url: str) -> httpx.Response:
-            raise httpx.ConnectError("kein Netz", request=httpx.Request("GET", url))
-
-    monkeypatch.setattr(httpx, "Client", FailingClient)
+    monkeypatch.setattr(netguard, "guarded_transport",
+                        lambda **kw: httpx.MockTransport(kein_netz))
     target = tmp_path / "recherche.md"
     export([_turn()], "md", path=target, with_images=True)
     assert "https://cdn.shop.de/yoga.jpg" in target.read_text(encoding="utf-8")
@@ -178,22 +163,11 @@ def test_image_files_do_not_collide_across_turns(
         "https://cdn.b.de/bild.jpg": b"BILD-B",
     }
 
-    class FakeClient:
-        def __init__(self, **kwargs: object) -> None:
-            pass
+    from aquaticy import netguard
 
-        def __enter__(self) -> FakeClient:
-            return self
-
-        def __exit__(self, *exc: object) -> None:
-            return None
-
-        def get(self, url: str) -> httpx.Response:
-            return httpx.Response(
-                200, content=payload_by_url[url], request=httpx.Request("GET", url)
-            )
-
-    monkeypatch.setattr(httpx, "Client", FakeClient)
+    monkeypatch.setattr(netguard, "guarded_transport", lambda **kw: httpx.MockTransport(
+        lambda request: httpx.Response(200, headers={"content-type": "image/jpeg"},
+                                       content=payload_by_url[str(request.url)])))
 
     def turn_with(url: str) -> Turn:
         return Turn(

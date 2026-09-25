@@ -29,11 +29,27 @@ Jetzt gilt:
 * Ein erstelltes Bild zaehlt pauschal ``IMAGE_TOKENS`` -- ein Bildmodell
   rechnet nicht in Token ab, kostet aber trotzdem. Mit eigenem Bildschluessel
   zaehlt nur das Ablegen auf dem Server.
+
+Seit 9.5.15:
+
+* **Reservieren statt pruefen-und-spaeter-buchen.** Vor jedem gestellten
+  Aufruf wird in einer einzigen Datenbank-Transaktion geprueft UND gebucht
+  (``reserve``); danach ersetzt ``Reservation.settle`` die Schaetzung durch
+  die Zahlen des Anbieters. Parallele Agenten und Auftraege koennen so nicht
+  mehr alle gleichzeitig "noch frei" sehen.
+* **Fail-closed.** Laesst sich das Kontingent nicht schreiben, faellt der
+  Aufruf aus, statt unbezahlt zu laufen. Fehler beim Verrechnen danach
+  lassen die (hoehere) Reservierung stehen und werden protokolliert -- nie
+  still verschluckt.
+* **Echte Zahlen auch beim Streamen**: ``usage_of`` liest die Zahlen des
+  Anbieters (samt Reasoning- und Cache-Token, die in prompt/completion
+  enthalten sind), gestreamt ueber ``stream_options.include_usage``.
 """
 
 from __future__ import annotations
 
 import contextlib
+import logging
 import math
 from typing import Any
 
@@ -53,9 +69,17 @@ __all__ = [
     "quota_of",
     "record",
     "remaining",
+    "reserve",
+    "reserve_work",
     "share_of_session",
+    "usage_of",
     "work_cost",
 ]
+
+LOG = logging.getLogger("aquaticy.metering")
+
+#: So viel reserviert ein Aufruf fuer die Antwort, wenn er selbst keine Grenze nennt.
+DEFAULT_OUTPUT_RESERVE = 4_096
 
 #: So viel zaehlt ein erstelltes Bild (mit dem Schluessel des Betreibers).
 IMAGE_TOKENS = 5_000
@@ -125,15 +149,119 @@ def record(
     mit dem eigenen Schluessel des Kontos lief.
     """
     rein, raus = max(0, int(tokens_in or 0)), max(0, int(tokens_out or 0))
-    with contextlib.suppress(Exception):
-        from aquaticy.usage import UsageLog
-
-        UsageLog(settings.db_path).record(model, rein, raus)
+    _statistik(settings, model, rein, raus)
     eigen = is_own(settings, model) if own is None else bool(own)
     quota = quota_of(settings)
     if quota is not None and not eigen:
-        with contextlib.suppress(Exception):
+        try:
             quota.record(rein + raus, model)
+        except Exception:
+            # Nicht still: wer hier schweigt, laesst Nutzung unbezahlt durch.
+            LOG.exception("Kontingent: Verbrauch liess sich nicht eintragen (%s)", model)
+
+
+def _statistik(settings: Any, model: str, rein: int, raus: int) -> None:
+    """Die Statistik des Profils -- ein Fehler dort kostet keine Antwort, wird aber gemeldet."""
+    try:
+        from aquaticy.usage import UsageLog
+
+        UsageLog(settings.db_path).record(model, rein, raus)
+    except Exception:
+        LOG.warning("Statistik: Aufruf liess sich nicht eintragen (%s)", model, exc_info=True)
+
+
+class Reservation:
+    """Eine Buchung im Kontingent, bevor der Aufruf laeuft -- danach verrechnet."""
+
+    def __init__(self, settings: Any, model: str, quota: Any, nummer: int) -> None:
+        self.settings = settings
+        self.model = model
+        self._quota = quota
+        self._nummer = nummer
+        self._offen = True
+
+    def settle(self, tokens_in: int, tokens_out: int) -> None:
+        """Ersetzt die Reservierung durch den echten Verbrauch."""
+        if not self._offen:
+            return
+        self._offen = False
+        rein, raus = max(0, int(tokens_in or 0)), max(0, int(tokens_out or 0))
+        _statistik(self.settings, self.model, rein, raus)
+        if self._quota is None:
+            return
+        try:
+            self._quota.settle(self._nummer, rein + raus, self.model)
+        except Exception:
+            # Die Reservierung bleibt stehen -- lieber zu viel gezaehlt als zu wenig.
+            LOG.exception("Kontingent: Verrechnen fehlgeschlagen (%s)", self.model)
+
+    def cancel(self) -> None:
+        """Gibt die Reservierung frei -- der Aufruf ist gar nicht zustande gekommen."""
+        if not self._offen:
+            return
+        self._offen = False
+        if self._quota is None:
+            return
+        try:
+            self._quota.settle(self._nummer, 0, self.model)
+        except Exception:
+            LOG.exception("Kontingent: Freigeben fehlgeschlagen (%s)", self.model)
+
+
+def reserve(settings: Any, model: str, estimate: int) -> Reservation:
+    """Reserviert *estimate* Token fuer einen Aufruf mit *model* -- atomar.
+
+    Mit eigenem Schluessel des Kontos (oder ohne Kontingent) wird nichts
+    reserviert; gezaehlt wird dann nur die Statistik.
+
+    Raises:
+        QuotaExceeded: nichts mehr frei.
+        Exception: das Kontingent laesst sich nicht schreiben -- dann laeuft
+            auch der Aufruf nicht (fail-closed).
+    """
+    quota = quota_of(settings)
+    if quota is None or is_own(settings, model):
+        return Reservation(settings, model, None, 0)
+    nummer = quota.reserve(max(1, int(estimate or 0)), model)
+    return Reservation(settings, model, quota, nummer)
+
+
+def estimate(messages: Any, max_tokens: Any = None, tools: Any = None) -> int:
+    """Was ein Aufruf hoechstens kosten duerfte -- fuer die Reservierung."""
+    from aquaticy.usage import message_tokens, tokens
+
+    rein = 0
+    with contextlib.suppress(Exception):
+        rein = message_tokens(messages if isinstance(messages, list) else [])
+    if tools:
+        with contextlib.suppress(Exception):
+            import json
+
+            rein += tokens(json.dumps(tools))
+    try:
+        raus = int(max_tokens) if max_tokens else DEFAULT_OUTPUT_RESERVE
+    except (TypeError, ValueError):
+        raus = DEFAULT_OUTPUT_RESERVE
+    return max(1, rein + max(0, raus))
+
+
+def usage_of(usage: Any) -> tuple[int, int] | None:
+    """Die Zahlen des Anbieters -- oder None, wenn er keine geschickt hat.
+
+    ``prompt_tokens`` enthaelt die Cache-Token, ``completion_tokens`` die
+    Reasoning-Token; nennt der Anbieter ein hoeheres ``total_tokens``, gilt das.
+    """
+    if usage is None:
+        return None
+    def wert(name: str) -> Any:
+        return usage.get(name) if isinstance(usage, dict) else getattr(usage, name, None)
+
+    rein, raus, summe = wert("prompt_tokens"), wert("completion_tokens"), wert("total_tokens")
+    if not isinstance(rein, int) or not isinstance(raus, int) or rein < 0 or raus < 0:
+        return None
+    if isinstance(summe, int) and summe > rein + raus:
+        raus = summe - rein
+    return rein, raus
 
 
 # -- Serverarbeit ---------------------------------------------------------------
@@ -155,8 +283,24 @@ def charge_work(settings: Any, kind: str, amount: float = 1.0) -> None:
     quota = quota_of(settings)
     kosten = work_cost(kind, amount)
     if quota is not None and kosten > 0:
-        with contextlib.suppress(Exception):
+        try:
             quota.record(kosten, f"server:{kind}")
+        except Exception:
+            LOG.exception("Kontingent: Serverarbeit liess sich nicht eintragen (%s)", kind)
+
+
+def reserve_work(settings: Any, kind: str, amount: float = 1.0) -> Reservation:
+    """Haelt die Mindestkosten einer Serverarbeit frei, solange sie laeuft (atomar).
+
+    Danach wird die Reservierung freigegeben und die echte Arbeit gebucht
+    (``charge_work``). So koennen parallele Werkzeuge nicht alle auf den
+    letzten freien Rest zugleich losgehen.
+    """
+    quota = quota_of(settings)
+    if quota is None:
+        return Reservation(settings, f"server:{kind}", None, 0)
+    nummer = quota.reserve(work_cost(kind, amount), f"server:{kind}")
+    return Reservation(settings, f"server:{kind}", quota, nummer)
 
 
 # -- Modellaufrufe ------------------------------------------------------------------
@@ -164,11 +308,9 @@ def _counted(messages: Any, response: Any) -> tuple[int, int]:
     """Die Zahlen des Anbieters, sonst eine Schaetzung aus dem Text."""
     from aquaticy.usage import message_tokens, tokens
 
-    usage = getattr(response, "usage", None)
-    rein = getattr(usage, "prompt_tokens", None)
-    raus = getattr(usage, "completion_tokens", None)
-    if isinstance(rein, int) and isinstance(raus, int) and rein >= 0 and raus >= 0:
-        return rein, raus
+    echt = usage_of(getattr(response, "usage", None))
+    if echt is not None:
+        return echt
     try:
         rein = message_tokens(messages if isinstance(messages, list) else [])
     except Exception:
@@ -191,10 +333,29 @@ def completion(settings: Any, *, enforce: bool = True, **kwargs: Any) -> Any:
     modell = str(kwargs.get("model") or "")
     if enforce:
         check(settings, model=modell)
-    response = litellm.completion(**kwargs)
+    # Reserviert wird immer -- auch beim Rechtspruefer, der vorher nicht
+    # prueft: gebucht werden muss er trotzdem, und zwar bevor er laeuft.
+    try:
+        buchung = reserve(settings, modell, estimate(kwargs.get("messages"),
+                                                     kwargs.get("max_tokens"),
+                                                     kwargs.get("tools")))
+    except QuotaExceeded:
+        if enforce:
+            raise
+        buchung = Reservation(settings, modell, None, 0)
+        LOG.info("Kontingent erschoepft -- der Rechtspruefer laeuft trotzdem (%s)", modell)
+    try:
+        response = litellm.completion(**kwargs)
+    except BaseException:
+        buchung.cancel()
+        raise
     if not kwargs.get("stream"):
         rein, raus = _counted(kwargs.get("messages"), response)
-        record(settings, modell, rein, raus)
+        buchung.settle(rein, raus)
+    else:
+        # Gestreamt: die Aufrufer verrechnen selbst -- ohne sie bleibt die
+        # (grosszuegige) Reservierung stehen.
+        buchung.settle(*_counted(kwargs.get("messages"), None))
     return response
 
 
@@ -210,9 +371,6 @@ def charge_image(settings: Any, model: str) -> None:
     """Bucht ein erstelltes Bild -- je nachdem, wessen Schluessel es gemalt hat."""
     if is_own(settings, model):
         charge_work(settings, "bild")
-        with contextlib.suppress(Exception):
-            from aquaticy.usage import UsageLog
-
-            UsageLog(settings.db_path).record(model, 0, IMAGE_TOKENS)
+        _statistik(settings, model, 0, IMAGE_TOKENS)
     else:
         record(settings, model, 0, IMAGE_TOKENS)

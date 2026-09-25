@@ -29,6 +29,8 @@ SKIP_LABELS: dict[str, str] = {
     "unsupported_content_type": "kein HTML",
     "network_error": "Netzwerkfehler",
     "invalid_url": "ungueltige URL",
+    "not_public": "keine oeffentliche Adresse",
+    "too_large": "zu gross",
 }
 
 
@@ -504,18 +506,25 @@ def render_image(console: Console, url: str, width: int = 34) -> bool:
     if backend == "none" or not url:
         return False
     try:
-        if backend == "term-image":
-            from term_image.image import from_url
+        # Die Adresse stammt aus einer fremden Seite: geladen wird nur ueber
+        # die Netzregel (oeffentlich, Weiterleitungen geprueft, Groesse
+        # begrenzt) -- nie mehr ueber die eigenen Abrufe der Bildbibliothek.
+        from aquaticy import netguard
 
-            image = from_url(url, width=width)
-            console.print(str(image))
+        with netguard.image_client(timeout=10) as client:
+            response = netguard.get(client, url, max_bytes=8_000_000)
+        if response.status_code != 200:
+            return False
+        if backend == "term-image":
+            from term_image.image import from_file
+
+            with tempfile.NamedTemporaryFile(suffix=".img", delete=True) as handle:
+                handle.write(response.content)
+                handle.flush()
+                image = from_file(handle.name, width=width)
+                console.print(str(image))
             return True
         if backend == "chafa":
-            import httpx
-
-            response = httpx.get(url, timeout=10, follow_redirects=True)
-            if response.status_code != 200:
-                return False
             with tempfile.NamedTemporaryFile(suffix=".img", delete=True) as handle:
                 handle.write(response.content)
                 handle.flush()

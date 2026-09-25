@@ -146,6 +146,11 @@ SKIP_NOTES: dict[str, str] = {
     ),
     "network_error": "Netzwerkfehler beim Abruf.",
     "invalid_url": "Die URL ist ungueltig oder verwendet kein http(s).",
+    "not_public": (
+        "Die Adresse (oder eine Weiterleitung) zeigt nicht ins oeffentliche Internet, "
+        "sondern auf den Server selbst oder ein privates Netz. Dorthin wird nie abgerufen."
+    ),
+    "too_large": "Die Antwort ist zu gross -- der Abruf wurde abgebrochen.",
 }
 
 

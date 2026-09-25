@@ -19,6 +19,7 @@ Zwei Entscheidungen, die den Rest erklaeren:
 from __future__ import annotations
 
 import contextlib
+import logging
 import re
 import sqlite3
 import threading
@@ -30,6 +31,8 @@ from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Any
 from urllib.parse import parse_qsl, urlencode, urlsplit
+
+LOG = logging.getLogger("aquaticy.jobs")
 
 #: Recherchen laufen eher taeglich; eine Bild- oder Preisbeobachtung darf in
 #: kurzen Abstaenden pruefen, damit ein voruebergehender Zustand nicht entgeht.
@@ -709,8 +712,11 @@ class Scheduler:
 
     def _loop(self) -> None:
         while not self._stop.wait(TICK_SECONDS):
-            with contextlib.suppress(Exception):
+            try:
                 self.tick()
+            except Exception:
+                # Nicht still (9.5.15): ein Takt, der scheitert, steht im Protokoll.
+                LOG.exception("Auftraege: Takt fehlgeschlagen")
 
     def tick(self) -> int:
         """Ein Durchgang. Returns: wie viele Auftraege gelaufen sind."""
@@ -734,6 +740,8 @@ class Scheduler:
                 store.set_enabled(job.id, False)
             gelaufen += 1
             if self._on_run:
-                with contextlib.suppress(Exception):
+                try:
                     self._on_run(job, state, chat)
+                except Exception:
+                    LOG.exception("Auftraege: Rueckmeldung zu %s fehlgeschlagen", job.id)
         return gelaufen

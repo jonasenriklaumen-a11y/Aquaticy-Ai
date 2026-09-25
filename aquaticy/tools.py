@@ -11,7 +11,6 @@ Ausschnitt.
 
 from __future__ import annotations
 
-import contextlib
 import subprocess
 import time
 from collections.abc import Callable
@@ -990,6 +989,28 @@ WORK_TOOLS: dict[str, str] = {
     "desktop_windows": "desktop",
 }
 
+#: Werkzeuge, deren Ergebnis fremder Text ist -- von Webseiten, aus Suchen,
+#: Feeds, Mails, Kalendereinladungen oder vom Bildschirm im User mode. Darin
+#: kann eine Anweisung stecken, die wie vom Nutzer klingt (Prompt-Injection).
+UNTRUSTED_SOURCES = frozenset({
+    "web_search", "search_news", "fetch_page", "inspect_public_visual", "find_profiles",
+    "local_places", "github", "weather", "read_feeds", "mail_search", "mail_read",
+    "calendar_events", "desktop_look", "research_subtasks",
+})
+
+#: Was danach nur noch mit ausdruecklicher Bestaetigung laeuft (seit 9.5.15):
+#: alles, was nach aussen wirkt oder bleibt. Eine Regel im Systemtext allein
+#: haelt eine gut gemachte Injection nicht auf -- diese Grenze schon, denn sie
+#: liegt im Code und fragt den Menschen.
+CONFIRM_AFTER_UNTRUSTED: dict[str, str] = {
+    "ha_call": "im Haus etwas schalten",
+    "change_setting": "eine Einstellung ändern",
+    "storage_add": "etwas in der Lagerverwaltung anlegen",
+    "storage_edit": "etwas in der Lagerverwaltung ändern",
+    "remember": "sich etwas dauerhaft merken",
+    "save_memory": "etwas im Speicher ablegen",
+}
+
 VM_SCHEMAS: tuple[dict[str, Any], ...] = (
     VM_RUN_SCHEMA,
     VM_WRITE_SCHEMA,
@@ -1438,6 +1459,9 @@ class Toolbox:
         self.subagent_runner: Callable[[list[str]], list[dict[str, Any]]] | None = None
         #: Setzt die Oberflaeche, wenn jemand da ist, der antworten kann.
         self.ask_handler: AskHandler | None = None
+        #: Steht fremder Text im Gespraech (Web, Mails, Bildschirm)? Dann
+        #: laufen Werkzeuge mit Wirkung nur noch mit Bestaetigung (9.5.15).
+        self.untrusted_seen = False
         #: Wird beim ersten Zugriff geoeffnet, nicht beim Start -- wer den
         #: Speicher nie benutzt, soll auch keine Datei dafuer anlegen.
         self._memory_store: Any = None
@@ -2336,8 +2360,10 @@ class Toolbox:
             self._emit("image_created", error=str(exc))
             return {"error": str(exc)}
         try:
+            # Ein KI-Bild gehoert zu seinem Chat und geht mit ihm (9.5.15) --
+            # bis 9.5.14 blieb es "fest" fuer immer liegen.
             media_id = save_snapshot(self.settings.data_dir, bild["bytes"], bild["mime"],
-                                     keep=True)
+                                     ai=True)
         except (OSError, ValueError) as exc:
             return {"error": f"Das Bild liess sich nicht ablegen: {exc}"}
         # Abgerechnet wird nach der Kennung, nicht nach dem Anzeigenamen -- nur
@@ -2476,18 +2502,62 @@ class Toolbox:
         laeuft (aquaticy/metering.py, seit 9.5.14 Seashell). Ist nichts mehr
         uebrig, lehnt das Werkzeug ab -- das Modell antwortet dann ohne.
         """
+        nein = self._untrusted_gate(name, arguments)
+        if nein:
+            return nein
         art = WORK_TOOLS.get(name)
         if art is None or metering.quota_of(self.settings) is None:
-            return self._call(name, arguments)
+            return self._after_untrusted(name, self._call(name, arguments))
         try:
-            metering.check_work(self.settings, art)
+            # Atomar (9.5.15): die Mindestkosten werden reserviert, solange die
+            # Arbeit laeuft -- parallele Werkzeuge sehen den Rest schon belegt.
+            vorab = metering.reserve_work(self.settings, art)
         except metering.QuotaExceeded as exc:
             return {"error": str(exc), "kontingent": True}
         vorher = getattr(self._sandbox_box, "name", "") or ""
-        payload = self._call(name, arguments)
-        with contextlib.suppress(Exception):
+        try:
+            payload = self._call(name, arguments)
+        finally:
+            vorab.cancel()
+        try:
             self._charge_work(name, art, payload, vorher)
+        except Exception:
+            import logging
+
+            logging.getLogger("aquaticy.metering").exception("Serverarbeit nicht gebucht")
+        return self._after_untrusted(name, payload)
+
+    def _after_untrusted(self, name: str, payload: Any) -> Any:
+        """Merkt sich, dass fremder Text im Gespraech ist."""
+        if name in UNTRUSTED_SOURCES and isinstance(payload, dict) and not payload.get("error"):
+            self.untrusted_seen = True
         return payload
+
+    def _untrusted_gate(self, name: str, arguments: dict[str, Any]) -> dict[str, Any] | None:
+        """Nach fremdem Text: Wirkung nach aussen nur, wenn der Mensch zustimmt."""
+        was = CONFIRM_AFTER_UNTRUSTED.get(name)
+        if not was or not getattr(self, "untrusted_seen", False):
+            return None
+        if name == "ha_call":
+            from aquaticy.homeassistant import PROTECTED_DOMAINS
+
+            if str(arguments.get("domain", "")).strip().lower() in PROTECTED_DOMAINS:
+                return None  # fragt ohnehin selbst nach
+        detail = ", ".join(f"{k}={str(v)[:60]}" for k, v in list(arguments.items())[:4])
+        frage = (f"In diesem Gespräch stehen Inhalte aus dem Web oder aus Mails. "
+                 f"Soll Aquaticy jetzt wirklich {was}? ({detail})")
+        if self.ask_handler is None:
+            return {"error": (
+                f"Nach dem Lesen fremder Inhalte darf Aquaticy nicht ohne Bestätigung {was} -- "
+                "und hier kann gerade niemand bestätigen. Bitte den Nutzer, es selbst zu tun."
+            ), "bestaetigung": False}
+        self._emit("ask", question=frage, options=["ja", "nein"])
+        antwort = (self.ask_handler(frage, ["ja", "nein"]) or "").strip().lower()
+        self._emit("ask_done", question=frage, answer=antwort)
+        if antwort in ("ja", "j", "yes", "ok", "mach", "los", "klar"):
+            return None
+        return {"error": f"Vom Nutzer nicht bestätigt (Antwort: {antwort!r}).",
+                "bestaetigung": False}
 
     def _charge_work(self, name: str, art: str, payload: Any, vorher: str) -> None:
         """Bucht, was wirklich auf dem Server gearbeitet hat -- keine Fehlversuche."""
@@ -2506,7 +2576,7 @@ class Toolbox:
             return
         if name == "fetch_page":
             ohne_abruf = {"invalid_url", "blocked_by_list", "robots_disallowed", "legal_guard",
-                          "timeout", "network_error"}
+                          "timeout", "network_error", "not_public"}
             if payload.get("via") != "cache" and payload.get("skipped_reason") not in ohne_abruf:
                 metering.charge_work(self.settings, "seite")
             return
