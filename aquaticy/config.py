@@ -326,6 +326,13 @@ class Settings:
     #: mehr als zwei wenig -- die GPU rechnet ohnehin nacheinander. Bei
     #: Cloud-Modellen ist mehr fast geschenkt.
     subagent_parallel: int = 0
+    #: Anfragen je Minute und gleichzeitige Anfragen an den Anbieter (0 = das
+    #: Freikontingent, aquaticy/pace.py). Bei Konten gilt der eigene Wert fuer
+    #: die EIGENEN Schluessel -- der Takt fuer gestellte Modelle ist Sache des
+    #: Betreibers (seit 9.5.16; vorher wurde der Wert gespeichert, aber nie
+    #: gelesen).
+    rpm: int = 0
+    parallel_calls: int = 0
     #: Adresse der eigenen Home-Assistant-Instanz, z.B. http://192.168.1.5:8123
     ha_url: str = ""
     #: Langlebiges Zugriffstoken aus dem Home-Assistant-Profil.
@@ -376,6 +383,15 @@ class Settings:
     #: gehoeren (sein Schluesselbund, aquaticy/keyvault.py). Alles andere ist
     #: gestellt: vom Betreiber (Umgebung des Servers) oder lokal (Ollama).
     own_key_names: frozenset[str] = frozenset()
+    #: Bei welchen Suchmaschinen ein normales Konto den Schluessel des
+    #: Betreibers mitbenutzen darf: nur bei der, die der Betreiber selbst
+    #: gewaehlt hat (seit 9.5.16). ``None`` = keine Einschraenkung (Kommando-
+    #: zeile, Pro, ohne Konten). Bis 9.5.15 konnte ein Konto "brave" waehlen
+    #: und suchte dann still mit dem bezahlten Schluessel des Betreibers.
+    operator_search_backends: frozenset[str] | None = None
+    #: Der Schluesselbund des Kontos fuer interne Geheimnisse (GitHub-Token,
+    #: seit 9.5.16). ``None`` = ohne Konten: dann die .env des Betreibers.
+    secret_vault: Any = None
     #: Eine Modell-Adresse, die das Konto SELBST eingetragen hat (nur Pro).
     #: Nur dorthin darf ein eigener Schluessel neben dem Anbieter selbst gehen
     #: -- nie an eine Adresse des Betreibers.
@@ -575,10 +591,29 @@ class Settings:
         """Der Schluesselname der gewaehlten Suchmaschine, "" bei den offenen."""
         return SEARCH_BACKEND_KEYS.get(self.search_backend, "")
 
+    def search_key_for(self, backend: str) -> str:
+        """Der Schluessel, mit dem *backend* sucht -- "" wenn es keinen gibt.
+
+        Der eigene des Kontos zuerst. Der des Betreibers nur, wenn er fuer
+        dieses Konto gilt (:attr:`operator_search_backends`). Bis 9.5.15 kam
+        der eigene bei Suchen nie an: die Werkzeuge riefen die Suche ohne
+        Schluessel auf, und die nahm den aus der Umgebung des Servers.
+        """
+        name = SEARCH_BACKEND_KEYS.get((backend or "").lower(), "")
+        if not name:
+            return ""
+        if name in self.own_key_names and self.search_keys.get(name):
+            return self.search_keys[name]
+        erlaubt = self.operator_search_backends
+        if erlaubt is not None and (backend or "").lower() not in erlaubt:
+            return ""
+        if name in self.own_key_names:
+            return _env_str(name)
+        return self.search_keys.get(name) or _env_str(name)
+
     @property
     def search_api_key(self) -> str:
-        name = self.search_key_name
-        return (self.search_keys.get(name) or _env_str(name)) if name else ""
+        return self.search_key_for(self.search_backend)
 
     @property
     def search_key_source(self) -> str:
@@ -745,6 +780,8 @@ def get_settings() -> Settings:
         ),
         subagent_budget=_env_int("AQUATICY_SUBAGENT_BUDGET", 6),
         subagent_parallel=_env_int("AQUATICY_SUBAGENT_PARALLEL", 0),
+        rpm=max(0, _env_int("AQUATICY_RPM", 0)),
+        parallel_calls=max(0, _env_int("AQUATICY_PARALLEL_CALLS", 0)),
         ha_url=_env_str("AQUATICY_HA_URL"),
         ha_token=_env_str("HA_TOKEN") or _env_str("AQUATICY_HA_TOKEN"),
         github_token=_env_str("AQUATICY_GITHUB_TOKEN"),

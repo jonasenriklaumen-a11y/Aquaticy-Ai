@@ -267,9 +267,11 @@ class _Chromium:
     def __init__(self, sandbox_geht: bool) -> None:
         self.sandbox_geht = sandbox_geht
         self.versuche: list[list[str]] = []
+        self.proxies: list[dict] = []
 
-    def launch(self, headless: bool, args: list[str]) -> str:
+    def launch(self, headless: bool, args: list[str], proxy: dict | None = None) -> str:
         self.versuche.append(list(args))
+        self.proxies.append(proxy or {})
         if "--no-sandbox" not in args and not self.sandbox_geht:
             raise RuntimeError("No usable sandbox!")
         return "browser"
@@ -288,8 +290,14 @@ def test_browser_sandbox_is_always_tried_first(monkeypatch: pytest.MonkeyPatch) 
     monkeypatch.setenv("AQUATICY_BROWSER_NO_SANDBOX", "1")
     pw = _playwright(sandbox_geht=True)
     assert launch_browser(pw) == "browser"
-    assert pw.chromium.versuche == [["--disable-dev-shm-usage"]]
+    assert len(pw.chromium.versuche) == 1
+    assert pw.chromium.versuche[0][0] == "--disable-dev-shm-usage"
+    assert "--no-sandbox" not in pw.chromium.versuche[0]
     assert "--no-sandbox" not in launch_args()
+    # Seit 9.5.16: alles ueber den Proxy der Netzregel, auch Loopback.
+    assert pw.chromium.proxies[0]["server"].startswith("http://127.0.0.1:")
+    assert pw.chromium.proxies[0]["bypass"] == "<-loopback>"
+    assert any("disable_non_proxied_udp" in arg for arg in pw.chromium.versuche[0])
 
 
 @pytest.mark.parametrize("value", ["1", "true", "yes", "ja"])

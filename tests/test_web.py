@@ -2616,6 +2616,19 @@ def test_a_chat_can_be_renamed(client, session: web.ChatSession) -> None:
     assert json.loads(listing)["chats"][0]["title"] == "Werkzeug"
 
 
+def test_renaming_without_a_title_goes_back_to_the_question(
+    client, session: web.ChatSession
+) -> None:
+    """Seit 9.5.16: ohne Titel heisst der Chat wieder wie seine erste Frage -- nicht "None"."""
+    cache = Cache(session.settings().db_path, 24)
+    cache.add_history(session_id="s1", question="Wo liegt das Kabel?", answer="…", meta={})
+    client("POST", "/api/chat-edit", {"action": "rename", "session_id": "s1", "title": "X"})
+    status, body = client("POST", "/api/chat-edit", {"action": "rename", "session_id": "s1"})
+    assert status == 200 and json.loads(body)["title"] == ""
+    _, listing = client("GET", "/api/chats")
+    assert json.loads(listing)["chats"][0]["title"] == "Wo liegt das Kabel?"
+
+
 def test_a_chat_can_be_deleted(client, session: web.ChatSession) -> None:
     cache = Cache(session.settings().db_path, 24)
     cache.add_history(session_id="s1", question="Weg damit", answer="…", meta={})
@@ -3958,6 +3971,29 @@ def test_an_image_job_stores_the_picture_privately(client, session: web.ChatSess
     media_id = payload["job"]["image_id"]
     assert media_id
     assert load_snapshot(session.settings().data_dir, media_id) == (b"das-bild", "image/png")
+
+
+def test_p2_deleting_an_image_job_removes_its_picture(client, session: web.ChatSession) -> None:
+    """Seit 9.5.16 auch ueber DELETE /api/jobs -- vorher nur ueber den POST-Weg."""
+    import base64
+
+    from aquaticy.media import load_snapshot
+
+    session.settings().vision_model = "ollama_chat/gemma4:12b"
+    for weg in ("DELETE", "POST"):
+        png = base64.b64encode(b"das-bild").decode()
+        payload = json.loads(client("POST", "/api/jobs", {
+            "action": "add", "kind": "image", "question": "Handy gesucht",
+            "rhythm": "hourly", "image_data": png, "image_type": "image/png",
+        })[1])
+        nummer, media_id = payload["job"]["id"], payload["job"]["image_id"]
+        assert load_snapshot(session.settings().data_dir, media_id) is not None
+        if weg == "DELETE":
+            status, body = client("DELETE", f"/api/jobs?id={nummer}")
+        else:
+            status, body = client("POST", "/api/jobs", {"action": "delete", "id": nummer})
+        assert status == 200 and json.loads(body)["ok"] is True, weg
+        assert load_snapshot(session.settings().data_dir, media_id) is None, weg
 
 
 def test_an_image_job_without_a_picture_is_refused(

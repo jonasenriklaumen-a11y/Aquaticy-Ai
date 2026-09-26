@@ -200,6 +200,10 @@ class Quota:
         now = time.time() if now is None else now
         self.begin(now)
         with self._lock, self._connect() as conn:
+            # Auch nachtraeglich Gebuchtes (Serverarbeit) nie ueber das Limit.
+            tokens = min(tokens, self._frei(conn, now))
+            if tokens <= 0:
+                return
             conn.execute(
                 "INSERT INTO token_usage (account_id, at, tokens, model) VALUES (?, ?, ?, ?)",
                 (self.account_id, now, tokens, str(model or "")[:120]),
@@ -243,13 +247,17 @@ class Quota:
                 frei = min(SESSION_TOKENS - self._sum(conn, start),
                            WEEK_TOKENS - self._sum(conn, woche_anfang))
                 zeile = None
-                if frei <= 0:
+                # Nur, wenn der GANZE Bedarf passt (seit 9.5.16). Bis dahin
+                # wurde reserviert, was noch frei war, der Aufruf lief trotzdem,
+                # und hinterher stand der volle Verbrauch da: 200.099 statt
+                # hoechstens 200.000 Token.
+                if frei <= 0 or bedarf > frei:
                     conn.execute("ROLLBACK")
                 else:
                     zeile = conn.execute(
                         "INSERT INTO token_usage (account_id, at, tokens, model) "
                         "VALUES (?, ?, ?, ?)",
-                        (self.account_id, now, min(bedarf, frei),
+                        (self.account_id, now, bedarf,
                          ("reserviert:" + str(model or ""))[:120]),
                     )
                     conn.execute("COMMIT")
@@ -262,14 +270,37 @@ class Quota:
         if zeile is None:
             # Ausserhalb der Sperre: check() liest selbst und wirft mit dem
             # passenden Satz (Sitzung oder Woche, wann es weitergeht).
-            self.check(1, now)
-            raise QuotaExceeded("Dein Kontingent ist aufgebraucht.", "session")
+            self.check(bedarf, now)
+            raise QuotaExceeded(
+                "Der Rest deines Kontingents reicht für diese Anfrage nicht mehr. Eine "
+                "kürzere Frage oder ein neuer Chat braucht weniger.", "session")
         return int(zeile.lastrowid or 0)
 
+    def _frei(self, conn: sqlite3.Connection, now: float, ohne: int = 0) -> int:
+        """Was in Sitzung und Woche noch frei ist -- ohne die Buchung *ohne*."""
+        woche_anfang, _ = week_window(self.created_at, now)
+        start = self._session_start(conn, now)
+        abzug = 0
+        if ohne:
+            zeile = conn.execute(
+                "SELECT tokens, at FROM token_usage WHERE rowid = ? AND account_id = ?",
+                (int(ohne), self.account_id)).fetchone()
+            abzug = int(zeile["tokens"]) if zeile is not None else 0
+        sitzung = (self._sum(conn, start) - abzug) if start is not None else 0
+        woche = self._sum(conn, woche_anfang) - abzug
+        return max(0, min(SESSION_TOKENS - sitzung, WEEK_TOKENS - woche))
+
     def settle(self, reservation: int, tokens: int, model: str = "") -> None:
-        """Ersetzt eine Reservierung durch den echten Verbrauch (0 = freigeben)."""
+        """Ersetzt eine Reservierung durch den echten Verbrauch (0 = freigeben).
+
+        Nie ueber die Grenze (seit 9.5.16): lag der echte Verbrauch ueber der
+        Schaetzung, wird hoechstens bis zum Limit gebucht -- den Rest traegt
+        der Betreiber, nicht das Konto.
+        """
         tokens = max(0, int(tokens or 0))
         with self._lock, self._connect() as conn:
+            if tokens > 0:
+                tokens = min(tokens, self._frei(conn, time.time(), ohne=int(reservation)))
             if tokens <= 0:
                 conn.execute("DELETE FROM token_usage WHERE rowid = ? AND account_id = ?",
                              (int(reservation), self.account_id))

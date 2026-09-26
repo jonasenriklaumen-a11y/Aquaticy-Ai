@@ -100,6 +100,17 @@ class Device:
         return self.title or self.name or self.address
 
 
+#: Die Bereiche, in denen Aquaticy im Heimnetz sucht -- und nur diese:
+#: RFC 1918 und das Netz von Tailscale (CGNAT).
+HOME_NETWORKS: tuple[ipaddress.IPv4Network, ...] = tuple(
+    ipaddress.IPv4Network(netz)
+    for netz in ("10.0.0.0/8", "172.16.0.0/12", "192.168.0.0/16", "100.64.0.0/10")
+)
+
+#: So viel liest der Titelabruf hoechstens -- ein Titel steht weit vorne.
+MAX_TITLE_BYTES = 256_000
+
+
 class NotPrivate(ValueError):
     """Die Adresse liegt ausserhalb der privaten Netze."""
 
@@ -115,10 +126,10 @@ def is_private_net(network: ipaddress.IPv4Network) -> bool:
     # TypeError geworfen (::/32 gegen 100.64/10).
     if not isinstance(network, ipaddress.IPv4Network):
         return False
-    if network.is_private:
-        return True
-    tailnet = ipaddress.ip_network("100.64.0.0/10")
-    return network.subnet_of(tailnet)
+    # Genau die zugesagten Bereiche (seit 9.5.16). ``is_private`` zaehlte
+    # auch 127/8 (der Server selbst), 169.254/16 (Metadaten der Cloud) und
+    # Doku-/Testnetze mit -- dort hat eine Heimnetzsuche nichts verloren.
+    return any(network.subnet_of(bereich) for bereich in HOME_NETWORKS)
 
 
 def in_container() -> bool:
@@ -234,15 +245,30 @@ def web_title(address: str, port: int, timeout: float = 1.5) -> str:
     scheme = "https" if port in (443, 8443) else "http"
     url = f"{scheme}://{address}:{port}/"
     try:
-        response = httpx.get(url, timeout=timeout, verify=False, follow_redirects=True)
-    except Exception:
+        ip = ipaddress.ip_address(address)
+    except ValueError:
         return ""
-    if response.status_code >= 500:
+    if not isinstance(ip, ipaddress.IPv4Address) or not any(ip in n for n in HOME_NETWORKS):
+        return ""
+    # Keine Weiterleitungen und eine Obergrenze (seit 9.5.16): ein Geraet
+    # koennte sonst woandershin schicken oder endlos Daten liefern.
+    try:
+        with httpx.stream("GET", url, timeout=timeout, verify=False,
+                          follow_redirects=False) as response:
+            if response.status_code >= 500:
+                return ""
+            daten = b""
+            for stueck in response.iter_bytes():
+                daten += stueck
+                if len(daten) >= MAX_TITLE_BYTES:
+                    break
+            text = daten[:MAX_TITLE_BYTES].decode(response.encoding or "utf-8", "replace")
+    except Exception:
         return ""
     from selectolax.parser import HTMLParser
 
     try:
-        node = HTMLParser(response.text).css_first("title")
+        node = HTMLParser(text).css_first("title")
     except Exception:
         return ""
     return " ".join((node.text() or "").split())[:80] if node else ""

@@ -102,6 +102,42 @@ KINDS = ("research", "visual", "price", "image")
 #: eingetreten ist. Bis dahin laufen sie still.
 MONITORING = ("visual", "price", "image")
 
+#: Takte unter einer Stunde. Sie gibt es nur fuer Beobachtungen, die still
+#: laufen, bis ihre Bedingung eintritt. Eine Recherche legt bei JEDEM Lauf
+#: einen neuen Chat an -- "jede Minute" hiess bis 9.5.15 1.440 Chats am Tag,
+#: bis der Speicher voll war. Recherchen laufen deshalb hoechstens stuendlich.
+SHORT_RHYTHMS = frozenset({"always", "minutes1", "minutes5", "minutes15", "minutes30"})
+
+
+def rhythm_for(kind: str, rhythm: str) -> str:
+    """Der Takt, der fuer diese Auftragsart gilt (siehe SHORT_RHYTHMS)."""
+    takt = clean_rhythm(rhythm)
+    if str(kind or "research") not in MONITORING and takt in SHORT_RHYTHMS:
+        return "hourly"
+    return takt
+
+
+#: Welche Auftraege gerade laufen: (Datenbank, Nummer). Planer und "Jetzt"-
+#: Knopf fragen hier nach -- bis 9.5.15 konnte derselbe Auftrag doppelt laufen.
+_RUNNING: set[tuple[str, int]] = set()
+_RUNNING_LOCK = threading.Lock()
+
+
+def claim_run(db_path: Any, job_id: int) -> bool:
+    """Meldet einen Lauf an. ``False`` = der Auftrag laeuft schon."""
+    schluessel = (str(db_path), int(job_id))
+    with _RUNNING_LOCK:
+        if schluessel in _RUNNING:
+            return False
+        _RUNNING.add(schluessel)
+        return True
+
+
+def release_run(db_path: Any, job_id: int) -> None:
+    with _RUNNING_LOCK:
+        _RUNNING.discard((str(db_path), int(job_id)))
+
+
 #: Womit der Zustand eines Auftrags beginnt, den der Rechtsrahmen abgelehnt
 #: hat. Solche Auftraege schaltet der Planer ab.
 GUARD_STATE = "abgelehnt nach Rechtsrahmen"
@@ -290,7 +326,8 @@ class JobStore:
         return Job(
             id=int(row["id"]),
             question=str(row["question"]),
-            rhythm=str(row["rhythm"]),
+            # Aeltere Recherchen mit kurzem Takt gelten als stuendlich.
+            rhythm=rhythm_for(str(row["kind"] or "research"), str(row["rhythm"])),
             hour=int(row["hour"]),
             minute=int(row["minute"]),
             weekday=int(row["weekday"]),
@@ -345,6 +382,7 @@ class JobStore:
         kind = str(kind or "research").strip().lower()
         if kind not in KINDS:
             kind = "research"
+        rhythm = rhythm_for(kind, rhythm)
         source_url = str(source_url or "").strip()[:2_000]
         image_id = str(image_id or "").strip()[:80]
         if kind == "image" and not image_id:
@@ -396,7 +434,8 @@ class JobStore:
             if job is None:
                 return False
             weiter = next_time(
-                str(job["rhythm"]), int(job["hour"]), int(job["minute"]), int(job["weekday"])
+                rhythm_for(str(job["kind"] or "research"), str(job["rhythm"])),
+                int(job["hour"]), int(job["minute"]), int(job["weekday"])
             )
             conn.execute(
                 "UPDATE jobs SET enabled = ?, next_run = ? WHERE id = ?",
@@ -445,7 +484,7 @@ class JobStore:
                     str(state)[:300],
                     str(chat)[:80],
                     next_time(
-                        str(job["rhythm"]),
+                        rhythm_for(str(job["kind"] or "research"), str(job["rhythm"])),
                         int(job["hour"]),
                         int(job["minute"]),
                         int(job["weekday"]),
@@ -730,10 +769,14 @@ class Scheduler:
             # Ohne das hier bliebe sein `next_run` in der Vergangenheit: er
             # waere beim naechsten Takt wieder der erste, wuerde wieder
             # stolpern -- und alles, was hinter ihm steht, kaeme nie dran.
+            if not claim_run(settings.db_path, job.id):
+                continue  # laeuft gerade ueber "Jetzt" -- nicht ein zweites Mal
             try:
                 state, chat = run_job(job, settings)
             except Exception as exc:
                 state, chat = (f"Fehler: {type(exc).__name__}", "")
+            finally:
+                release_run(settings.db_path, job.id)
             store.note_run(job.id, state, chat)
             # Am Kontingent bleibt der Auftrag an: es setzt sich zurueck.
             if state == "erfüllt" or state.startswith(GUARD_STATE):

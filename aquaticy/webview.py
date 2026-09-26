@@ -172,7 +172,13 @@ def job_view(job: dict[str, Any]) -> dict[str, Any]:
            "image": "Bildsuche"}.get(str(job.get("kind") or ""), "Recherche")
     minuten = {"minutes5": 5, "minutes15": 15, "minutes30": 30}.get(str(job.get("rhythm")))
     rhythmus = str(job.get("rhythm") or "")
-    if minuten:
+    # "jede Minute" und "die ganze Zeit" fehlten hier bis 9.5.15 -- angezeigt
+    # wurde dann "täglich um 08:00".
+    if rhythmus == "always":
+        takt = "die ganze Zeit"
+    elif rhythmus == "minutes1":
+        takt = "jede Minute"
+    elif minuten:
         takt = f"alle {minuten} Minuten"
     elif rhythmus == "hourly":
         takt = f"stündlich zur Minute {int(job.get('minute') or 0):02d}"

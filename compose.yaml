@@ -54,6 +54,9 @@ services:
       - ./docker/searxng:/etc/searxng:rw
     environment:
       SEARXNG_BASE_URL: http://localhost:8080/
+      # Ersetzt den Platzhalter in docker/searxng/settings.yml. ./aquaticy-box
+      # legt ihn beim ersten Start zufaellig in der .env an (seit 9.5.16).
+      SEARXNG_SECRET: ${SEARXNG_SECRET:-}
     security_opt:
       - no-new-privileges:true
 

@@ -667,7 +667,7 @@ def test_without_anyone_to_confirm_the_lock_stays_shut(settings: Settings,
         lambda self, d, s, e="", data=None: called.append(1) or [],
     )
     box = Toolbox(_ha_settings(settings, control=True))  # kein ask_handler
-    result = box.ha_call("alarm_control_panel", "alarm_disarm", "alarm.haus")
+    result = box.ha_call("alarm_control_panel", "alarm_disarm", "alarm_control_panel.haus")
     assert "bestaetigungspflichtig" in result["error"]
     assert not called
 

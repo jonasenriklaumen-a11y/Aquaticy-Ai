@@ -19,7 +19,8 @@ search:
     - json
 
 server:
-  # Ersetzen: `openssl rand -hex 32`
+  # Nur ein Platzhalter: der echte Schluessel kommt aus SEARXNG_SECRET in der
+  # .env (./aquaticy-box legt ihn zufaellig an; von Hand: `openssl rand -hex 32`).
   secret_key: "bitte-aendern-openssl-rand-hex-32"
   limiter: false
   image_proxy: false

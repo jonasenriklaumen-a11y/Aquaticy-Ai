@@ -137,7 +137,7 @@ aquaticy "welche Bahnstrecken in NRW sind gerade gesperrt?"
 $ aquaticy --location "Mönchengladbach" --lang de
 
 ╭──────────────────────────────────────────────────────╮
-│ Aquaticy AI 9.5.15 Seashell                            │
+│ Aquaticy AI 9.5.16 Lion                                │
 │ Modell mistral/mistral-large-latest · Suche duckduckgo │
 │ Frag einfach los. /help zeigt die Befehle.           │
 ╰──────────────────────────────────────────────────────╯
@@ -1050,7 +1050,7 @@ er erreichbar ist — im heimischen Netz und über Tailscale:
 
 ```
 ╭───────────────────────────────────────────────────────────────────╮
-│ Aquaticy AI 9.5.15 Seashell                                         │
+│ Aquaticy AI 9.5.16 Lion                                             │
 │ Diese Adresse im Browser oeffnen:                                 │
 │   http://192.168.1.44:8765/    im heimischen Netz                 │
 │   http://100.81.120.100:8765/  ueber Tailscale                    │
@@ -1141,6 +1141,8 @@ aquaticy lan                               # Geraete im eigenen Netz anzeigen
 aquaticy connect-ha                        # Home Assistant verbinden
 aquaticy google                            # Gmail und Kalender verbinden (lesend)
 aquaticy google --aendern                  # dazu Termine ändern und Entwürfe schreiben
+aquaticy list                              # Konten mit Adresse, Kontingent, Ai-guard-Stand
+aquaticy ban "name" / aquaticy unban "name"  # Konto oder IP-Adresse sperren/freigeben (Ai-guard)
 ```
 
 ## Der Speicher: was Aquaticy AI behält
@@ -2659,6 +2661,37 @@ ausgeschalteten Leitplanken so.
   ein, zwei Sekunden, bei NVIDIA einen der 40 Aufrufe pro Minute.
 - Aquaticy ist keine Rechtsberatung. Die Leitplanken entscheiden nur, was Aquaticy selbst
   tut. Für den eigenen Einzelfall: Anwaltskanzlei oder Verbraucherzentrale.
+
+## Ai-guard: Schutz vor Missbrauch (seit 9.5.16 Lion)
+
+Der Rechtsrahmen prüft jede einzelne Anfrage. **Ai-guard** sieht eine Stufe darüber:
+**über mehrere Chats hinweg** — versucht dieselbe Person immer wieder, Aquaticy für einen
+Angriff zu missbrauchen?
+
+* **Was ein Anhaltspunkt ist:** eine klare Bitte um Schadsoftware, eine Angriffsanleitung
+  (DDoS, Einbruch, Exploit gegen fremde Systeme), Zugangsdatendiebstahl, Phishing. Auch eine
+  Ablehnung durch den Rechtsrahmen (Grundgesetz, BGB) zählt. **Verteidigung, Bildung, ein
+  Pentest mit Auftrag und allgemeine Sicherheitsfragen sind kein Missbrauch** — dieselbe
+  Haltung wie im Rechtsrahmen.
+* **Wann gesperrt wird:** erst bei **zwei** Anhaltspunkten. Einer allein ist ein Verdacht
+  und darf ein Fachbegriff oder eine missverstandene Frage sein.
+* **Kein zweiter Modellaufruf:** bei normalen Konten reitet die Missbrauchserkennung auf
+  demselben Prüf-Aufruf des Rechtsrahmens mit. Nur wo ein Pro-Konto die Leitplanken
+  abgeschaltet hat, fragt Ai-guard selbst.
+* **Was gespeichert wird:** nur der Anlass (Zeitpunkt, Art, Chat) und die zuletzt genutzte
+  IP-Adresse — nie der ganze Nachrichtentext. Diese Daten dienen allein dem
+  Missbrauchsschutz. So steht es in den Nutzungsbedingungen und klein unten in den
+  Einstellungen.
+* **Von Hand sperren und freigeben** — nur über das Terminal, nie aus dem Chat:
+
+  ```bash
+  aquaticy ban "anna"          # Konto sperren (Nutzername oder E-Mail)
+  aquaticy ban 203.0.113.7     # eine IP-Adresse sperren
+  aquaticy unban "anna"        # wieder freigeben
+  ```
+
+  `aquaticy list` zeigt neben Kontingent und Speicher jetzt auch die zuletzt gesehene
+  Adresse jedes Kontos und den Ai-guard-Stand (ok / Anhaltspunkte / gesperrt).
 
 ## Aufbau
 

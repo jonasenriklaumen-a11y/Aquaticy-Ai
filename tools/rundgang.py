@@ -1700,7 +1700,15 @@ def rundgang(pg: Any, log: Protokoll, agent: FakeAgent, bilder: Path | None,
         pg.select_option("#job-rhythm", "hourly")
         pg.wait_for_timeout(200)
         log.pruefe(not pg.is_visible("#job-tag-feld"), "stündlich braucht keinen Wochentag")
+        # Seit 9.5.16: kurze Takte gibt es fuer Recherchen nicht -- jeder Lauf
+        # waere ein neuer Chat.
+        log.pruefe(
+            pg.eval_on_selector('#job-rhythm option[value="always"]', "o => o.disabled"),
+            "eine Recherche läuft nicht „die ganze Zeit“",
+        )
         # Durchgehend beobachten: keine Uhrzeit, aber ein Wort zu den Kosten.
+        pg.select_option("#job-kind", "visual")
+        pg.wait_for_timeout(200)
         pg.select_option("#job-rhythm", "always")
         pg.wait_for_timeout(200)
         log.pruefe(not pg.is_visible("#job-zeit-feld"), "durchgehend hat keine Uhrzeit")

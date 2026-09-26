@@ -98,7 +98,7 @@ def test_duplicate_email_and_short_password_are_rejected(store: AuthStore) -> No
     with pytest.raises(ValueError, match="12 Zeichen"):
         store.register("a@example.org", "kurz", "normal", **TERMS)
     store.register("a@example.org", "eine sehr lange Passphrase", "normal", **TERMS)
-    with pytest.raises(ValueError, match="bereits"):
+    with pytest.raises(ValueError, match="kein neues Konto"):
         store.register("A@example.org", "noch eine lange Passphrase", "normal", **TERMS)
 
 

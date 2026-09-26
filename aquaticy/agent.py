@@ -1367,6 +1367,10 @@ class Agent:
         if self.stopped:
             return 0
         results = self._run_subagents(tasks)
+        if results:
+            # Die Agenten haben fremde Seiten gelesen; ihr Ergebnis steht
+            # gleich im Verlauf (seit 9.5.16 auch hier, nicht nur beim Master).
+            self.toolbox.untrusted_seen = True
         spent = sum(int(result.get("tool_calls", 0) or 0) for result in results)
         # Kam nichts zurueck, waere die "Quellenlage" ein leeres Blatt mit der
         # Aufforderung, daraus zu schreiben -- und genau das taete das Modell
@@ -1591,17 +1595,26 @@ class Agent:
         """
         self.messages = [{"role": "system", "content": self._compose_system()}]
         self.last_result = None
+        # Ein neuer Chat beginnt ohne fremden Text (seit 9.5.16 -- vorher
+        # blieb der Vermerk fuer immer stehen).
+        self.toolbox.untrusted_seen = False
         if new_chat:
             self.session_id = new_session_id()
 
-    def resume(self, session_id: str, turns: list[tuple[str, str]]) -> None:
+    def resume(self, session_id: str, turns: list[tuple[str, str]],
+               untrusted: bool = False) -> None:
         """Setzt einen frueheren Chat fort.
 
         Der Verlauf wird aus Frage und Antwort wieder aufgebaut -- damit
         weiss das Modell, worueber gesprochen wurde, ohne dass wir jeden
         Werkzeugaufruf von damals aufheben muessten.
+
+        Args:
+            untrusted: Stand in diesem Chat schon fremder Text? Dann gilt die
+                Bestaetigungspflicht aus 9.5.15 auch nach dem Wiederoeffnen.
         """
         self.clear(new_chat=False)
+        self.toolbox.untrusted_seen = bool(untrusted)
         self.session_id = session_id
         for question, answer in turns:
             if question:
@@ -1662,10 +1675,22 @@ class Agent:
             logging.getLogger("aquaticy.metering").exception("Zaehlen fehlgeschlagen")
 
     def _reserve(self, messages: list[dict[str, Any]], tools: Any = None) -> Any:
-        """Bucht den Aufruf vorab im Kontingent -- atomar (aquaticy/metering.py)."""
-        return metering.reserve(
+        """Bucht den Aufruf vorab im Kontingent -- atomar (aquaticy/metering.py).
+
+        Die Reservierung traegt die Aufrufargumente (``buchung.kwargs``): reicht
+        der Rest nur fuer eine kuerzere Antwort, steht dort das passende
+        ``max_tokens`` (seit 9.5.16) -- genau das, was reserviert ist.
+        """
+        argumente = self._llm_kwargs()
+        deckel = metering.output_cap(self.settings, self.active_model, messages, tools,
+                                     argumente.get("max_tokens"))
+        if deckel is not None:
+            argumente["max_tokens"] = deckel
+        buchung = metering.reserve(
             self.settings, self.active_model,
-            metering.estimate(messages, self._llm_kwargs().get("max_tokens"), tools))
+            metering.estimate(messages, argumente.get("max_tokens"), tools))
+        buchung.kwargs = argumente
+        return buchung
 
     @staticmethod
     def _stream_usage(stream: bool) -> dict[str, Any]:
@@ -2075,6 +2100,8 @@ class Agent:
         for attempt in range(attempts):
             try:
                 antwort = self._completion(messages, stream=stream)
+            except metering.QuotaExceeded:
+                raise  # am Kontingent hilft kein zweiter Versuch
             except Exception as exc:
                 last_error = exc
                 detail = f"{type(exc).__name__}: {exc}"
@@ -2119,7 +2146,7 @@ class Agent:
                     tool_choice="auto",
                     stream=stream,
                     **self._stream_usage(stream),
-                    **self._llm_kwargs(),
+                    **getattr(buchung, "kwargs", None) or self._llm_kwargs(),
                 )
         except BaseException:
             buchung.cancel()
@@ -2385,6 +2412,14 @@ class Agent:
             try:
                 self._trim_history()
                 message = self._completion_with_retry(self.messages, stream=stream)
+            except metering.QuotaExceeded as exc:
+                # Der Rest reicht nicht fuer diese Runde (Reservierung oder
+                # Antwortlaenge, seit 9.5.16) -- dieselbe klare Antwort wie oben.
+                result.error = str(exc)
+                result.answer = str(exc)
+                self._emit("error", message=str(exc))
+                self.messages.append({"role": "assistant", "content": str(exc)})
+                break
             except Exception as exc:  # LLM-Fehler duerfen den Chat nicht toeten
                 result.error = f"{type(exc).__name__}: {exc}"
                 self._emit("error", message=result.error)
@@ -2482,6 +2517,11 @@ class Agent:
             question, self._recent_context(include_last=True)
         )
         self._model_ready()
+        if verdict.abuse and verdict.allowed:
+            # Missbrauchsabsicht, aber keine Rechtsverletzung: die Anfrage läuft
+            # weiter (das Modell antwortet nach seiner Richtlinie), Ai-guard
+            # merkt sich den Anhaltspunkt (9.5.16 Lion, aquaticy/aiguard.py).
+            self._emit("abuse", art=verdict.abuse_kind or "Missbrauch")
         if verdict.allowed:
             return None
         antwort = refusal_text(verdict)
@@ -2788,11 +2828,15 @@ class Agent:
                     messages=self.messages,
                     stream=stream,
                     **self._stream_usage(stream),
-                    **self._llm_kwargs(),
+                    **getattr(buchung, "kwargs", None) or self._llm_kwargs(),
                 )
         except Exception as exc:
             if buchung is not None:
                 buchung.cancel()
+            if isinstance(exc, metering.QuotaExceeded):
+                # Am Kontingent: der Satz, wann es weitergeht, IST die Antwort.
+                self._emit("error", message=str(exc))
+                return str(exc)
             self._emit("error", message=f"{type(exc).__name__}: {exc}")
             return ""
         zahlen: tuple[int, int] | None = None
@@ -2956,12 +3000,15 @@ class Agent:
             visuals=result.visuals,
         )
         if self.cache and result.answer:
+            meta = result.meta()
+            if getattr(self.toolbox, "untrusted_seen", False):
+                meta["untrusted"] = True
             try:
                 self.cache.add_history(
                     session_id=self.session_id,
                     question=question,
                     answer=result.answer,
-                    meta=result.meta(),
+                    meta=meta,
                 )
             except OSError as exc:
                 # Speicher voll (aquaticy/budget.py): die Antwort steht trotzdem

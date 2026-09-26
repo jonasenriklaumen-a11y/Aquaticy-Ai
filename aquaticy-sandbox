@@ -2,7 +2,7 @@
 # Aquaticy eingeschlossen starten: die Oberflaeche in einer Kiste, und die
 # Werkstatt darin noch einmal in einer eigenen.
 #
-#   ./aquaticy-sandbox            starten (und im Browser oeffnen)
+#   ./aquaticy-sandbox            starten (die Adresse steht danach da)
 #   ./aquaticy-sandbox --build    Image neu bauen, dann starten
 #   ./aquaticy-sandbox --stop     anhalten
 #   ./aquaticy-sandbox --logs     mitlesen
@@ -44,6 +44,13 @@ case "${1:-}" in
     --build)
         shift
         "${COMPOSE[@]}" build aquaticy-web
+        ;;
+    "")
+        ;;
+    *)
+        # Unbekanntes startete bis 9.5.16 stillschweigend -- jetzt die Hilfe.
+        sed -n '4,9p' "$0" | sed 's/^# //' >&2
+        exit 2
         ;;
 esac
 

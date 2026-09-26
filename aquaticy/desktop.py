@@ -76,6 +76,20 @@ APPS: dict[str, str] = {
 #: ueber ihr Add-on -- mit den Rechten, die der Nutzer dort eingestellt hat.
 MESSENGER_HOSTS = frozenset({"web.whatsapp.com", "web.telegram.org"})
 
+#: Dieselben Adressen im Fliesstext -- auch mit Punkt am Ende, Grossbuchstaben
+#: oder davorgesetzter Subdomain (seit 9.5.16: bis dahin kam man ueber die
+#: Adresszeile oder "web.whatsapp.com." an der Sperre vorbei).
+MESSENGER_TEXT_RE = re.compile(
+    r"(?:^|[^a-z0-9-])(?:[a-z0-9-]+\.)*web\.(?:whatsapp\.com|telegram\.org)\.?(?:$|[^a-z0-9-])",
+    re.IGNORECASE,
+)
+
+
+def messenger_host(host: str) -> bool:
+    """Ist *host* eine Messenger-Web-App -- egal wie geschrieben?"""
+    name = (host or "").strip().rstrip(".").lower()
+    return any(name == ziel or name.endswith("." + ziel) for ziel in MESSENGER_HOSTS)
+
 #: Tasten, die in einem Messenger mit "Nur lesen" gehen: blaettern, nichts
 #: schreiben, nichts abschicken.
 READ_ONLY_KEYS = frozenset({
@@ -653,6 +667,10 @@ class Desktop:
                     "und oeffne ihn im Programm."
                 )
             }
+        if MESSENGER_TEXT_RE.search(text):
+            # Die Adresse einer Messenger-Web-App in die Adresszeile tippen ist
+            # derselbe Weg wie desktop_open -- und derselbe Umweg am Add-on vorbei.
+            return self._refuse("messenger_browser", "Adresse getippt")
         messenger, rechte = self._messenger()
         if messenger:
             verweigert, _chat = self._messenger_gate(
@@ -777,7 +795,7 @@ class Desktop:
                 from urllib.parse import urlsplit
 
                 host = (urlsplit(ziel).hostname or "").lower()
-                if host in MESSENGER_HOSTS:
+                if messenger_host(host):
                     return self._refuse("messenger_browser", ziel[:120])
             else:
                 try:

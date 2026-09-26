@@ -227,3 +227,14 @@ def test_the_window_list_stays_small(helfer: ModuleType) -> None:
     fenster = helfer.fenster_zeilen(ausgabe, "host")
     assert len(fenster) == helfer.MAX_FENSTER
     assert all(len(f["titel"]) <= 200 for f in fenster)
+
+
+def test_an_addon_start_path_stays_in_its_folder(helfer: ModuleType, tmp_path: Path) -> None:
+    """Seit 9.5.16: ein absoluter Pfad oder ein Symlink nach draussen startet nichts."""
+    ordner = tmp_path / "blender"
+    (ordner / "app").mkdir(parents=True)
+    (ordner / "app" / "blender").write_text("#!/bin/sh\n")
+    (ordner / "raus").symlink_to("/bin/sh")
+    assert helfer.innerhalb(ordner, "app/blender") == (ordner / "app" / "blender").resolve()
+    for start in ("/bin/sh", "../../bin/sh", "raus", "", "app"):
+        assert helfer.innerhalb(ordner, start) is None, start

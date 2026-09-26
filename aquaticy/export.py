@@ -72,6 +72,26 @@ def default_path(turns: list[Turn], fmt: str, directory: Path) -> Path:
 #: Groesser ist kein Produktbild -- der Rest wird nicht erst geladen.
 MAX_IMAGE_BYTES = 8_000_000
 
+#: Welche Bilder als Datei landen -- und mit welcher Endung. Die Endung kommt
+#: aus dem Inhaltstyp, nicht aus der Adresse (seit 9.5.16): sonst lag aus
+#: "bild.html" oder einem SVG mit Skript eine aktive Datei neben dem Export.
+IMAGE_SUFFIXES = {"image/jpeg": ".jpg", "image/png": ".png", "image/webp": ".webp",
+                  "image/gif": ".gif", "image/avif": ".avif"}
+
+
+def safe_link(url: object) -> str:
+    """Eine Adresse, die als Link taugt: nur http(s) -- sonst leer (seit 9.5.16).
+
+    Produkt- und Quellenadressen stammen aus fremden Seiten; ein
+    ``javascript:``-Link im exportierten HTML liefe beim Klick lokal an.
+    """
+    text = str(url or "").strip()
+    try:
+        schema = httpx.URL(text).scheme.lower()
+    except (httpx.InvalidURL, TypeError, ValueError):
+        return ""
+    return text if schema in ("http", "https") else ""
+
 
 def download_images(turns: list[Turn], directory: Path, timeout: float = 15.0) -> dict[str, str]:
     """Laedt Produktbilder in *directory* und gibt {url: dateiname} zurueck."""
@@ -94,9 +114,10 @@ def download_images(turns: list[Turn], directory: Path, timeout: float = 15.0) -
                     response = netguard.get(client, url, max_bytes=MAX_IMAGE_BYTES)
                     if response.status_code != 200:
                         continue
-                    if not response.headers.get("content-type", "").startswith("image/"):
-                        continue
-                    suffix = Path(httpx.URL(url).path).suffix[:5] or ".jpg"
+                    art = response.headers.get("content-type", "").split(";", 1)[0]
+                    suffix = IMAGE_SUFFIXES.get(art.strip().lower(), "")
+                    if not suffix:
+                        continue  # kein Rasterbild (SVG, HTML, ...) -- nicht speichern
                     name = f"{_slug(product.name, 30)}-{counter}{suffix}"
                     counter += 1
                     (directory / name).write_bytes(response.content)
@@ -125,9 +146,10 @@ def to_markdown(turns: list[Turn], image_map: dict[str, str] | None = None) -> s
         for product in turn.products:
             lines.append(f"### {product.name}")
             if product.image_url:
-                target = image_map.get(product.image_url, product.image_url)
-                lines.append(f"![{product.name}]({target})")
-                lines.append("")
+                target = image_map.get(product.image_url) or safe_link(product.image_url)
+                if target:
+                    lines.append(f"![{product.name}]({target})")
+                    lines.append("")
             lines.append(f"- **Preis:** {product.price_display()}")
             if product.rating is not None:
                 lines.append(f"- **Bewertung:** {product.rating}")
@@ -135,7 +157,7 @@ def to_markdown(turns: list[Turn], image_map: dict[str, str] | None = None) -> s
                 lines.append(f"- **Verfuegbarkeit:** {product.availability}")
             for key, value in product.specs.items():
                 lines.append(f"- **{key}:** {value}")
-            lines.append(f"- **Quelle:** [{product.source_domain}]({product.url})")
+            lines.append(f"- **Quelle:** [{product.source_domain}]({safe_link(product.url)})")
             lines.append("")
 
         if turn.searches:
@@ -145,7 +167,7 @@ def to_markdown(turns: list[Turn], image_map: dict[str, str] | None = None) -> s
             lines.append("**Gelesene Quellen:**")
             for source in turn.sources:
                 title = source.get("title") or source.get("url", "")
-                lines.append(f"- [{title}]({source.get('url', '')})")
+                lines.append(f"- [{title}]({safe_link(source.get('url', ''))})")
             lines.append("")
         if turn.skipped:
             lines.append("**Uebersprungen:**")
@@ -230,8 +252,9 @@ def to_html(turns: list[Turn], image_map: dict[str, str] | None = None) -> str:
             parts.append('<div class="cards">')
             for product in turn.products:
                 parts.append('<article class="card">')
-                if product.image_url:
-                    src = image_map.get(product.image_url, product.image_url)
+                src = (image_map.get(product.image_url) or safe_link(product.image_url)
+                       if product.image_url else "")
+                if src:
                     parts.append(f'<img src="{_e(src)}" alt="{_e(product.name)}" loading="lazy">')
                 parts.append(f"<h3>{_e(product.name)}</h3>")
                 parts.append(f'<p class="price">{_e(product.price_display())}</p>')
@@ -243,8 +266,8 @@ def to_html(turns: list[Turn], image_map: dict[str, str] | None = None) -> str:
                         parts.append(f"<tr><th>{_e(key)}</th><td>{_e(value)}</td></tr>")
                     parts.append("</table>")
                 parts.append(
-                    f'<p><a href="{_e(product.url)}" rel="noopener">'
-                    f"{_e(product.source_domain or product.url)}</a></p>"
+                    f'<p><a href="{_e(safe_link(product.url))}" rel="noopener noreferrer">'
+                    f"{_e(product.source_domain or safe_link(product.url) or 'Quelle')}</a></p>"
                 )
                 parts.append("</article>")
             parts.append("</div>")
@@ -275,7 +298,8 @@ def to_html(turns: list[Turn], image_map: dict[str, str] | None = None) -> str:
             for source in turn.sources:
                 url = source.get("url", "")
                 title = source.get("title") or url
-                parts.append(f'<li><a href="{_e(url)}" rel="noopener">{_e(title)}</a></li>')
+                parts.append(f'<li><a href="{_e(safe_link(url))}" rel="noopener noreferrer">'
+                             f"{_e(title)}</a></li>")
             parts.append("</ul>")
         if turn.skipped:
             items = "".join(

@@ -86,9 +86,22 @@ def test_a_closed_port_is_not(listener: int) -> None:
     assert not lan.port_open("127.0.0.1", 1)
 
 
-def test_the_web_title_identifies_the_device(listener: int) -> None:
+def _loopback_als_heimnetz(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Der Testserver lauscht auf 127.0.0.1 -- im Betrieb ist das kein Heimnetz
+    (seit 9.5.16), hier steht es stellvertretend fuer eines."""
+    monkeypatch.setattr(lan, "HOME_NETWORKS",
+                        (*lan.HOME_NETWORKS, ipaddress.IPv4Network("127.0.0.0/8")))
+
+
+def test_the_web_title_identifies_the_device(listener: int,
+                                             monkeypatch: pytest.MonkeyPatch) -> None:
     """Der Titel der Weboberflaeche sagt oft mehr als jede Portnummer."""
+    _loopback_als_heimnetz(monkeypatch)
     assert lan.web_title("127.0.0.1", listener) == "Home Assistant"
+
+
+def test_the_web_title_never_leaves_the_home_network(listener: int) -> None:
+    assert lan.web_title("127.0.0.1", listener) == ""
 
 
 def test_a_title_from_a_dead_port_is_empty() -> None:
@@ -127,6 +140,7 @@ def test_a_device_describes_itself() -> None:
 def test_scanning_a_single_address_network(listener: int, monkeypatch: pytest.MonkeyPatch) -> None:
     """Ein /32 hat keine Hosts -- der Durchlauf darf trotzdem nicht leer ausgehen."""
     monkeypatch.setattr(lan, "QUICK_PORTS", (listener,))
+    _loopback_als_heimnetz(monkeypatch)
     found = lan.scan("127.0.0.1/32", with_titles=False)
     assert [device.address for device in found] == ["127.0.0.1"]
 

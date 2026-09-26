@@ -55,7 +55,7 @@ def check_llm(
 
 
 def check_search(
-    backend: str, api_key: str = "", engines: str = "", instance_url: str = ""
+    backend: str, api_key: str | None = None, engines: str = "", instance_url: str = ""
 ) -> tuple[bool, str]:
     """Schickt eine Testsuche an das gewaehlte Backend."""
     try:

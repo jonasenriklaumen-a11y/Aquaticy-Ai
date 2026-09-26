@@ -5,7 +5,7 @@ Die Seiten beschreiben nur Verhalten, das im Code nachpruefbar ist.
 
 from __future__ import annotations
 
-LEGAL_VERSION = "2026-09-09"
+LEGAL_VERSION = "2026-09-26"
 LEGAL_ROUTES = ("/privacy", "/cookies", "/terms", "/accessibility")
 
 
@@ -27,6 +27,9 @@ Installation entscheidet, wo sie läuft und welche optionalen Dienste eingeschal
     eingeschaltet – gespeicherte Erinnerungen. Jeder Account hat einen getrennten Ordner.</li>
   <li><strong>Nutzung:</strong> verbrauchte Token und belegter Speicher, damit Limits und die
     lokale Verwaltung funktionieren.</li>
+  <li><strong>Missbrauchsschutz (Ai-guard):</strong> zum Anlass eines Verdachts der Zeitpunkt,
+    die Art, der Chat und deine zuletzt genutzte IP-Adresse. Nur für den Missbrauchsschutz,
+    nicht für Werbung oder Profile.</li>
 </ul>
 <h2>Externe Dienste</h2>
 <p>Eine Frage kann an den ausgewählten Modellanbieter gehen. Suchbegriffe können an das
@@ -83,6 +86,16 @@ mitteilen. Solche Vereinbarungen bestehen dann zwischen dir und diesem Betreiber
 <h2>Bewertungen und geschäftliche Angaben</h2>
 <p>Aquaticy sammelt oder veröffentlicht keine Nutzerbewertungen. Rechercheergebnisse sollen
 Behauptungen mit den gelesenen Quellen kennzeichnen.</p>
+<h2>Ai-guard und Missbrauchsschutz</h2>
+<p>Zum Schutz vor Missbrauch liest ein automatischer Sicherheitsfilter („Ai-guard“) mit.
+Er prüft deine Nachrichten über mehrere Chats hinweg darauf, ob Aquaticy für Angriffe
+missbraucht werden soll – etwa für Schadsoftware, Angriffsanleitungen oder unbefugten
+Zugriff. Bei wiederholten solchen Anhaltspunkten wird dein Konto gesperrt. Verteidigung,
+Bildung und allgemeine Sicherheitsfragen sind ausdrücklich erlaubt. Ai-guard speichert dabei
+nur den Anlass (Zeitpunkt, Art des Verdachts, Chat) und deine zuletzt genutzte IP-Adresse,
+nicht den ganzen Nachrichtentext. Diese Daten werden ausschließlich für den
+Missbrauchsschutz verwendet und für nichts anderes. Über das Terminal kann der Betreiber ein
+Konto oder eine Adresse sperren und wieder freigeben.</p>
 """
 
 

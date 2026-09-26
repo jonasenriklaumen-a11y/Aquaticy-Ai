@@ -354,7 +354,7 @@ class Memory:
         if self.full():
             raise MemoryFull(
                 f"Der Speicher ist voll ({MAX_BYTES // 1_000_000} MB). "
-                "Loesche Hochgeladenes oder alte Notizen."
+                "Lösche alte Chats, Hochgeladenes oder Notizen, die du nicht mehr brauchst."
             )
 
         with closing(self._connect()) as conn, conn:
@@ -454,10 +454,13 @@ class Memory:
         return removed, freed
 
     def make_room(self) -> int:
-        """Schafft Platz: erst alte Uploads, dann die aeltesten Notizen.
+        """Schafft Platz -- mit allem, was ersetzbar ist, nie mit Notizen.
 
-        Uploads zuerst, weil ein Bild fast immer noch irgendwo liegt -- eine
-        selbst geschriebene Notiz nicht.
+        Zwischenspeicher, Bilder und alte Uploads gehen (aquaticy/budget.py).
+        Notizen loescht niemand still: bis 9.5.15 fielen hier bei jedem
+        Speichern ueber 90 % die hundert aeltesten weg, obwohl sie kaum Platz
+        belegen. Reicht der Platz trotzdem nicht, lehnt ``remember`` ab und
+        sagt, was man loeschen kann.
         """
         from aquaticy.budget import forget
         from aquaticy.budget import make_room as gemeinsam
@@ -481,14 +484,6 @@ class Memory:
                     freed += size
                 except OSError:
                     continue
-
-        if self.used_bytes() > MAX_BYTES * CLEANUP_AT:
-            with closing(self._connect()) as conn, conn:
-                conn.execute(
-                    "DELETE FROM memory WHERE id IN "
-                    "(SELECT id FROM memory ORDER BY id ASC LIMIT 100)"
-                )
-            self.compact()
         return freed
 
     def compact(self) -> None:

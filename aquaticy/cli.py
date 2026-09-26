@@ -467,10 +467,13 @@ def list_users_command() -> None:
     from aquaticy.memory import human_size
 
     settings = get_settings()
+    from aquaticy.aiguard import guard_for
+
     store = AuthStore(settings.data_dir, pro_code_for(settings.data_dir))
+    guard = guard_for(settings.data_dir)
     accounts = store.accounts()
-    table = Table("Nutzername", "E-Mail", "Konto", "Sitzung (5 Std.)", "Woche",
-                  "Eigene Schlüssel", "Speicher", box=None, pad_edge=False)
+    table = Table("Nutzername", "E-Mail", "Konto", "Adresse", "Sitzung (5 Std.)", "Woche",
+                  "Eigene Schlüssel", "Speicher", "Ai-guard", box=None, pad_edge=False)
     for account in accounts:
         profile = store.profile_dir(account.id)
         if account.pro:
@@ -485,19 +488,94 @@ def list_users_command() -> None:
             eigene = str(store.vault(account).count())
         except Exception:
             eigene = "?"
+        # Zuletzt gesehene Adresse (seit 9.5.16 Lion) -- im Klartext, damit der
+        # Betreiber gezielt sperren kann.
+        adresse = account.last_ip or "—"
+        gesperrt = guard.is_banned(user_id=account.id, ip=account.last_ip)
+        punkte = guard.flag_count(account.id)
+        stand_guard = ("[red]gesperrt[/red]" if gesperrt is not None
+                       else f"[yellow]{punkte} Anhaltspunkt(e)[/yellow]" if punkte
+                       else "ok")
         table.add_row(
             account.username,
             account.email,
             "Pro" if account.pro else "Normal",
+            adresse,
             sitzung,
             woche,
             eigene,
             human_size(folder_bytes(profile)),
+            stand_guard,
         )
     if accounts:
         console.print(table)
     else:
         console.print("[dim]Noch keine Konten angelegt.[/dim]")
+
+
+def _ist_adresse(wert: str) -> bool:
+    import ipaddress
+
+    try:
+        ipaddress.ip_address(wert.split("%", 1)[0].strip())
+    except ValueError:
+        return False
+    return True
+
+
+@app.command("ban")
+def ban_command(
+    wen: str = typer.Argument(..., help="Nutzername, E-Mail oder IP-Adresse."),
+    grund: str = typer.Option("", "--grund", help="Kurzer Vermerk."),
+) -> None:
+    """Sperrt ein Konto oder eine IP-Adresse (Ai-guard).
+
+    aquaticy ban "anna"  ·  aquaticy ban 203.0.113.7
+    """
+    from aquaticy.aiguard import guard_for
+    from aquaticy.auth import AuthStore, pro_code_for
+
+    settings = get_settings()
+    guard = guard_for(settings.data_dir)
+    wen = wen.strip()
+    if _ist_adresse(wen):
+        adresse = guard.ban_ip(wen, reason=grund)
+        console.print(f"[green]Adresse {adresse} gesperrt.[/green]" if adresse
+                      else "[red]Das ist keine gültige Adresse.[/red]")
+        return
+    store = AuthStore(settings.data_dir, pro_code_for(settings.data_dir))
+    konto = store.account_by_name(wen)
+    if konto is None:
+        console.print(f"[yellow]Kein Konto mit Name oder E-Mail „{wen}“.[/yellow]")
+        raise typer.Exit(code=1)
+    guard.ban_user(konto.id, reason=grund)
+    console.print(f"[green]Konto {konto.username} ({konto.email}) gesperrt.[/green]")
+
+
+@app.command("unban")
+def unban_command(
+    wen: str = typer.Argument(..., help="Nutzername, E-Mail oder IP-Adresse."),
+) -> None:
+    """Gibt ein gesperrtes Konto oder eine Adresse wieder frei (Ai-guard)."""
+    from aquaticy.aiguard import guard_for
+    from aquaticy.auth import AuthStore, pro_code_for
+
+    settings = get_settings()
+    guard = guard_for(settings.data_dir)
+    wen = wen.strip()
+    if _ist_adresse(wen):
+        frei = guard.unban_ip(wen)
+        console.print("[green]Adresse wieder frei.[/green]" if frei
+                      else "[yellow]Diese Adresse war nicht gesperrt.[/yellow]")
+        return
+    store = AuthStore(settings.data_dir, pro_code_for(settings.data_dir))
+    konto = store.account_by_name(wen)
+    if konto is None:
+        console.print(f"[yellow]Kein Konto mit Name oder E-Mail „{wen}“.[/yellow]")
+        raise typer.Exit(code=1)
+    frei = guard.unban_user(konto.id)
+    console.print(f"[green]Konto {konto.username} wieder frei.[/green]" if frei
+                  else f"[yellow]{konto.username} war nicht gesperrt.[/yellow]")
 
 
 @app.command("pro-code")

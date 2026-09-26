@@ -135,7 +135,11 @@ class SearchOptions:
     count: int = 8
     country: str = "de"
     lang: str = "de"
-    api_key: str = ""
+    #: Der Schluessel der Suchmaschine. ``None`` = aus der Umgebung des Servers
+    #: (Kommandozeile); ein Text -- auch ein leerer -- gilt genau so (seit
+    #: 9.5.16: ein Konto ohne eigenen Schluessel bekommt nicht still den
+    #: des Betreibers).
+    api_key: str | None = None
     #: Komma-Liste fuer die offene Metasuche, z.B. "duckduckgo,mojeek".
     engines: str = ""
     #: Basis-URL der eigenen SearXNG-Instanz.
@@ -279,7 +283,8 @@ def _search_searxng(query: str, options: SearchOptions) -> list[SearchResult]:
 # Backends mit Schluessel
 # ---------------------------------------------------------------------------
 def _search_brave(query: str, options: SearchOptions) -> list[SearchResult]:
-    key = options.api_key or os.environ.get("BRAVE_API_KEY", "")
+    key = options.api_key if options.api_key is not None else os.environ.get(
+        "BRAVE_API_KEY", "")
     if not key:
         raise SearchError("BRAVE_API_KEY fehlt -- setze ihn per `aquaticy setup`.")
     response = httpx.get(
@@ -307,7 +312,8 @@ def _search_brave(query: str, options: SearchOptions) -> list[SearchResult]:
 
 
 def _search_tavily(query: str, options: SearchOptions) -> list[SearchResult]:
-    key = options.api_key or os.environ.get("TAVILY_API_KEY", "")
+    key = options.api_key if options.api_key is not None else os.environ.get(
+        "TAVILY_API_KEY", "")
     if not key:
         raise SearchError("TAVILY_API_KEY fehlt -- setze ihn per `aquaticy setup`.")
     response = httpx.post(
@@ -346,7 +352,7 @@ def search_web(
     lang: str = "de",
     *,
     backend: str = "duckduckgo",
-    api_key: str = "",
+    api_key: str | None = None,
     engines: str = "",
     instance_url: str = "",
 ) -> list[SearchResult]:
@@ -359,7 +365,8 @@ def search_web(
         lang: ISO-Sprachcode.
         backend: Name aus :data:`BACKENDS`. Ohne Key laufen `open`
             (Metasuche, Default) und `searxng` (eigene Instanz).
-        api_key: Optionaler Key; sonst aus der Umgebung.
+        api_key: Der Key. ``None`` = aus der Umgebung; ein Text (auch leer) gilt
+            genau so -- ein Konto ohne eigenen Key bekommt nie den des Servers.
         engines: Komma-Liste offener Engines, z.B. `"duckduckgo,mojeek"`.
         instance_url: Basis-URL der SearXNG-Instanz.
 

@@ -62,8 +62,11 @@ class Gate:
     @contextmanager
     def slot(self) -> Iterator[None]:
         """Haelt einen Platz frei, solange der Aufruf laeuft."""
-        if self._slots is not None:
-            self._slots.acquire()
+        # Auch der Platz wartet hoechstens MAX_WAIT (seit 9.5.16 -- vorher ohne
+        # Grenze): haengt ein Aufruf, laufen die naechsten trotzdem los.
+        belegt = self._slots.acquire(timeout=MAX_WAIT) if self._slots is not None else False
+        if self._slots is not None and not belegt:
+            self.waited += MAX_WAIT
         try:
             if self.spacing:
                 with self._takt:
@@ -74,7 +77,7 @@ class Gate:
                     self._last = time.monotonic()
             yield
         finally:
-            if self._slots is not None:
+            if belegt and self._slots is not None:
                 self._slots.release()
 
 
@@ -122,6 +125,11 @@ def gate_for(model: str, key: str = "") -> Gate:
 
     provider = provider_of(model or "")
     rpm, parallel = limits_for(provider)
+    # Ein eigener Schluessel bringt seine eigenen Grenzen mit (key_of, seit 9.5.16).
+    eigen_rpm, eigen_parallel = _own_limits(key)
+    if key.startswith("own:") and (eigen_rpm or eigen_parallel):
+        rpm = eigen_rpm or rpm
+        parallel = eigen_parallel or parallel
     if not rpm and not parallel:
         return FREE
     name = f"{provider}|{key}" if key else provider
@@ -150,13 +158,39 @@ def own_gate(api_key: str) -> str:
     return "own:" + hashlib.sha256(api_key.encode("utf-8")).hexdigest()[:16] if api_key else ""
 
 
+def _own_limits(key: str) -> tuple[int, int]:
+    """(rpm, parallel) aus einem Taktnamen wie ``own:abc|rpm=100|par=6``."""
+    rpm = parallel = 0
+    for teil in (key or "").split("|")[1:]:
+        name, _, wert = teil.partition("=")
+        if wert.isdigit():
+            if name == "rpm":
+                rpm = int(wert)
+            elif name == "par":
+                parallel = int(wert)
+    return rpm, parallel
+
+
 def key_of(settings: object, model: str) -> str:
-    """``settings.pace_key(model)`` -- und "" fuer alles, was keinen kennt (Tests, alt)."""
+    """``settings.pace_key(model)`` -- und "" fuer alles, was keinen kennt (Tests, alt).
+
+    Laeuft das Modell mit einem EIGENEN Schluessel, haengen die Grenzen des
+    Kontos daran (``rpm``/``parallel_calls``, seit 9.5.16): der Takt fuer den
+    eigenen Vertrag gehoert dem Konto, der fuer gestellte Modelle dem Betreiber.
+    """
     eigen = getattr(settings, "pace_key", None)
     try:
-        return str(eigen(model)) if callable(eigen) else ""
+        schluessel = str(eigen(model)) if callable(eigen) else ""
     except Exception:
         return ""
+    if schluessel.startswith("own:"):
+        rpm = int(getattr(settings, "rpm", 0) or 0)
+        parallel = int(getattr(settings, "parallel_calls", 0) or 0)
+        if rpm > 0:
+            schluessel += f"|rpm={rpm}"
+        if parallel > 0:
+            schluessel += f"|par={parallel}"
+    return schluessel
 
 
 @contextmanager

@@ -731,20 +731,31 @@ def _env_target(settings: Any) -> Path:
 
 
 def _write_secret(settings: Any, key: str, value: str) -> None:
-    from aquaticy.config import write_env_file
+    """Legt ein Token ab -- bei einem Konto verschluesselt in seinem Schluesselbund.
 
-    ziel = write_env_file({key: value}, _env_target(settings))
-    with contextlib.suppress(Exception):
-        from aquaticy.memory import secure_file
+    Bis 9.5.15 stand das GitHub-Token im Klartext in der .env des Kontos.
+    Ohne Konten (Kommandozeile, eigener Rechner) bleibt es in der .env des
+    Betreibers, geschuetzt wie die anderen Eintraege dort.
+    """
+    tresor = getattr(settings, "secret_vault", None)
+    if tresor is not None:
+        tresor.set_secret(key, value)
+    else:
+        from aquaticy.config import write_env_file
 
-        secure_file(ziel)
+        ziel = write_env_file({key: value}, _env_target(settings))
+        with contextlib.suppress(Exception):
+            from aquaticy.memory import secure_file
+
+            secure_file(ziel)
     with contextlib.suppress(Exception):
         settings.github_token = value
 
 
 def forget_github_token(settings: Any) -> None:
-    if github_token(settings) or _env_target(settings).is_file():
-        with contextlib.suppress(OSError):
+    if (github_token(settings) or getattr(settings, "secret_vault", None) is not None
+            or _env_target(settings).is_file()):
+        with contextlib.suppress(OSError, ValueError):
             _write_secret(settings, GITHUB_TOKEN_KEY, "")
 
 

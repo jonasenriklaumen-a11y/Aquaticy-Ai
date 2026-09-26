@@ -384,9 +384,12 @@ def test_a_reservation_is_settled_with_the_real_numbers(tmp_path: Path) -> None:
     assert konto.status()["_used"]["session"] == 1_234
     konto.settle(konto.reserve(5_000, "m"), 0, "m")
     assert konto.status()["_used"]["session"] == 1_234, "freigegeben"
-    # Der letzte Rest ist noch nutzbar -- reserviert wird hoechstens, was frei ist.
+    # Seit 9.5.16 (P2): ein Bedarf, der groesser ist als der Rest, wird gar
+    # nicht erst reserviert -- sonst lief der Aufruf und ueberzog das Limit.
     konto.record(SESSION_TOKENS - 1_234 - 10, "x")
-    konto.reserve(50_000, "m")
+    with pytest.raises(QuotaExceeded):
+        konto.reserve(50_000, "m")
+    konto.reserve(10, "m")
     assert konto.status()["_used"]["session"] == SESSION_TOKENS
     with pytest.raises(QuotaExceeded):
         konto.reserve(1, "m")

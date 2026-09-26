@@ -844,6 +844,9 @@ body.dragging::after{animation:fade-in var(--t-fast) var(--ease-out)}
 .pal .pwhy{display:block;font-size:11.5px;color:var(--text-3);margin-top:1px}
 
 /* =========================== Einstellungen ============================== */
+.aiguard-hint{ text-align:center; font-size:.72rem; color:var(--muted,#8a8a80);
+  margin:1.2rem auto .2rem; max-width:44rem; line-height:1.5; opacity:.85; }
+.aiguard-hint a{ color:inherit; text-decoration:underline; }
 /* Ueber der Seitenleiste (z-index 60) -- ein modales Fenster, das halb
    verdeckt wird, ist keins. */
 .overlay{position:fixed;inset:0;background:rgba(20,20,17,.42);backdrop-filter:blur(2px);display:none;z-index:80;
@@ -1542,7 +1545,7 @@ input:focus,select:focus{border-color:var(--accent)}
     <div class="group">Farbschema</div>
     <div class="palettes" id="palettes"></div>
     <div class="actions">
-      <span class="note" id="theme-note">Gilt sofort und bleibt in diesem Browser.</span>
+      <span class="note" id="theme-note">Gilt sofort und wird an deinem Konto gespeichert.</span>
       <button type="button" class="btn" id="theme-reset">Standard</button>
       <button type="button" class="btn primary" id="theme-close">Fertig</button>
     </div>
@@ -1961,7 +1964,7 @@ input:focus,select:focus{border-color:var(--accent)}
             <input type="text" name="AQUATICY_SUBAGENT_PARALLEL"></label>
         </div>
         <div class="row">
-          <label><span class="lbl">Anfragen pro Minute <span class="why">Was dein Anbieter verträgt. Leer = das Freikontingent (NVIDIA 40, Mistral 240)</span></span>
+          <label><span class="lbl">Anfragen pro Minute <span class="why">Was dein Anbieter verträgt. Leer = das Freikontingent (NVIDIA 40, Mistral 240). Mit Konten gilt es für deine eigenen Schlüssel</span></span>
             <input type="text" name="AQUATICY_RPM" placeholder="leer = Freikontingent"></label>
           <label><span class="lbl">Gleichzeitige Anfragen <span class="why">Mehr offene Verbindungen machen jede einzelne Antwort langsamer. Leer = NVIDIA 4, Mistral 8</span></span>
             <input type="text" name="AQUATICY_PARALLEL_CALLS" placeholder="leer = Freikontingent"></label>
@@ -2008,6 +2011,10 @@ input:focus,select:focus{border-color:var(--accent)}
       </div>
       <div class="note" id="savenote"></div>
     </form>
+    <!-- Klein und mittig unten: der Hinweis auf Ai-guard (9.5.16 Lion). -->
+    <p class="aiguard-hint">Zum Schutz vor Missbrauch liest Ai-guard mit; die Daten
+      werden nur dafür genutzt. Mehr in den <a href="/terms" target="_blank"
+      rel="noopener">Nutzungsbedingungen</a>.</p>
   </div>
 </div>
 
@@ -2349,23 +2356,38 @@ bootAuth();
 const esc = (t) => t.replace(/[&<>"']/g, (c) =>
   ({"&":"&amp;","<":"&lt;",">":"&gt;","\"":"&quot;","'":"&#39;"}[c]));
 function md(text){
-  let h = esc(text);
+  // Code zuerst beiseitelegen (seit 9.5.16): bis dahin lief jede Regel auch
+  // durch Codebloecke -- aus *args wurde Kursivschrift, aus "- " eine Liste,
+  // aus "# Kommentar" eine Ueberschrift, Leerzeilen verschwanden, und
+  // "Kopieren" kopierte etwas anderes, als im Code stand.
+  const bloecke = [], stuecke = [];
+  const block = (lang, code) => {
+    bloecke.push(`<div class="codeblock"><div class="code-head"><span class="lang">${
+      lang || "Code"}</span><button type="button" class="copy">Kopieren</button></div>`
+      + `<pre><code>${code.replace(/\s+$/, "")}</code></pre></div>`);
+    return `\n\u0000B${bloecke.length - 1}\u0000\n`;
+  };
+  let h = esc(String(text || "").replace(/\u0000/g, ""));
   // Die Sprachangabe hinter den Backticks gehoert in die Kopfzeile des Blocks,
   // nicht als erste Zeile in den Code -- vorher stand dort woertlich "python".
-  h = h.replace(/```([a-zA-Z0-9+#._-]*)\n?([\s\S]*?)```/g, (m, lang, code) =>
-    `<div class="codeblock"><div class="code-head"><span class="lang">${
-      lang || "Code"}</span><button type="button" class="copy">Kopieren</button></div>`
-    + `<pre><code>${code.replace(/\s+$/, "")}</code></pre></div>`);
-  h = h.replace(/`([^`\n]+)`/g, "<code>$1</code>");
+  h = h.replace(/```([a-zA-Z0-9+#._-]*)[ \t]*\n?([\s\S]*?)```/g, (m, lang, code) => block(lang, code));
+  // Ein Block, dessen Ende noch nicht gestreamt ist, ist trotzdem schon Code.
+  h = h.replace(/```([a-zA-Z0-9+#._-]*)[ \t]*\n?([\s\S]*)$/, (m, lang, code) => block(lang, code));
+  h = h.replace(/`([^`\n]+)`/g, (m, code) => {
+    stuecke.push(`<code>${code}</code>`);
+    return `\u0000C${stuecke.length - 1}\u0000`;
+  });
   h = h.replace(/\*\*([^*\n]+)\*\*/g, "<strong>$1</strong>");
   h = h.replace(/(^|[\s(])\*([^*\n]+)\*/g, "$1<em>$2</em>");
   h = h.replace(/\[([^\]]+)\]\((https?:[^)\s]+)\)/g,
     '<a href="$2" target="_blank" rel="noopener">$1</a>');
-  h = h.replace(/(^|[\s(])(https?:\/\/[^\s<)]+)/g,
+  h = h.replace(/(^|[\s(])(https?:\/\/[^\s<)\u0000]+)/g,
     '$1<a href="$2" target="_blank" rel="noopener">$2</a>');
   const lines = h.split("\n"); const out = []; let list = null;
   const closeList = () => { if (list){ out.push(`</${list}>`); list = null; } };
   for (const line of lines){
+    const codeblock = line.match(/^\u0000B(\d+)\u0000$/);
+    if (codeblock){ closeList(); out.push(bloecke[Number(codeblock[1])]); continue; }
     const head = line.match(/^(#{1,4})\s+(.*)$/);
     const ol = line.match(/^\s*(\d+)[.)]\s+(.*)$/);
     const ul = line.match(/^\s*[-*•]\s+(.*)$/);
@@ -2389,7 +2411,7 @@ function md(text){
     out.push(`<p>${line}</p>`);
   }
   closeList();
-  return out.join("");
+  return out.join("").replace(/\u0000C(\d+)\u0000/g, (m, i) => stuecke[Number(i)] || "");
 }
 
 /* ---------- Nachrichten ---------- */
@@ -2471,7 +2493,9 @@ function safeHttpUrl(raw){
 }
 function resultImage(url, alt, mediaId = ""){
   const safe = safeHttpUrl(url);
-  const stored = /^[0-9]{13}-[0-9a-f]{16}(-fest)?\.(jpg|png|webp|gif)$/.test(String(mediaId || ""));
+  // Dasselbe Muster wie media.MEDIA_ID -- auch KI-Bilder ("-ki", seit 9.5.15);
+  // bis 9.5.15 fehlten sie hier, und ihre Karte fiel weg.
+  const stored = /^[0-9]{13}-[0-9a-f]{16}(-fest|-ki)?\.(jpg|png|webp|gif)$/.test(String(mediaId || ""));
   if (!safe && !stored) return null;
   const image = document.createElement("img");
   image.src = "/api/media?url=" + encodeURIComponent(safe);
@@ -3195,6 +3219,10 @@ async function verfolge(hole, steps, bubble, text){
       case "remember": step(steps, "[Merke]", ev.text); break;
       case "fallback": step(steps, "[Ausweich]", `${ev.source} → ${ev.target}`, "warn"); break;
       case "retry": step(steps, "[Neu]", `Versuch ${ev.attempt}: ${ev.reason}`, "warn"); break;
+      case "banned":
+        // Ai-guard hat das Konto gesperrt (9.5.16 Lion). Der Grund steht als
+        // Antworttext; hier ein sichtbarer Vermerk im Mitlesen.
+        step(steps, "[Ai-guard]", "Konto gesperrt", "err"); break;
       case "error": step(steps, "[Fehler]", ev.message, "err"); break;
       case "chunk":
         answer += ev.text;
@@ -3303,8 +3331,16 @@ $(".pane").addEventListener("click", (e) => {
 // Einen neuen Chat anfangen. Steht als eigene Funktion da, weil es zwei
 // Wege dorthin gibt: den Knopf und den Wechsel der Arbeitsweise.
 async function neuerChat({ leiste = true } = {}){
-  const res = await api("/api/clear", { method:"POST" });
-  try { currentChat = (await res.json()).current || ""; } catch {}
+  // Ohne Server kein neuer Chat -- aber auch kein unbehandelter Fehler
+  // (seit 9.5.16): die Seite sagt, was los ist, und bleibt, wie sie war.
+  try {
+    const res = await api("/api/clear", { method:"POST" });
+    if (!res.ok) throw new Error(String(res.status));
+    try { currentChat = (await res.json()).current || ""; } catch {}
+  } catch {
+    toast("Neuer Chat ging nicht — läuft der Server noch?");
+    return;
+  }
   thread.innerHTML = "";
   document.body.classList.add("start");
   greet();
@@ -4849,7 +4885,11 @@ function merkZeile(eintrag){
     const weg = zeile.querySelector(".weg");
     weg.disabled = true;
     try {
-      await api(`/api/memory?id=${encodeURIComponent(eintrag.id)}`, { method: "DELETE" });
+      const res = await api(`/api/memory?id=${encodeURIComponent(eintrag.id)}`,
+        { method: "DELETE" });
+      // Eine Absage des Servers ist kein Erfolg (bis 9.5.15 verschwand die
+      // Zeile trotzdem).
+      if (!res.ok) throw new Error(String(res.status));
       zeile.classList.add("geht");
       setTimeout(() => { zeile.remove(); loadMemory(); }, CLOSE_MS);
     } catch {
@@ -4869,7 +4909,8 @@ memBox.addEventListener("click", (e) => { if (e.target === memBox) closeOverlay(
 $("#merk-clear").addEventListener("click", async () => {
   if (!confirm("Wirklich alles vergessen, was Aquaticy AI über dich weiß?")) return;
   try {
-    await api("/api/memory", { method: "DELETE" });
+    const res = await api("/api/memory", { method: "DELETE" });
+    if (!res.ok) throw new Error(String(res.status));
     loadMemory();
   } catch { $("#merk-note").textContent = "Ging nicht."; }
 });
@@ -4933,8 +4974,17 @@ function jobZeile(job){
 
 // Bei "stündlich" gibt es keinen Wochentag und keine Stunde -- also weg damit.
 function jobFelder(){
-  const takt = $("#job-rhythm").value;
   const art = $("#job-kind").value;
+  // Kurze Takte gibt es nur fuer Beobachtungen (seit 9.5.16): eine Recherche
+  // legt bei jedem Lauf einen neuen Chat an -- der Server rechnet sie ohnehin
+  // auf stuendlich um.
+  const kurz = ["minutes30", "minutes15", "minutes5", "minutes1", "always"];
+  const auswahl = $("#job-rhythm");
+  for (const option of auswahl.options){
+    option.disabled = art === "research" && kurz.includes(option.value);
+  }
+  if (art === "research" && kurz.includes(auswahl.value)) auswahl.value = "hourly";
+  const takt = auswahl.value;
   $("#job-tag-feld").hidden = takt !== "weekly";
   $("#job-zeit-feld").hidden = takt.startsWith("minutes") || takt === "always";
   // Bei der Bildsuche ist die Adresse freiwillig: ohne sie sucht Aquaticy im

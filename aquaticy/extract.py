@@ -17,7 +17,7 @@ from __future__ import annotations
 import json
 import re
 from typing import Any
-from urllib.parse import urljoin
+from urllib.parse import urljoin, urlparse
 
 from selectolax.parser import HTMLParser, Node
 
@@ -60,13 +60,34 @@ def _text(node: Node | None) -> str:
     return re.sub(r"\s+", " ", node.text(deep=True, strip=True)).strip() if node else ""
 
 
-def _absolute(url: str | None, base_url: str) -> str | None:
-    if not url:
+def _absolute(url: Any, base_url: str) -> str | None:
+    """Eine absolute http(s)-Adresse -- alles andere (``JavaScript:``, ``data:``) faellt weg.
+
+    Bis 9.5.15 wurde nur klein geschriebenes ``javascript:`` erkannt.
+    """
+    if not isinstance(url, str) or not url.strip():
         return None
-    url = url.strip()
-    if not url or url.startswith(("data:", "javascript:")):
+    ziel = urljoin(base_url, url.strip())
+    return ziel if urlparse(ziel).scheme.lower() in ("http", "https") else None
+
+
+def _text_or_none(value: Any) -> str | None:
+    """Ein Feld aus fremdem JSON-LD als Text -- ein Objekt oder eine Liste ist keiner.
+
+    Seiten schreiben dort, was sie wollen: ``"priceCurrency": {"@id": ...}``
+    oder ``"availability": ["InStock"]``. Bis 9.5.15 brach daran der ganze
+    Seitenabruf ab (ValidationError), und der Text der Seite ging verloren.
+    """
+    if isinstance(value, list | tuple) and value:
+        value = value[0]
+    if isinstance(value, dict):
+        value = value.get("@id") or value.get("name") or value.get("@value")
+    if isinstance(value, bool) or value is None:
         return None
-    return urljoin(base_url, url)
+    if isinstance(value, int | float | str):
+        text = str(value).strip()
+        return text[:MAX_SPEC_VALUE_LEN] or None
+    return None
 
 
 def parse_price(raw: Any) -> tuple[str | None, str | None]:
@@ -155,9 +176,9 @@ def _offer_fields(obj: dict[str, Any]) -> tuple[str | None, str | None, str | No
     if not isinstance(offers, dict):
         return None, None, None
     price, currency = parse_price(offers.get("price") or offers.get("lowPrice"))
-    currency = offers.get("priceCurrency") or currency
-    availability = offers.get("availability")
-    if isinstance(availability, str):
+    currency = _text_or_none(offers.get("priceCurrency")) or currency
+    availability = _text_or_none(offers.get("availability"))
+    if availability:
         availability = availability.rsplit("/", 1)[-1]
     return price, (currency or None), (availability or None)
 
@@ -167,7 +188,7 @@ def product_from_jsonld(tree: HTMLParser, base_url: str) -> Product | None:
     for obj in _iter_jsonld_objects(tree):
         if not _is_product(obj):
             continue
-        name = str(obj.get("name") or "").strip()
+        name = _text_or_none(obj.get("name")) or ""
         if not name:
             continue
         price, currency, availability = _offer_fields(obj)
@@ -177,17 +198,20 @@ def product_from_jsonld(tree: HTMLParser, base_url: str) -> Product | None:
             rating = _as_float(aggregate.get("ratingValue"))
 
         specs: dict[str, str] = {}
-        brand = obj.get("brand")
-        if isinstance(brand, dict):
-            brand = brand.get("name")
+        brand = _text_or_none(obj.get("brand"))
         if brand:
-            specs["Marke"] = str(brand)
+            specs["Marke"] = brand
         for key, label in (("gtin13", "GTIN"), ("gtin", "GTIN"), ("sku", "SKU"), ("mpn", "MPN")):
-            if obj.get(key):
-                specs.setdefault(label, str(obj[key]))
-        for prop in obj.get("additionalProperty") or []:
-            if isinstance(prop, dict) and prop.get("name"):
-                specs[str(prop["name"])[:80]] = str(prop.get("value", ""))[:MAX_SPEC_VALUE_LEN]
+            wert = _text_or_none(obj.get(key))
+            if wert:
+                specs.setdefault(label, wert)
+        eigenschaften = obj.get("additionalProperty") or []
+        if isinstance(eigenschaften, dict):
+            eigenschaften = [eigenschaften]
+        for prop in eigenschaften if isinstance(eigenschaften, list) else []:
+            if isinstance(prop, dict) and _text_or_none(prop.get("name")):
+                specs[str(_text_or_none(prop["name"]))[:80]] = (
+                    _text_or_none(prop.get("value")) or "")
 
         return Product(
             name=name,

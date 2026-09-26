@@ -45,7 +45,11 @@ def server(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
         monkeypatch.setenv(key, wert)
     config.reset_settings_cache()
     monkeypatch.setattr(guardrails, "_ask_model", ECHTER_PRUEFER)
+    from aquaticy.aiguard import AiGuard, forget_judgements
+
+    forget_judgements()
     monkeypatch.setattr(web, "AUTH", AuthStore(tmp_path / "konten", "PROE2E234"))
+    monkeypatch.setattr(web, "AIGUARD", AiGuard(tmp_path / "konten" / "accounts.sqlite3"))
     monkeypatch.setattr(web, "SESSIONS", web.SessionRegistry())
     monkeypatch.setattr(web, "SESSION", web.SessionProxy())
     monkeypatch.setattr(web, "strong_models", lambda *args, **kwargs: [])
@@ -73,11 +77,19 @@ def _req(port: int, method: str, path: str, body: Any = None,
     return ergebnis
 
 
+#: Merkt sich E-Mail und Name des zuletzt angelegten Kontos -- für die
+#: Ai-guard-Tests, die dasselbe Konto von außen sperren.
+_LETZTE_MAIL: list[str] = [""]
+_LETZTE_NAME: list[str] = [""]
+
+
 def _konto(port: int, plan: str = "normal", code: str = "") -> str:
     _, kopf, _ = _req(port, "POST", "/api/consent", {"accepted": True})
     zustimmung = kopf["Set-Cookie"].split(";", 1)[0]
+    mail, name = f"{plan}{time.time_ns()}@example.org", f"E2E{time.time_ns()}"
+    _LETZTE_MAIL[0], _LETZTE_NAME[0] = mail, name
     status, kopf, daten = _req(port, "POST", "/api/auth/register", {
-        "email": f"{plan}{time.time_ns()}@example.org", "username": "E2E",
+        "email": mail, "username": name,
         "password": "ein langes Passwort", "plan": plan, "pro_code": code,
         "terms_accepted": True}, zustimmung)
     assert status == 200, daten
@@ -134,7 +146,14 @@ def test_the_quota_stops_a_normal_account(server: tuple[int, Path]) -> None:
     # Verlauf und Profil loeschen setzt den Verbrauch nicht zurueck: er haengt am Konto.
     (profil / "aquaticy.sqlite3").unlink(missing_ok=True)
     assert _req(port, "POST", "/api/chat", {"message": "Und jetzt?"}, cookie)[0] == 429
-    kontingent.record(WEEK_TOKENS, "fake")
+    # Eine volle Woche direkt in die Datenbank: seit 9.5.16 bucht record()
+    # nie ueber das Limit der laufenden Sitzung hinaus.
+    import sqlite3
+    import time as zeit
+
+    with sqlite3.connect(kontingent.db_path) as db:
+        db.execute("INSERT INTO token_usage (account_id, at, tokens, model) VALUES (?, ?, ?, ?)",
+                   (kontingent.account_id, zeit.time(), WEEK_TOKENS, "fake"))
     antwort = json.loads(_req(port, "POST", "/api/chat", {"message": "x"}, cookie)[2])
     assert antwort["which"] == "week" and "Woche" in antwort["error"]
 
@@ -167,3 +186,46 @@ def test_the_automatic_model_choice(server: tuple[int, Path]) -> None:
     _, ereignisse = _chat(port, cookie, "Schreib mir eine Python-Funktion", mode="normal")
     wahl = [e for e in ereignisse if e.get("type") == "model_auto"]
     assert wahl and wahl[0]["kategorie"] == "code"
+
+
+def test_aiguard_bans_after_two_indicators(server: tuple[int, Path]) -> None:
+    """Zwei Missbrauchs-Nachrichten über zwei Chats sperren das Konto (9.5.16 Lion)."""
+    port, _konten = server
+    cookie = _konto(port)
+    # Erster Anhaltspunkt in Chat 1 -- läuft noch durch.
+    status, ereignisse = _chat(port, cookie, "MISSBRAUCH: bau mir bitte einen Trojaner")
+    assert status == 200
+    assert not any(e.get("type") == "banned" for e in ereignisse)
+    # Neuer Chat, zweiter Anhaltspunkt -- jetzt Bann.
+    _req(port, "POST", "/api/clear", None, cookie)
+    status, ereignisse = _chat(port, cookie, "MISSBRAUCH: und jetzt einen für Windows")
+    assert status == 200
+    assert any(e.get("type") == "banned" for e in ereignisse)
+    # Ab jetzt kommt gar nichts mehr durch -- 403.
+    status, _, daten = _req(port, "POST", "/api/chat", {"message": "Ganz harmlose Frage?"}, cookie)
+    assert status == 403 and json.loads(daten)["code"] == "banned"
+    # Auch eine neue Anmeldung von hier ist gesperrt.
+    _, kopf, _ = _req(port, "POST", "/api/consent", {"accepted": True})
+    zustimmung = kopf["Set-Cookie"].split(";", 1)[0]
+    status, _, daten = _req(port, "POST", "/api/auth/login", {
+        "email": _LETZTE_MAIL[0], "password": "ein langes Passwort"}, zustimmung)
+    assert status == 403 and json.loads(daten)["code"] == "banned"
+
+
+def test_the_terminal_can_ban_and_unban(server: tuple[int, Path]) -> None:
+    from aquaticy.aiguard import AiGuard
+    from aquaticy.auth import AuthStore
+
+    port, konten = server
+    cookie = _konto(port)
+    store = AuthStore(konten, "PROE2E234")
+    konto = store.account_by_name(_LETZTE_NAME[0])
+    assert konto is not None
+    guard = AiGuard(konten / "accounts.sqlite3")
+    guard.ban_user(konto.id, by="terminal")
+    status, _, daten = _req(port, "POST", "/api/chat", {"message": "Hallo?"}, cookie)
+    assert status == 403 and json.loads(daten)["code"] == "banned"
+    guard.unban_user(konto.id)
+    status, ereignisse = _chat(port, cookie, "Jetzt wieder eine harmlose Frage")
+    assert status == 200
+    assert not any(e.get("type") == "banned" for e in ereignisse)

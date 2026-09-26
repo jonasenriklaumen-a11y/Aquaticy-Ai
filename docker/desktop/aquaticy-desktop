@@ -464,6 +464,24 @@ def addon_info(name: str) -> dict:
     return info if isinstance(info, dict) else {}
 
 
+def innerhalb(ordner: Path, start: str) -> Path | None:
+    """Das Programm eines Add-ons -- nur, wenn es wirklich in seinem Ordner liegt.
+
+    Bis 9.5.16 wurde nur ".." abgewiesen; ein absoluter Pfad in aquaticy.json
+    ("/bin/sh") ersetzte den Ordner ganz (so rechnet pathlib).
+    """
+    if not start or start.startswith("/") or "\x00" in start:
+        return None
+    try:
+        wurzel = ordner.resolve()
+        programm = (ordner / start).resolve()
+    except (OSError, RuntimeError):
+        return None
+    if programm != wurzel and wurzel not in programm.parents:
+        return None
+    return programm if programm.is_file() else None
+
+
 def addon_befehl(app: str, ziel: str) -> list[str]:
     """Der Startbefehl eines Add-ons -- nur aus dem, was installiert ist.
 
@@ -477,17 +495,16 @@ def addon_befehl(app: str, ziel: str) -> list[str]:
     info = addon_info(app)
     if app in WEBAPPS:
         firefox = addon_info("_firefox")
-        programm = ADDONS / "_firefox" / str(firefox.get("start", ""))
+        programm = innerhalb(ADDONS / "_firefox", str(firefox.get("start", "")))
         adresse = str(info.get("adresse", ""))
-        if not firefox.get("start") or not programm.is_file() or not adresse.startswith("https://"):
+        if programm is None or not adresse.startswith("https://"):
             raise fehlt
         # Die Web-App oeffnet nur ihre eigene Adresse -- ein Ziel von aussen
         # wuerde aus dem WhatsApp-Profil einen Browser fuer alles machen.
         return [str(programm), "--no-remote", "--new-instance", "--profile",
                 str(ADDONS / app / "profil"), "--class", f"aquaticy-{app}", adresse]
-    start = str(info.get("start", ""))
-    programm = ADDONS / app / start
-    if not start or ".." in start or not programm.is_file():
+    programm = innerhalb(ADDONS / app, str(info.get("start", "")))
+    if programm is None:
         raise fehlt
     if app == "signal":
         return [str(programm), "--no-sandbox", f"--user-data-dir={ADDONS / 'signal' / 'daten'}",

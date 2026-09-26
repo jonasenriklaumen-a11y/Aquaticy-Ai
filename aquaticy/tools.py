@@ -48,6 +48,10 @@ VisualInspector = Callable[[str, str], str]
 #: Anfrage nicht verstanden -- dann ist eine begruendete Annahme besser.
 MAX_QUESTIONS = 2
 
+#: Was als "ja" gilt, wenn Aquaticy vor einer Wirkung nachfragt -- an jeder
+#: Stelle dasselbe (seit 9.5.16; vorher kannte ha_call "klar" nicht).
+YES_WORDS = frozenset({"ja", "j", "yes", "ok", "mach", "los", "klar", "ja, mach"})
+
 #: Drittes Werkzeug, das nur der Hauptagent bekommt -- Subagenten duerfen
 #: keine weiteren Subagenten starten.
 SUBAGENT_SCHEMA: dict[str, Any] = {
@@ -480,8 +484,9 @@ HA_CALL_SCHEMA: dict[str, Any] = {
         "description": (
             "Schaltet etwas in Home Assistant, z.B. domain='light', service='turn_on', "
             "entity_id='light.wohnzimmer'. Nimm vorher ha_states, um die genaue Kennung "
-            "zu erfahren -- rate sie nie. Bei Schloessern, Alarmanlagen, Toren und "
-            "Heizungen wird der Nutzer zusaetzlich gefragt."
+            "zu erfahren -- rate sie nie. Die Entitaet muss im genannten Bereich liegen. "
+            "Bei Schloessern, Alarmanlagen, Toren, Heizungen, Skripten, Szenen und "
+            "Knoepfen wird der Nutzer zusaetzlich gefragt."
         ),
         "parameters": {
             "type": "object",
@@ -995,7 +1000,11 @@ WORK_TOOLS: dict[str, str] = {
 UNTRUSTED_SOURCES = frozenset({
     "web_search", "search_news", "fetch_page", "inspect_public_visual", "find_profiles",
     "local_places", "github", "weather", "read_feeds", "mail_search", "mail_read",
-    "calendar_events", "desktop_look", "research_subtasks",
+    "calendar_events", "desktop_look", "desktop_windows", "research_subtasks",
+    # Seit 9.5.16: was in der Werkstatt ausgegeben wird (im User mode mit
+    # Internet: curl, heruntergeladene Dateien), und Namen/Zustaende aus Home
+    # Assistant (ein Mediaplayer meldet den Titel, den ein Fremder vergibt).
+    "vm_run", "vm_read", "vm_files", "blender_run", "ha_states",
 })
 
 #: Was danach nur noch mit ausdruecklicher Bestaetigung laeuft (seit 9.5.15):
@@ -1611,6 +1620,7 @@ class Toolbox:
                     country=country,
                     lang=lang,
                     backend=self.settings.search_backend,
+                    api_key=self.settings.search_key_for(self.settings.search_backend),
                     engines=self.settings.search_engines,
                     instance_url=self.settings.searxng_url,
                 )
@@ -1884,7 +1894,7 @@ class Toolbox:
         self._emit("ask", question=question, options=["ja", "nein"])
         answer = (self.ask_handler(question, ["ja", "nein"]) or "").strip().lower()
         self._emit("ask_done", question=question, answer=answer)
-        if answer in ("ja", "j", "yes", "ok", "mach", "los", "klar"):
+        if answer in YES_WORDS:
             return ""
         return f"Vom Nutzer nicht bestaetigt (Antwort: {answer!r})."
 
@@ -1978,7 +1988,16 @@ class Toolbox:
         problem = self._google_write_ready()
         if problem:
             return {"error": problem}
-        an = to or "ohne Empfaenger"
+        try:
+            # Vor der Rueckfrage: der Mensch soll genau die Empfaenger sehen,
+            # die im Entwurf landen (seit 9.5.16, siehe google.mail_addresses).
+            from aquaticy.google import mail_addresses
+
+            to = mail_addresses(to) if to else ""
+            cc = mail_addresses(cc) if cc else ""
+        except GoogleError as exc:
+            return {"error": str(exc)}
+        an = (to + (f", Kopie an {cc}" if cc else "")) or "ohne Empfaenger"
         nein = self._confirm(
             f"Soll ich einen Entwurf an {an} mit dem Betreff "
             f"\u201e{subject}\u201c anlegen? (Verschickt wird nichts.)"
@@ -2183,7 +2202,7 @@ class Toolbox:
             return {
                 "changed": preference.label,
                 "value": stored,
-                "note": "Gilt sofort und bleibt in diesem Browser gespeichert.",
+                "note": "Gilt sofort und wird am Konto gespeichert -- auf jedem Gerät.",
             }
 
         try:
@@ -2517,6 +2536,10 @@ class Toolbox:
         vorher = getattr(self._sandbox_box, "name", "") or ""
         try:
             payload = self._call(name, arguments)
+        except Exception as exc:
+            # Auch ein Werkzeug, das abbricht, hat auf dem Server gearbeitet --
+            # bis 9.5.15 wurde es dann gar nicht gebucht.
+            payload = {"error": f"{type(exc).__name__}: {exc}"}
         finally:
             vorab.cancel()
         try:
@@ -2554,7 +2577,7 @@ class Toolbox:
         self._emit("ask", question=frage, options=["ja", "nein"])
         antwort = (self.ask_handler(frage, ["ja", "nein"]) or "").strip().lower()
         self._emit("ask_done", question=frage, answer=antwort)
-        if antwort in ("ja", "j", "yes", "ok", "mach", "los", "klar"):
+        if antwort in YES_WORDS:
             return None
         return {"error": f"Vom Nutzer nicht bestätigt (Antwort: {antwort!r}).",
                 "bestaetigung": False}
@@ -2978,6 +3001,7 @@ class Toolbox:
                     country=self.settings.country,
                     lang=self.settings.lang,
                     backend=self.settings.search_backend,
+                    api_key=self.settings.search_key_for(self.settings.search_backend),
                     engines=self.settings.search_engines,
                     instance_url=self.settings.searxng_url,
                 )
@@ -3341,6 +3365,7 @@ class Toolbox:
             ALLOWED_DOMAINS,
             PROTECTED_DOMAINS,
             HomeAssistantError,
+            check_call,
             from_settings,
         )
 
@@ -3367,6 +3392,12 @@ class Toolbox:
                     f"{', '.join(sorted(ALLOWED_DOMAINS))}."
                 )
             }
+        try:
+            # Vor der Rueckfrage: Dienst und Ziel muessen zum Bereich passen
+            # (seit 9.5.16 -- "light" mit "../lock/unlock" war ein Schloss).
+            check_call(domain, service, entity_id, data)
+        except HomeAssistantError as exc:
+            return {"error": str(exc)}
 
         # Schloesser, Alarmanlagen, Tore, Heizungen: hier wird nachgefragt,
         # auch wenn Schalten erlaubt ist. Ein missverstandener Satz soll nicht
@@ -3384,7 +3415,7 @@ class Toolbox:
             self._emit("ask", question=question, options=["ja", "nein"])
             answer = (self.ask_handler(question, ["ja", "nein"]) or "").strip().lower()
             self._emit("ask_done", question=question, answer=answer)
-            if answer not in ("ja", "j", "yes", "ok", "mach", "los"):
+            if answer not in YES_WORDS:
                 return {
                     "done": False,
                     "note": f"Vom Nutzer nicht bestaetigt (Antwort: {answer!r}).",

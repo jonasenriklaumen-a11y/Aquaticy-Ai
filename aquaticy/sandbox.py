@@ -603,7 +603,8 @@ class Sandbox:
         """
         runtime = self.runtime
         assert runtime is not None
-        made = _runs(runtime.binary, "volume", "create", self._volume, timeout=20)
+        made = _runs(runtime.binary, "volume", "create", "--label", instance_label(),
+                     self._volume, timeout=20)
         if made.returncode != 0:
             raise SandboxUnavailable(
                 "Datentraeger liess sich nicht anlegen: " + made.stderr.strip()[:300]
@@ -684,6 +685,7 @@ class Sandbox:
             "--env", "LANG=C.UTF-8",
             "--env", "PYTHONDONTWRITEBYTECODE=1",
             "--label", "aquaticy-werkstatt=1",
+            "--label", instance_label(),
         ]
         if desktop:
             flags += [
@@ -1246,6 +1248,20 @@ class Sandbox:
         }
 
 
+def instance_label() -> str:
+    """Die Beschriftung dieser Aquaticy-Installation -- aus ihrem Datenordner.
+
+    Zwei Installationen auf demselben Docker-Host (zwei Nutzer, Test und
+    Betrieb) erkennen so ihre eigenen Werkstaetten.
+    """
+    import hashlib
+
+    ordner = os.environ.get("AQUATICY_DATA_DIR", "").strip() or str(Path.home() / ".aquaticy")
+    with contextlib.suppress(OSError):
+        ordner = str(Path(ordner).expanduser().resolve())
+    return "aquaticy-instanz=" + hashlib.sha256(ordner.encode("utf-8")).hexdigest()[:16]
+
+
 def sweep(runtime: Runtime | None = None) -> int:
     """Raeumt vergessene Werkstaetten weg -- etwa nach einem Absturz.
 
@@ -1258,16 +1274,20 @@ def sweep(runtime: Runtime | None = None) -> int:
     runtime = runtime or find_runtime()
     if runtime is None:
         return 0
+    # Nur die EIGENEN (seit 9.5.16): bis dahin raeumte jede Instanz beim Start
+    # alle Werkstaetten auf dem Docker-Host weg -- auch die einer zweiten,
+    # die gerade arbeitete.
     found = _runs(
         runtime.binary, "ps", "--all", "--quiet", "--filter", "label=aquaticy-werkstatt=1",
-        timeout=30,
+        "--filter", f"label={instance_label()}", timeout=30,
     )
     ids = [line.strip() for line in found.stdout.splitlines() if line.strip()]
     for container in ids:
         with contextlib.suppress(OSError, subprocess.SubprocessError):
             _runs(runtime.binary, "rm", "--force", "--volumes", container, timeout=60)
     volumes = _runs(
-        runtime.binary, "volume", "ls", "--quiet", timeout=30
+        runtime.binary, "volume", "ls", "--quiet", "--filter", f"label={instance_label()}",
+        timeout=30,
     )
     for volume in volumes.stdout.splitlines():
         volume = volume.strip()

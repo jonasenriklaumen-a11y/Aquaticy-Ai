@@ -15,6 +15,7 @@ Zwei Vorsichtsmassnahmen sind eingebaut:
 
 from __future__ import annotations
 
+import re
 import time
 from dataclasses import dataclass
 from typing import Any
@@ -36,8 +37,26 @@ HA_PORT = 8123
 #: brauchen. Licht wieder auszuschalten ist harmlos; eine Tuer aufzuschliessen,
 #: eine Alarmanlage scharfzustellen oder das Garagentor zu oeffnen nicht.
 PROTECTED_DOMAINS: frozenset[str] = frozenset(
-    {"lock", "alarm_control_panel", "cover", "water_heater", "climate", "vacuum"}
+    {"lock", "alarm_control_panel", "cover", "water_heater", "climate", "vacuum",
+     # Skripte, Szenen und Knoepfe tun, was in ihnen steht -- und darin kann
+     # "Haustuer aufschliessen" stehen. Seit 9.5.16 fragen sie deshalb
+     # genauso nach wie das Schloss selbst.
+     "script", "scene", "button"}
 )
+
+#: So sehen Bereich und Dienst aus: Kleinbuchstaben, Ziffern, Unterstrich.
+#: Alles andere (``../lock/unlock``, ``%2e%2e``, ``/``) wuerde aus
+#: ``services/light/<dienst>`` einen anderen Pfad machen -- bis 9.5.15 wurde
+#: so aus "Licht" ein Tuerschloss, ohne Rueckfrage (seit 9.5.16 zu).
+NAME_RE = re.compile(r"^[a-z0-9_]{1,64}$")
+
+#: Eine Entitaet: ``bereich.name``.
+ENTITY_RE = re.compile(r"^[a-z0-9_]{1,64}\.[a-z0-9_]{1,128}$")
+
+#: Womit Home Assistant ausser ``entity_id`` noch Ziele annimmt. Ein Bereich
+#: oder Geraet schaltet alles darin -- auch das Schloss.
+TARGET_KEYS: frozenset[str] = frozenset({"area_id", "device_id", "floor_id", "label_id",
+                                         "target"})
 
 #: Bereiche, in denen aquaticy ueberhaupt schalten darf. Alles andere lehnt er
 #: ab -- lieber eine Absage als ein unerwarteter Eingriff.
@@ -215,14 +234,59 @@ class HomeAssistant:
 
     # -- Schalten ---------------------------------------------------------
     def call(self, domain: str, service: str, entity_id: str = "", data: Any = None) -> list[Any]:
-        """Ruft einen Dienst auf, etwa `light.turn_on`."""
-        payload: dict[str, Any] = dict(data) if isinstance(data, dict) else {}
-        if entity_id:
-            payload["entity_id"] = entity_id
+        """Ruft einen Dienst auf, etwa `light.turn_on`.
+
+        Raises:
+            HomeAssistantError: Wenn Bereich, Dienst oder Ziel nicht zusammenpassen
+                (siehe :func:`check_call`).
+        """
+        payload = check_call(domain, service, entity_id, data)
         result = self._request("POST", f"services/{domain}/{service}", payload)
         # Nach dem Schalten stimmt der zwischengespeicherte Zustand nicht mehr.
         _states_cache.pop((self.url, self.token), None)
         return result if isinstance(result, list) else []
+
+
+def _entities(value: Any) -> list[str]:
+    if isinstance(value, str):
+        return [teil.strip() for teil in value.split(",") if teil.strip()]
+    if isinstance(value, list | tuple):
+        return [str(teil).strip() for teil in value]
+    return [str(value)]
+
+
+def check_call(domain: str, service: str, entity_id: str = "", data: Any = None) -> dict[str, Any]:
+    """Prueft einen Dienstaufruf und gibt die Nutzlast zurueck.
+
+    Bereich und Dienst muessen reine Namen sein, und jedes Ziel muss im
+    selben Bereich liegen: ``light.turn_on`` schaltet Lichter, nie ein
+    Schloss. Ziele ueber Raum, Geraet oder Etikett gibt es nicht -- sie
+    wuerden alles darin schalten.
+
+    Raises:
+        HomeAssistantError: Bei allem, was nicht genau so aussieht.
+    """
+    if not NAME_RE.match(domain or "") or not NAME_RE.match(service or ""):
+        raise HomeAssistantError(
+            "Bereich und Dienst duerfen nur aus Kleinbuchstaben, Ziffern und _ bestehen.")
+    payload: dict[str, Any] = dict(data) if isinstance(data, dict) else {}
+    verboten = sorted(TARGET_KEYS & set(payload))
+    if verboten:
+        raise HomeAssistantError(
+            f"Ziele ueber {', '.join(verboten)} gibt es nicht -- bitte einzelne Entitaeten nennen.")
+    ziele = _entities(entity_id) if entity_id else []
+    if "entity_id" in payload:
+        ziele += _entities(payload["entity_id"])
+    for ziel in ziele:
+        if not ENTITY_RE.match(ziel):
+            raise HomeAssistantError(f"'{ziel[:80]}' ist keine Entitaet (bereich.name).")
+        if ziel.split(".", 1)[0] != domain:
+            raise HomeAssistantError(
+                f"'{ziel}' liegt nicht im Bereich '{domain}' -- {domain}.{service} "
+                "schaltet nur Entitaeten aus diesem Bereich.")
+    if ziele:
+        payload["entity_id"] = ziele[0] if len(ziele) == 1 else ziele
+    return payload
 
 
 def _entity(raw: dict[str, Any]) -> Entity:

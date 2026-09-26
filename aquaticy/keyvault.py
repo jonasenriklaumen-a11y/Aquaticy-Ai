@@ -69,6 +69,12 @@ SLOTS: tuple[Slot, ...] = (
          "Für die Suchmaschine Tavily (Abschnitt Suche)."),
 )
 SLOT_BY_NAME: dict[str, Slot] = {slot.name: slot for slot in SLOTS}
+
+#: Geheimnisse, die ebenfalls verschluesselt am Konto liegen, aber keine
+#: API-Schluessel fuer Modell oder Suche sind -- sie tauchen weder in der
+#: Liste der Schluessel noch in den Einstellungen auf (seit 9.5.16; das
+#: GitHub-Token stand bis dahin im Klartext in der .env des Kontos).
+INTERNAL_SECRETS = frozenset({"AQUATICY_GITHUB_TOKEN"})
 MODEL_KEY_NAMES = frozenset(s.name for s in SLOTS if s.art == "modell")
 SEARCH_KEY_NAMES = frozenset(s.name for s in SLOTS if s.art == "suche")
 
@@ -181,6 +187,43 @@ class KeyVault:
                 "token = excluded.token, hint = excluded.hint, added_at = excluded.added_at",
                 (self.account_id, name, token, masked(wert), time.time()),
             )
+
+    def set_secret(self, name: str, value: str) -> None:
+        """Legt ein internes Geheimnis ab (:data:`INTERNAL_SECRETS`); leer = entfernen."""
+        if name not in INTERNAL_SECRETS:
+            raise VaultError("Dieses Geheimnis gibt es hier nicht.")
+        wert = str(value or "").strip()
+        if not wert:
+            self.remove(name)
+            return
+        if not KEY_RE.fullmatch(wert):
+            raise VaultError("Das sieht nicht nach einem Zugangsschlüssel aus.")
+        token = self._fernet.encrypt(wert.encode("utf-8")).decode("ascii")
+        with self._lock, self._connect() as conn:
+            conn.execute(
+                "INSERT INTO api_keys (account_id, name, token, hint, added_at) "
+                "VALUES (?, ?, ?, ?, ?) ON CONFLICT(account_id, name) DO UPDATE SET "
+                "token = excluded.token, hint = excluded.hint, added_at = excluded.added_at",
+                (self.account_id, name, token, masked(wert), time.time()),
+            )
+
+    def secret(self, name: str) -> str:
+        """Ein internes Geheimnis im Klartext -- "" wenn keins da ist."""
+        from cryptography.fernet import InvalidToken
+
+        if name not in INTERNAL_SECRETS:
+            return ""
+        with self._lock, self._connect() as conn:
+            zeile = conn.execute(
+                "SELECT token FROM api_keys WHERE account_id = ? AND name = ?",
+                (self.account_id, name),
+            ).fetchone()
+        if zeile is None:
+            return ""
+        try:
+            return self._fernet.decrypt(str(zeile["token"]).encode("ascii")).decode("utf-8")
+        except (InvalidToken, ValueError, UnicodeError):
+            return ""
 
     def remove(self, name: str) -> bool:
         """Entfernt einen Schluessel. Returns: ob einer da war."""

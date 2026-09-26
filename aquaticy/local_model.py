@@ -20,6 +20,7 @@ import time
 from collections.abc import Callable, Iterator
 from dataclasses import dataclass
 from pathlib import Path
+from typing import Any
 
 import httpx
 
@@ -168,8 +169,12 @@ def server_running(base_url: str = DEFAULT_OLLAMA_URL, timeout: float = 3.0) -> 
     return response.status_code == 200
 
 
-def installed_models(base_url: str = DEFAULT_OLLAMA_URL) -> list[str]:
-    """Namen der bereits geladenen Modelle."""
+def _tag_list(base_url: str) -> list[dict[str, Any]]:
+    """Die Modellliste von ``/api/tags`` -- leer bei allem, was keine ist.
+
+    Seit 9.5.16 auch bei einer Antwort, die kein Ollama-JSON ist (eine Liste,
+    Text): bis dahin warf das einen AttributeError bis in ``/api/models``.
+    """
     try:
         response = httpx.get(f"{base_url.rstrip('/')}/api/tags", timeout=5)
         if response.status_code != 200:
@@ -177,7 +182,13 @@ def installed_models(base_url: str = DEFAULT_OLLAMA_URL) -> list[str]:
         payload = response.json()
     except (httpx.HTTPError, ValueError):
         return []
-    return [str(item.get("name", "")) for item in payload.get("models", []) if item.get("name")]
+    modelle = payload.get("models") if isinstance(payload, dict) else None
+    return [item for item in modelle if isinstance(item, dict)] if isinstance(modelle, list) else []
+
+
+def installed_models(base_url: str = DEFAULT_OLLAMA_URL) -> list[str]:
+    """Namen der bereits geladenen Modelle."""
+    return [str(item.get("name", "")) for item in _tag_list(base_url) if item.get("name")]
 
 
 def start_server(base_url: str = DEFAULT_OLLAMA_URL, wait_seconds: float = 20.0) -> bool:
@@ -332,12 +343,7 @@ def free_memory(base_url: str = DEFAULT_OLLAMA_URL) -> list[str]:
 
 def model_size_gb(name: str, base_url: str = DEFAULT_OLLAMA_URL) -> float | None:
     """Tatsaechliche Groesse eines geladenen Modells in GB."""
-    try:
-        response = httpx.get(f"{base_url.rstrip('/')}/api/tags", timeout=5)
-        payload = response.json()
-    except (httpx.HTTPError, ValueError):
-        return None
-    for item in payload.get("models", []):
+    for item in _tag_list(base_url):
         if str(item.get("name", "")) == name:
             size = item.get("size")
             if isinstance(size, (int, float)) and size > 0:

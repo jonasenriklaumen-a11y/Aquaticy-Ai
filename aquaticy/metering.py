@@ -179,6 +179,8 @@ class Reservation:
         self._quota = quota
         self._nummer = nummer
         self._offen = True
+        #: Die Aufrufargumente, fuer die reserviert wurde (Agent, seit 9.5.16).
+        self.kwargs: dict[str, Any] | None = None
 
     def settle(self, tokens_in: int, tokens_out: int) -> None:
         """Ersetzt die Reservierung durch den echten Verbrauch."""
@@ -243,6 +245,43 @@ def estimate(messages: Any, max_tokens: Any = None, tools: Any = None) -> int:
     except (TypeError, ValueError):
         raus = DEFAULT_OUTPUT_RESERVE
     return max(1, rein + max(0, raus))
+
+
+#: Weniger Platz fuer die Antwort lohnt keinen Aufruf mehr.
+MIN_OUTPUT_TOKENS = 256
+#: Erst unterhalb davon wird die Antwortlaenge an den Rest angepasst -- darueber
+#: bliebe eine Obergrenze wirkungslos und manche Anbieter lehnen riesige ab.
+OUTPUT_CAP_FROM = 16_384
+
+
+def output_cap(settings: Any, model: str, messages: Any, tools: Any = None,
+               max_tokens: Any = None) -> int | None:
+    """Wie lang die Antwort hoechstens sein darf, damit das Kontingent reicht.
+
+    ``None`` = keine Obergrenze noetig (kein Kontingent, eigener Schluessel oder
+    genug Rest). Seit 9.5.16: bis dahin lief ein Aufruf auch dann, wenn seine
+    Antwort ueber den Rest hinausging -- und das Limit wurde ueberschritten.
+
+    Raises:
+        QuotaExceeded: Schon die Frage allein passt nicht mehr hinein.
+    """
+    quota = quota_of(settings)
+    if quota is None or is_own(settings, model):
+        return None
+    rest = quota.remaining()
+    rein = estimate(messages, 1, tools) - 1
+    platz = rest - rein
+    if platz < MIN_OUTPUT_TOKENS:
+        quota.check(max(1, rein + MIN_OUTPUT_TOKENS))
+        raise QuotaExceeded(
+            "Der Rest deines Kontingents reicht für diese Anfrage nicht mehr. Eine kürzere "
+            "Frage oder ein neuer Chat braucht weniger.", "session")
+    gewuenscht = int(max_tokens) if isinstance(max_tokens, int) and max_tokens > 0 else 0
+    if gewuenscht and gewuenscht <= platz:
+        return None
+    if not gewuenscht and platz >= OUTPUT_CAP_FROM:
+        return None
+    return min(platz, gewuenscht or platz)
 
 
 def usage_of(usage: Any) -> tuple[int, int] | None:
@@ -331,8 +370,17 @@ def completion(settings: Any, *, enforce: bool = True, **kwargs: Any) -> Any:
     import litellm
 
     modell = str(kwargs.get("model") or "")
+    if kwargs.get("stream"):
+        # Gestreamte Aufrufe reservieren und verrechnen selbst (Agent._reserve,
+        # _note_usage). Bis 9.5.16 stand hier ein Zweig dafuer, der das
+        # Gegenteil seines Kommentars tat -- benutzt hat ihn niemand.
+        raise ValueError("metering.completion streamt nicht -- dafuer Agent._reserve nehmen.")
     if enforce:
         check(settings, model=modell)
+        deckel = output_cap(settings, modell, kwargs.get("messages"), kwargs.get("tools"),
+                            kwargs.get("max_tokens"))
+        if deckel is not None:
+            kwargs["max_tokens"] = deckel
     # Reserviert wird immer -- auch beim Rechtspruefer, der vorher nicht
     # prueft: gebucht werden muss er trotzdem, und zwar bevor er laeuft.
     try:
@@ -349,13 +397,8 @@ def completion(settings: Any, *, enforce: bool = True, **kwargs: Any) -> Any:
     except BaseException:
         buchung.cancel()
         raise
-    if not kwargs.get("stream"):
-        rein, raus = _counted(kwargs.get("messages"), response)
-        buchung.settle(rein, raus)
-    else:
-        # Gestreamt: die Aufrufer verrechnen selbst -- ohne sie bleibt die
-        # (grosszuegige) Reservierung stehen.
-        buchung.settle(*_counted(kwargs.get("messages"), None))
+    rein, raus = _counted(kwargs.get("messages"), response)
+    buchung.settle(rein, raus)
     return response
 
 

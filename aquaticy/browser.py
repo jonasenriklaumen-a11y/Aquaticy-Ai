@@ -468,10 +468,19 @@ def no_sandbox_allowed() -> bool:
 
 
 def launch_browser(playwright: Any, extra: list[str] | None = None) -> Any:
-    """Startet Chromium -- mit Sandbox, und nur wo das nicht geht (und erlaubt ist) ohne."""
-    zusatz = list(extra or [])
+    """Startet Chromium -- mit Sandbox, und nur wo das nicht geht (und erlaubt ist) ohne.
+
+    Seit 9.5.16 laedt Chromium alles ueber den Proxy der Netzregel
+    (:class:`aquaticy.netguard.BrowserProxy`): er loest selbst keinen Namen
+    mehr auf, und kein Umspringen eines Namens fuehrt ihn ins interne Netz.
+    """
+    from aquaticy import netguard
+
+    zusatz = [*netguard.BROWSER_NET_ARGS, *(extra or [])]
+    proxy = netguard.browser_launch_options()
     try:
-        return playwright.chromium.launch(headless=True, args=[*launch_args(), *zusatz])
+        return playwright.chromium.launch(headless=True, args=[*launch_args(), *zusatz],
+                                          proxy=proxy)
     except Exception:
         if not no_sandbox_allowed():
             raise
@@ -479,7 +488,8 @@ def launch_browser(playwright: Any, extra: list[str] | None = None) -> Any:
 
         logging.getLogger("aquaticy.browser").warning(
             "Chromium-Sandbox nicht verfuegbar -- Start ohne (AQUATICY_BROWSER_NO_SANDBOX)")
-        return playwright.chromium.launch(headless=True, args=[*CONTAINER_ARGS, *zusatz])
+        return playwright.chromium.launch(headless=True, args=[*CONTAINER_ARGS, *zusatz],
+                                          proxy=proxy)
 
 
 def guard_context(context: Any) -> None:

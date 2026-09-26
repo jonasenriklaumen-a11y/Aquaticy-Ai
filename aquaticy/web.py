@@ -24,6 +24,7 @@ import sqlite3
 import threading
 import time
 import webbrowser
+from collections import OrderedDict
 from dataclasses import replace
 from html import escape
 from http.cookies import SimpleCookie
@@ -291,7 +292,9 @@ SETTING_KEYS: tuple[str, ...] = (
 #: und die Einstellung tut trotzdem nichts. Das ist schlimmer als eine
 #: Fehlermeldung, weil man es erst Tage spaeter merkt.
 NUMBERS: dict[str, tuple[int, int]] = {
-    "AQUATICY_SEARCH_VARIANTS": (1, 10),
+    # Wie im Formular und in queries.MAX_VARIANTS -- mehr als drei benutzt die
+    # Suche ohnehin nicht (bis 9.5.15 nahm der Server bis 10 an).
+    "AQUATICY_SEARCH_VARIANTS": (1, 3),
     "AQUATICY_MAX_SUBAGENTS": (1, 12),
     "AQUATICY_SUBAGENT_BUDGET": (1, 40),
     # 0 heisst "Aquaticy entscheidet" -- das ist der Standard und steht so
@@ -385,6 +388,8 @@ Start im Terminal steht &mdash; die mit <code>?token=</code> am Ende.</p>
 AUTH_COOKIE = "aquaticy_session"
 CONSENT_COOKIE = "aquaticy_consent"
 AUTH: AuthStore | None = None
+#: Ai-guard: erkennt Missbrauch über mehrere Chats und sperrt (9.5.16 Lion).
+AIGUARD: Any = None
 AUTH_LIMIT = RateLimiter(attempts=8, window_seconds=60)
 REQUEST_LIMIT = RateLimiter(attempts=240, window_seconds=60)
 #: Schluessel testen, je Konto: genug, um einen neuen Schluessel ein paarmal zu
@@ -429,6 +434,8 @@ _INT_SETTINGS = {
     "AQUATICY_MAX_SUBAGENTS": "max_subagents",
     "AQUATICY_SUBAGENT_BUDGET": "subagent_budget",
     "AQUATICY_SUBAGENT_PARALLEL": "subagent_parallel",
+    "AQUATICY_RPM": "rpm",
+    "AQUATICY_PARALLEL_CALLS": "parallel_calls",
     "AQUATICY_MAX_TOOL_CALLS": "max_tool_calls",
     "AQUATICY_CONTEXT_TOKENS": "context_tokens",
     "AQUATICY_PLANNER_TIMEOUT": "planner_timeout",
@@ -561,6 +568,174 @@ def key_slot_for(model: str) -> str:
     return GENERIC_KEY_NAME if model else ""
 
 
+#: Bilder, die ``/api/media?url=`` schon geholt hat: (Datenordner, Adresse) ->
+#: (Zeitpunkt, Bytes, Typ). Die Oberflaeche fragt dasselbe Bild beim
+#: Neuzeichnen und Wiederoeffnen eines Chats oft mehrmals an.
+_MEDIA_CACHE: OrderedDict[tuple[str, str], tuple[float, bytes, str]] = OrderedDict()
+_MEDIA_LOCK = threading.Lock()
+MEDIA_CACHE_TTL = 600.0
+MEDIA_CACHE_BYTES = 48_000_000
+_MEDIA_FETCHERS: dict[tuple[str, float, float], Any] = {}
+
+
+def _media_fetcher(settings: Settings) -> Any:
+    """Ein gemeinsamer Abrufer fuer Bilder -- mit gemeinsamer Drossel je Domain.
+
+    Bis 9.5.15 baute jedes Bild einen eigenen, samt eigener Drossel: zwanzig
+    Bilder einer Seite gingen dann gleichzeitig an denselben Server. Ohne
+    Browser: ein Bild braucht keinen, und ein Bildaufruf darf auf dem Server
+    kein Chromium starten.
+    """
+    from aquaticy.fetch import Fetcher
+
+    schluessel = (settings.user_agent, float(settings.fetch_timeout),
+                  float(settings.request_delay_seconds))
+    with _MEDIA_LOCK:
+        abrufer = _MEDIA_FETCHERS.get(schluessel)
+        if abrufer is None:
+            abrufer = Fetcher(user_agent=settings.user_agent, timeout=settings.fetch_timeout,
+                              delay_seconds=settings.request_delay_seconds,
+                              enable_browser=False)
+            _MEDIA_FETCHERS[schluessel] = abrufer
+        return abrufer
+
+
+def media_by_url(settings: Settings, target: str) -> tuple[int, bytes, str]:
+    """Holt ein oeffentliches Bild fuer die Oberflaeche. Returns: (Status, Inhalt, Typ).
+
+    Seit 9.5.16 zaehlt der Abruf bei normalen Konten ins Kontingent wie jede
+    andere Serverarbeit ("seite"); ein Bild aus dem Zwischenspeicher nicht.
+    """
+    from aquaticy import metering
+
+    schluessel = (str(settings.data_dir), target)
+    jetzt = time.monotonic()
+    with _MEDIA_LOCK:
+        treffer = _MEDIA_CACHE.get(schluessel)
+        if treffer and jetzt - treffer[0] < MEDIA_CACHE_TTL:
+            _MEDIA_CACHE.move_to_end(schluessel)
+            return 200, treffer[1], treffer[2]
+    try:
+        vorab = metering.reserve_work(settings, "seite")
+    except metering.QuotaExceeded as exc:
+        return 429, str(exc).encode("utf-8"), "text/plain"
+    try:
+        visual, error = _media_fetcher(settings).load_public_visual(target)
+    finally:
+        vorab.cancel()
+    if visual is None:
+        return 404, (error or "Das Bild ist nicht erreichbar.").encode("utf-8"), "text/plain"
+    metering.charge_work(settings, "seite")
+    with _MEDIA_LOCK:
+        _MEDIA_CACHE[schluessel] = (jetzt, visual.content, visual.content_type)
+        while sum(len(e[1]) for e in _MEDIA_CACHE.values()) > MEDIA_CACHE_BYTES:
+            _MEDIA_CACHE.popitem(last=False)
+    return 200, visual.content, visual.content_type
+
+
+def trusted_proxies() -> list[Any]:
+    """Die Proxys, deren ``X-Forwarded-For`` gilt (``AQUATICY_TRUSTED_PROXIES``).
+
+    Leer (Standard): keinem -- sonst koennte sich jeder mit einer Kopfzeile eine
+    beliebige Adresse geben und damit Anfragegrenze und IP-Sperre umgehen.
+    """
+    import ipaddress
+
+    netze = []
+    for teil in os.environ.get("AQUATICY_TRUSTED_PROXIES", "").split(","):
+        with contextlib.suppress(ValueError):
+            if teil.strip():
+                netze.append(ipaddress.ip_network(teil.strip(), strict=False))
+    return netze
+
+
+def client_ip(direkt: str, forwarded: str = "", real_ip: str = "") -> str:
+    """Die Adresse des Menschen am anderen Ende.
+
+    Hinter einem eingetragenen Proxy (``AQUATICY_TRUSTED_PROXIES``) die, die der
+    Proxy meldet -- sonst teilten sich alle Nutzer dessen eine Adresse: eine
+    Anfragegrenze fuer alle, und eine IP-Sperre traefe jeden (seit 9.5.16).
+    Genommen wird der LETZTE Eintrag: den hat der eigene Proxy angehaengt, alle
+    davor kann der Browser selbst mitgeschickt haben.
+    """
+    import ipaddress
+
+    try:
+        quelle = ipaddress.ip_address(direkt.split("%", 1)[0])
+    except ValueError:
+        return direkt
+    if not any(quelle in netz for netz in trusted_proxies()):
+        return direkt
+    for kandidat in [*reversed(forwarded.split(",")), real_ip]:
+        kandidat = kandidat.strip()
+        with contextlib.suppress(ValueError):
+            if kandidat:
+                return str(ipaddress.ip_address(kandidat))
+    return direkt
+
+
+#: Was die laufende Werkstatt festlegt -- aendert sich eines davon, wird sie
+#: neu aufgebaut (siehe ChatSession.reload).
+WORKSHOP_FIELDS: tuple[str, ...] = (
+    "vm_size", "vm_image", "vm_idle_minutes", "vm_memory_mb", "vm_disk_gb", "vm_cpus",
+    "vm_user_mode", "vm_desktop_image", "user_agent", "data_dir",
+)
+
+
+def workshop_changed(alt: Any, neu: Any) -> bool:
+    """Braucht die Werkstatt nach diesem Speichern einen Neuaufbau?"""
+    return any(getattr(alt, feld, None) != getattr(neu, feld, None) for feld in WORKSHOP_FIELDS)
+
+
+def delete_job(store: Any, nummer: int, settings: Settings) -> bool:
+    """Loescht einen Auftrag -- samt seinem Vergleichsbild.
+
+    Das hochgeladene Foto haengt an genau diesem Auftrag und ist vom
+    Aufraeumen ausgenommen. Bis 9.5.16 raeumte es nur der POST-Weg weg;
+    ``DELETE /api/jobs`` liess es fuer immer auf dem Server liegen.
+    """
+    job = store.get(nummer)
+    geloescht = bool(store.delete(nummer))
+    if geloescht and job is not None and getattr(job, "image_id", ""):
+        from aquaticy.media import delete_snapshot
+
+        with contextlib.suppress(OSError, ValueError):
+            delete_snapshot(settings.data_dir, job.image_id)
+    return geloescht
+
+
+def _chat_untrusted(entries: list[Any]) -> bool:
+    """Stand in diesem Chat schon fremder Text (Webseite, Mail, Anhang)?
+
+    Seit 9.5.16 am Verlauf vermerkt. Aeltere Eintraege tragen den Vermerk
+    nicht -- dort gilt: wer Quellen gelesen hat, hatte fremden Text.
+    """
+    for entry in entries:
+        meta = getattr(entry, "meta", None) or {}
+        if meta.get("untrusted") or meta.get("sources") or meta.get("visuals"):
+            return True
+    return False
+
+
+def _resume(agent: Any, session_id: str, entries: list[Any], untrusted: bool) -> None:
+    """``agent.resume`` -- mit dem Vermerk "fremder Text", wo der Agent ihn kennt."""
+    import inspect
+
+    turns = [(entry.question, entry.answer) for entry in entries]
+    try:
+        kennt = "untrusted" in inspect.signature(agent.resume).parameters
+    except (TypeError, ValueError):
+        kennt = False
+    if kennt:
+        agent.resume(session_id, turns, untrusted=untrusted)
+    else:
+        agent.resume(session_id, turns)
+        toolbox = getattr(agent, "toolbox", None)
+        if toolbox is not None and untrusted:
+            with contextlib.suppress(Exception):
+                toolbox.untrusted_seen = True
+
+
 def account_vault(profile: Path, account: Account | None = None) -> Any:
     """Der Schluesselbund eines Kontos (aquaticy/keyvault.py).
 
@@ -651,6 +826,26 @@ def _profile_settings(profile: Path, plan: str, account: Account | None = None) 
     for name, wert in eigene.items():
         (settings.search_keys if name in SEARCH_KEY_NAMES else settings.api_keys)[name] = wert
     settings.own_key_names = frozenset(eigene)
+    # Das GitHub-Token des Kontos liegt verschluesselt im Schluesselbund (seit
+    # 9.5.16) -- ein altes aus der .env wandert einmal hinein. Das Token des
+    # Betreibers bekommt ein Konto nie: es koennte dessen private Repos lesen.
+    from aquaticy.addons import GITHUB_TOKEN_KEY
+
+    settings.secret_vault = tresor
+    altes = raw.get(GITHUB_TOKEN_KEY, "").strip()
+    if altes:
+        with contextlib.suppress(Exception):
+            if not tresor.secret(GITHUB_TOKEN_KEY):
+                tresor.set_secret(GITHUB_TOKEN_KEY, altes)
+            remove_env_keys(settings.env_path, {GITHUB_TOKEN_KEY})
+    try:
+        settings.github_token = tresor.secret(GITHUB_TOKEN_KEY)
+    except Exception:
+        settings.github_token = ""
+    # Den Such-Schluessel des Betreibers teilt ein normales Konto nur bei der
+    # Suchmaschine, die der Betreiber selbst gewaehlt hat (seit 9.5.16).
+    settings.operator_search_backends = (
+        None if plan == "pro" else frozenset({(base.search_backend or "").lower()}))
     # Eine Modell-Adresse, die das Konto selbst eingetragen hat (nur Pro, s.u.).
     eigene_adresse = raw.get("AQUATICY_API_BASE", "").strip()
     settings.own_api_base = (
@@ -709,7 +904,7 @@ HELP_MARKDOWN = """### Befehle
 - `/image <pfad>` — Bild ansehen lassen und damit recherchieren (Datei oder Ordner)
 - `/export html|md|csv` — die letzten Recherchen herunterladen
 - `/history` — fruehere Recherchen
-- `/notes` — Merkzettel
+- `/notes` — Merkzettel (`/notes delete <nr>` loescht eine Notiz, `/notes clear` alle)
 - `/clear` — Gespraechsverlauf verwerfen
 - `/memory` — zeigen, was im Langzeitspeicher liegt
 - `/uploads` — zeigen, was du hochgeladen hast
@@ -744,6 +939,8 @@ class ChatSession:
         #: Der Chat, in den ein neu gebauter Agent zurueckkehren soll. Leer
         #: heisst: neuer Chat.
         self._carry_over = ""
+        #: Hatte der abgebaute Agent schon fremden Text gelesen? (seit 9.5.16)
+        self._carry_untrusted = False
 
     def settings(self) -> Settings:
         if self._settings is None:
@@ -776,11 +973,11 @@ class ChatSession:
             # dem, was vorher besprochen wurde.
             if self._carry_over:
                 weiter, self._carry_over = self._carry_over, ""
+                vorher_fremd, self._carry_untrusted = self._carry_untrusted, False
                 with contextlib.suppress(Exception):
                     entries = cache.chat_history(weiter)
-                    self._agent.resume(
-                        weiter, [(entry.question, entry.answer) for entry in entries]
-                    )
+                    _resume(self._agent, weiter, entries,
+                            vorher_fremd or _chat_untrusted(entries))
         return self._agent
 
     def reset(self) -> None:
@@ -804,9 +1001,7 @@ class ChatSession:
         if not entries:
             return {"turns": [], "title": "", "note": "Diesen Chat gibt es nicht mehr."}
         with self._lock:
-            self.agent().resume(
-                session_id, [(entry.question, entry.answer) for entry in entries]
-            )
+            _resume(self.agent(), session_id, entries, _chat_untrusted(entries))
         return {
             "session_id": session_id,
             "title": entries[0].question,
@@ -825,11 +1020,13 @@ class ChatSession:
             ],
         }
 
-    def reload(self) -> None:
+    def reload(self, workshop: bool = False) -> None:
         """Nach dem Speichern neuer Einstellungen alles neu aufbauen.
 
-        Die Werkstatt gehoert dazu: haette jemand ihre Grenzen geaendert,
-        arbeitete die laufende sonst noch mit den alten weiter.
+        Die Werkstatt gehoert dazu, wenn sich an ihr etwas geaendert hat: haette
+        jemand ihre Grenzen geaendert, arbeitete die laufende sonst noch mit den
+        alten weiter. *workshop* erzwingt den Neuaufbau (Add-ons: die Werkstatt
+        muss ihre Datentraeger loslassen oder neu einhaengen).
 
         Der Chat bleibt derselbe. Wer waehrend eines Gespraechs das Modell
         wechselt, will ein anderes Modell -- nicht ein anderes Gespraech.
@@ -838,16 +1035,28 @@ class ChatSession:
             old_settings = self._settings
             if self._agent is not None:
                 self._carry_over = str(getattr(self._agent, "session_id", ""))
+                # Was der alte Agent schon gelesen hat, gilt fuer den neuen
+                # weiter (seit 9.5.16 -- vorher ging es beim Neuaufbau verloren).
+                self._carry_untrusted = bool(getattr(
+                    getattr(self._agent, "toolbox", None), "untrusted_seen", False))
                 with contextlib.suppress(Exception):
                     self._agent.close()
             self._agent = None
             self._settings = None
             if self.profile is None:
                 reset_settings_cache()
+            # Die Werkstatt nur neu aufbauen, wenn sich an IHR etwas geaendert
+            # hat (seit 9.5.16). Bis dahin loeschte jede gespeicherte
+            # Einstellung -- schon ein anderes Modell in der Auswahl -- die
+            # laufende Werkstatt samt allem, was unter /work lag.
             with contextlib.suppress(Exception):
                 from aquaticy.sandbox import forget_shared
 
-                forget_shared(old_settings)
+                if (workshop or old_settings is None
+                        or workshop_changed(old_settings, self.settings())):
+                    forget_shared(old_settings)
+            # Frisch gelesen wird erst beim naechsten Gebrauch -- wie bisher.
+            self._settings = None
 
     def _settings_dirty(self) -> None:
         """Merkt vor, dass der Agent neu gebaut werden muss.
@@ -936,6 +1145,10 @@ class ChatSession:
                             )
                         )
                         message = f"{context}\n\n{message}" if context else message
+                        # Ein Anhang ist fremder Text wie eine Webseite (seit
+                        # 9.5.16): ein PDF aus dem Netz kann Anweisungen tragen.
+                        if context and getattr(agent, "toolbox", None) is not None:
+                            agent.toolbox.untrusted_seen = True
                     ask_options = {
                         "stream": True, "mode": mode, "structured": structured,
                         "recheck": recheck, "effort": effort, "online": online,
@@ -1242,11 +1455,7 @@ class ChatSession:
                 return {"text": self._uploads(argument)}
 
             if command == "notes":
-                notes = self._cache().list_notes()
-                if not notes:
-                    return {"text": "Der Merkzettel ist leer. Sag im Chat einfach *merk dir …*"}
-                lines = "\n".join(f"- {note.text}" for note in notes)
-                return {"text": f"### Merkzettel\n{lines}"}
+                return {"text": self._notes(argument)}
 
             if command == "history":
                 entries = self._cache().recent_history(limit=15)
@@ -1262,6 +1471,31 @@ class ChatSession:
                 return {"text": "Im Browser reicht es, das Fenster zu schliessen."}
 
         return {"text": f"Unbekannter Befehl `/{command}` — `/help` zeigt alle."}
+
+    def _notes(self, argument: str) -> str:
+        """``/notes`` zeigt den Merkzettel, ``/notes delete 3`` und ``/notes clear`` raeumen auf.
+
+        Bis 9.5.15 ging Loeschen nur in der Kommandozeile -- im Browser stand
+        eine Notiz fuer immer im Systemtext jeder Frage.
+        """
+        cache = self._cache()
+        wort, _, rest = argument.partition(" ")
+        wort = wort.lower()
+        if wort in ("clear", "leeren", "alle"):
+            return f"{cache.clear_notes()} Notizen gelöscht. Der Merkzettel ist leer."
+        if wort in ("delete", "del", "löschen", "loeschen", "weg"):
+            nummer = rest.strip().lstrip("#")
+            if not nummer.isdigit():
+                return ("Welche Notiz? Zum Beispiel `/notes delete 3` -- die Nummer steht "
+                        "bei `/notes`.")
+            return (f"Notiz {nummer} gelöscht." if cache.delete_note(int(nummer))
+                    else f"Eine Notiz mit der Nummer {nummer} gibt es nicht.")
+        notes = cache.list_notes()
+        if not notes:
+            return "Der Merkzettel ist leer. Sag im Chat einfach *merk dir …*"
+        lines = "\n".join(f"- **{note.id}** · {note.text}" for note in notes)
+        return (f"### Merkzettel\n{lines}\n\nLöschen: `/notes delete <Nummer>` · "
+                "alles: `/notes clear`")
 
     def memory(self) -> Any:
         """Den Langzeitspeicher oeffnen.
@@ -1508,8 +1742,8 @@ def current_values() -> dict[str, str]:
         # Leer heisst: was der Anbieter im Freikontingent vertraegt. Der
         # eingetragene Wert gilt dagegen fuer alle Anbieter -- deshalb steht
         # er hier so, wie er in der .env steht, und nicht als Vorgabewert.
-        "AQUATICY_RPM": os.environ.get("AQUATICY_RPM", "").strip(),
-        "AQUATICY_PARALLEL_CALLS": os.environ.get("AQUATICY_PARALLEL_CALLS", "").strip(),
+        "AQUATICY_RPM": str(settings.rpm) if settings.rpm else "",
+        "AQUATICY_PARALLEL_CALLS": str(settings.parallel_calls) if settings.parallel_calls else "",
         "AQUATICY_MAX_TOOL_CALLS": str(settings.max_tool_calls),
         "AQUATICY_CONTEXT_TOKENS": str(settings.context_tokens),
         "AQUATICY_PLANNER_TIMEOUT": str(int(settings.planner_timeout)),
@@ -1983,25 +2217,26 @@ def addon_action(payload: dict[str, Any]) -> tuple[dict[str, Any], int]:
             )}, 409
         hinweis = ""
         if action == "install":
-            addons.install(settings, addon.id, session.pro, on_done=session.reload)
+            addons.install(settings, addon.id, session.pro,
+                           on_done=lambda: session.reload(workshop=True))
             if not addon.programm:
-                session.reload()
+                session.reload(workshop=True)
             hinweis = "Wird installiert …" if addon.programm else "Installiert und eingeschaltet."
         elif action == "uninstall":
             if addon.programm:
-                session.reload()          # die Werkstatt laesst den Datentraeger los
+                session.reload(workshop=True)          # die Werkstatt laesst den Datentraeger los
             addons.uninstall(session.settings(), addon.id)
-            session.reload()
+            session.reload(workshop=True)
             hinweis = "Deinstalliert — Programm und Anmeldung sind gelöscht."
         elif action in ("enable", "disable"):
             addons.set_enabled(settings, addon.id, action == "enable", session.pro)
-            session.reload()
+            session.reload(workshop=True)
             hinweis = "Eingeschaltet." if action == "enable" else "Ausgeschaltet."
         elif action == "token":
             if addon.login != "token":
                 raise addons.AddOnError(f"{addon.name} meldet sich nicht mit einem Token an.")
             ergebnis = addons.github_login(settings, str(payload.get("token") or ""))
-            session.reload()
+            session.reload()  # GitHub laeuft nicht in der Werkstatt
             hinweis = f"Angemeldet als {ergebnis['who']}." + (
                 f" {ergebnis['warning']}" if ergebnis["warning"] else "")
         elif action == "login":
@@ -2011,9 +2246,9 @@ def addon_action(payload: dict[str, Any]) -> tuple[dict[str, Any], int]:
             hinweis = "Gemerkt: angemeldet."
         elif action == "logout":
             if addon.programm:
-                session.reload()
+                session.reload(workshop=True)
             addons.logout(session.settings(), addon.id)
-            session.reload()
+            session.reload(workshop=True)
             hinweis = "Abgemeldet." + (
                 " Entferne die Werkstatt auf dem Handy auch unter „Verknüpfte Geräte“."
                 if addon.login == "qr" else "")
@@ -2025,7 +2260,7 @@ def addon_action(payload: dict[str, Any]) -> tuple[dict[str, Any], int]:
             hinweis = "Gespeichert: " + addons.rights_text(addon.id, neu) + "."
         else:  # feeds
             feeds = addons.set_feeds(settings, payload.get("feeds") or [])
-            session.reload()
+            session.reload()  # Feeds laufen nicht in der Werkstatt
             hinweis = f"{len(feeds)} Feeds gespeichert."
     except addons.AddOnError as exc:
         return {"ok": False, "error": str(exc)}, 400
@@ -2196,12 +2431,18 @@ def with_state(html: str) -> str:
       er selbst gespeichert haette, muesste man ihm glauben -- und das ist
       genau das, was hier nicht mehr passieren soll.
     """
-    try:
-        stand = ui_state().read()
-    except Exception:  # pragma: no cover - eine Seite ohne Zustand ist besser als keine
-        from aquaticy.uistate import defaults
+    from aquaticy.uistate import defaults
 
+    if AUTH is not None and getattr(SESSION.current(), "account", None) is None:
+        # Vor der Anmeldung gibt es noch kein Konto -- dann die Grundeinstellung,
+        # nicht der Zustand des Server-Profils (bis 9.5.15 sah jeder Fremde
+        # dessen Farben, Modus und Mitlesen).
         stand = defaults()
+    else:
+        try:
+            stand = ui_state().read()
+        except Exception:  # pragma: no cover - eine Seite ohne Zustand ist besser als keine
+            stand = defaults()
 
     attrs = ""
     if stand.get("theme") in ("light", "dark"):
@@ -2392,7 +2633,9 @@ class Handler(BaseHTTPRequestHandler):
         return ""
 
     def _client_ip(self) -> str:
-        return str(self.client_address[0] if self.client_address else "unknown")
+        direkt = str(self.client_address[0] if self.client_address else "unknown")
+        return client_ip(direkt, self.headers.get("X-Forwarded-For") or "",
+                         self.headers.get("X-Real-IP") or "")
 
     def _device(self) -> str:
         return "\x1f".join(
@@ -2505,7 +2748,7 @@ class Handler(BaseHTTPRequestHandler):
             except ValueError:
                 self._json({"ok": False, "error": "Keine gueltige Kennung."}, 400)
                 return
-            self._json({"ok": JobStore(settings.db_path).delete(nummer)})
+            self._json({"ok": delete_job(JobStore(settings.db_path), nummer, settings)})
         elif route == "/api/memory":
             frage = parse_qs(urlsplit(self.path).query)
             if not settings.memory_enabled:
@@ -2613,21 +2856,19 @@ class Handler(BaseHTTPRequestHandler):
                 return {"ok": False, "error": "Diesen Auftrag gibt es nicht."}
             return {"ok": True}
         if action == "delete":
-            # Das hochgeladene Foto haengt an genau diesem Auftrag. Es ist vom
-            # Aufraeumen ausgenommen und bliebe sonst fuer immer liegen.
-            job = store.get(nummer)
-            if job is not None and job.image_id:
-                from aquaticy.media import delete_snapshot
-
-                with contextlib.suppress(OSError, ValueError):
-                    delete_snapshot(settings.data_dir, job.image_id)
-            return {"ok": store.delete(nummer)}
+            return {"ok": delete_job(store, nummer, settings)}
         if action == "run":
             # Sofort ausfuehren laeuft im Hintergrund: eine Recherche dauert
             # Minuten, so lange darf keine Anfrage offen stehen.
             job = store.get(nummer)
             if job is None:
                 return {"ok": False, "error": "Diesen Auftrag gibt es nicht."}
+
+            from aquaticy.jobs import GUARD_STATE, claim_run, release_run
+
+            # Laeuft er schon (Planer oder ein frueherer Klick), nicht doppelt.
+            if not claim_run(settings.db_path, job.id):
+                return {"ok": False, "error": "Dieser Auftrag läuft gerade schon."}
 
             def sofort() -> None:
                 # Scheitert der Lauf, muss das trotzdem am Auftrag stehen:
@@ -2638,8 +2879,10 @@ class Handler(BaseHTTPRequestHandler):
                     state, chat = run_job(job, settings)
                 except Exception as exc:
                     state, chat = (f"Fehler: {type(exc).__name__}", "")
+                finally:
+                    release_run(settings.db_path, job.id)
                 store.note_run(job.id, state, chat)
-                if state == "erfüllt":
+                if state == "erfüllt" or state.startswith(GUARD_STATE):
                     store.set_enabled(job.id, False)
 
             threading.Thread(target=sofort, daemon=True).start()
@@ -2748,20 +2991,11 @@ class Handler(BaseHTTPRequestHandler):
             if not target or len(target) > 8_000:
                 self._json({"error": "Keine gültige Bildadresse."}, 400)
                 return
-            from aquaticy.fetch import Fetcher
-
-            settings = SESSION.settings()
-            with Fetcher(
-                user_agent=settings.user_agent,
-                timeout=settings.fetch_timeout,
-                delay_seconds=settings.request_delay_seconds,
-                enable_browser=settings.enable_playwright,
-            ) as fetcher:
-                visual, error = fetcher.load_public_visual(target)
-            if visual is None:
-                self._json({"error": error or "Das Bild ist nicht erreichbar."}, 404)
+            status, inhalt, art = media_by_url(SESSION.settings(), target)
+            if status != 200:
+                self._json({"error": inhalt.decode("utf-8")}, status)
                 return
-            self._send(200, visual.content, visual.content_type)
+            self._send(200, inhalt, art)
         elif route == "/api/account":
             account = self._account()
             if account is None:
@@ -3055,6 +3289,16 @@ class Handler(BaseHTTPRequestHandler):
                 if account is None:
                     self._json({"ok": False, "error": "E-Mail oder Passwort stimmt nicht."}, 401)
                     return
+            # Ein gesperrtes Konto (oder eine gesperrte Adresse) kommt nicht
+            # herein -- weder mit richtigem Passwort noch über ein neues Konto
+            # von derselben Adresse (9.5.16 Lion).
+            if AIGUARD is not None:
+                from aquaticy.aiguard import BANNED_MESSAGE
+
+                if AIGUARD.is_banned(user_id=account.id, ip=self._client_ip()) is not None:
+                    self._json({"ok": False, "error": BANNED_MESSAGE, "code": "banned"}, 403)
+                    return
+            AUTH.note_seen(account.id, self._client_ip())
             with contextlib.suppress(Exception):
                 start_user_scheduler(account)
             token = AUTH.create_session(account, self._device(), self._client_ip())
@@ -3234,7 +3478,11 @@ p{{margin:0 0 8px;color:#57534a}}</style></head><body><main>
         settings = SESSION.settings()
         cache = Cache(settings.db_path, settings.cache_ttl_hours)
         if action == "rename":
-            return {"ok": True, "title": cache.rename_chat(session_id, str(payload.get("title")))}
+            # Ohne Titel: zurueck zur ersten Frage -- nicht der Name "None"
+            # (bis 9.5.15 wurde aus einem fehlenden Titel woertlich "None").
+            titel = payload.get("title")
+            return {"ok": True, "title": cache.rename_chat(
+                session_id, titel if isinstance(titel, str) else "")}
         if action == "delete":
             removed = cache.delete_chat(session_id)
             # Der geloeschte Chat war vielleicht der offene -- dann faengt der
@@ -3417,9 +3665,9 @@ p{{margin:0 0 8px;color:#57534a}}</style></head><body><main>
         backend = str(payload.get("AQUATICY_SEARCH_BACKEND", "")).strip() or settings.search_backend
         search_key = str(payload.get(SEARCH_KEY_FIELD, "")).strip()
         if not search_key:
-            name = SEARCH_BACKEND_KEYS.get(backend, "")
-            search_key = (
-                (settings.search_keys.get(name) or os.environ.get(name, "")) if name else "")
+            # Wie im Betrieb (Settings.search_key_for): der eigene, sonst der
+            # des Betreibers nur, wenn er fuer dieses Konto gilt.
+            search_key = settings.search_key_for(backend)
         engines = str(payload.get("AQUATICY_SEARCH_ENGINES", settings.search_engines) or "").strip()
         instance = str(payload.get("AQUATICY_SEARXNG_URL", settings.searxng_url) or "").strip()
         if not SESSION.pro:
@@ -3622,6 +3870,20 @@ p{{margin:0 0 8px;color:#57534a}}</style></head><body><main>
             # Nur Dateien, kein Text: das ist eine vollstaendige Bitte.
             message = "Sieh dir das Angehaengte an und sag mir, worum es geht."
 
+        # Ai-guard (9.5.16 Lion): schon gesperrt? Dann gar nicht erst starten.
+        # Die zuletzt gesehene Adresse wird dabei festgehalten (für `aquaticy
+        # list` und für eine Adresssperre).
+        konto = self._account()
+        if konto is not None and AUTH is not None:
+            AUTH.note_seen(konto.id, self._client_ip())
+        if AIGUARD is not None and konto is not None:
+            gesperrt = AIGUARD.is_banned(user_id=konto.id, ip=self._client_ip())
+            if gesperrt is not None:
+                from aquaticy.aiguard import BANNED_MESSAGE
+
+                self._json({"error": BANNED_MESSAGE, "code": "banned"}, 403)
+                return
+
         # Der Lauf gehoert ab hier dem Server, nicht der Verbindung. Reisst
         # sie ab, laeuft er weiter und kann spaeter zu Ende gesehen werden.
         session = SESSION.current() if isinstance(SESSION, SessionProxy) else SESSION
@@ -3642,6 +3904,19 @@ p{{margin:0 0 8px;color:#57534a}}</style></head><body><main>
             kind = "chunk" if name == "answer_chunk" else name
             if geheim and kind not in ("chunk", "thought"):
                 payload = scrub_payload(payload, geheim)
+            if AIGUARD is not None and konto is not None:
+                # Zwei Wege zu einem Anhaltspunkt (9.5.16 Lion, aus demselben
+                # Prüf-Aufruf des Rechtsrahmens): eine Ablehnung nach Grundgesetz/
+                # BGB ("guard"), oder eine erkannte Missbrauchsabsicht ("abuse").
+                anlass = ""
+                if kind == "guard" and payload.get("stage") == "anfrage":
+                    anlass = "Rechtsrahmen: " + str(payload.get("title") or "")
+                elif kind == "abuse":
+                    anlass = "Missbrauch: " + str(payload.get("art") or "")
+                if anlass:
+                    with contextlib.suppress(Exception):
+                        if AIGUARD.note(konto.id, anlass, detail=anlass, chat=session.chat_id()):
+                            lauf.add({"type": "banned"})
             if kind == "done":
                 seen_done.set()
                 # Der Aufnahmezeitpunkt eines Bildes kommt als fertiger Text
@@ -3657,6 +3932,23 @@ p{{margin:0 0 8px;color:#57534a}}</style></head><body><main>
             previous = getattr(_REQUEST, "session", None)
             _REQUEST.session = session
             try:
+                # Läuft der Rechtsrahmen (normale Konten immer), reitet die
+                # Missbrauchserkennung auf dessen Prüf-Aufruf mit -- kein zweiter
+                # beim Modell. Nur wo er aus ist (Pro hat ihn abgeschaltet),
+                # fragt Ai-guard selbst.
+                if (AIGUARD is not None and konto is not None
+                        and not session.settings().legal_guard):
+                    from aquaticy.aiguard import check_message
+
+                    verdaechtig, grund = check_message(
+                        AIGUARD, konto, message, session.settings(),
+                        chat=session.chat_id())
+                    if verdaechtig:
+                        lauf.add({"type": "chunk", "text": grund})
+                        lauf.add({"type": "banned"})
+                        lauf.add({"type": "done"})
+                        seen_done.set()
+                        return
                 SESSION.ask(
                     message,
                     emit,
@@ -3877,9 +4169,9 @@ def serve(
 ) -> None:
     """Startet die Oberflaeche und blockiert, bis Strg+C kommt.
 
-    *token* schuetzt den Zugang; ohne ist die Oberflaeche fuer jeden offen,
-    der die Adresse erreicht. Fuer den Netzbetrieb setzt die Kommandozeile
-    deshalb von sich aus eines.
+    Den Zugang schuetzen die Konten: ohne Anmeldung gibt es nichts ausser der
+    Anmeldeseite. *token* ist eine freiwillige zweite Schranke davor
+    (``aquaticy web --token``) -- gesetzt wird es nur, wenn man es angibt.
     """
     global AUTH, TOKEN
 
@@ -3887,6 +4179,10 @@ def serve(
     data_dir = get_settings().data_dir
     code = pro_code_for(data_dir)
     AUTH = AuthStore(data_dir, code)
+    global AIGUARD
+    from aquaticy.aiguard import guard_for
+
+    AIGUARD = guard_for(data_dir)
     print(f"  Pro-Code: {code} (9 Zeichen, geheim halten)")
     # Ein harter Abbruch kann eine Werkstatt zurueckgelassen haben. Sie belegt
     # Speicher und hat nichts mehr zu tun -- also weg damit, bevor es losgeht.

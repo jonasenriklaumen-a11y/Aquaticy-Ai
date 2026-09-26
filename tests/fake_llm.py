@@ -64,8 +64,13 @@ class H(BaseHTTPRequestHandler):
                     "zulaessig": "VERBOTEN" not in user,
                     "regel": "persoenlichkeitsrecht",
                     "grund": "Testurteil",
+                    # Ai-guard reitet auf demselben Aufruf mit (9.5.16 Lion).
+                    "missbrauch": "MISSBRAUCH" in user,
+                    "missbrauch_art": "Schadcode",
                 }
             )
+        elif rf == "aiguard":
+            text = json.dumps({"missbrauch": "MISSBRAUCH" in user, "art": "Schadcode"})
         elif "WERKZEUG:" in user and body.get("tools") and not tool_done:
             name, _, roh = user.split("WERKZEUG:", 1)[1].strip().partition(" ")
             angeboten = {(t.get("function") or {}).get("name") for t in body["tools"]}

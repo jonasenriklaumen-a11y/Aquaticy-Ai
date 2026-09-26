@@ -1,10 +1,10 @@
 """aquaticy -- ein KI-Rechercheagent fuer die Kommandozeile."""
 
-__version__ = "9.5.15"
+__version__ = "9.5.16"
 
 #: Der Name dieser Fassung. Er steht ueberall hinter der Versionsnummer, wo
 #: Menschen sie lesen -- nicht in Paketangaben und Kennungen fuer Server.
-__codename__ = "Seashell"
+__codename__ = "Lion"
 
 #: So steht die Fassung in der Oberflaeche, im Terminal und in der README.
 VERSION_LABEL = f"{__version__} {__codename__}"

@@ -453,6 +453,8 @@ class Cache:
             cur.execute("DELETE FROM history WHERE session_id = ?", (session_id,))
             removed = cur.rowcount
             cur.execute("DELETE FROM chat_titles WHERE session_id = ?", (session_id,))
+            # Auch der Ungelesen-Vermerk geht mit (seit 9.5.16).
+            cur.execute("DELETE FROM chat_unread WHERE session_id = ?", (session_id,))
             conn.commit()
         for media_id in bilder:
             if KEEP_MARK not in media_id:

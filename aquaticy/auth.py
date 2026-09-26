@@ -37,6 +37,10 @@ class Account:
     plan: str
     created_at: float
     username: str = ""
+    #: Die zuletzt gesehene Adresse und wann (seit 9.5.16 Lion, fuer `aquaticy
+    #: list` und Ai-guard). Im Klartext -- der Betreiber sperrt damit gezielt.
+    last_ip: str = ""
+    last_seen: float = 0.0
 
     @property
     def pro(self) -> bool:
@@ -295,6 +299,11 @@ class AuthStore:
                     "WHEN instr(email, '@') > 1 THEN substr(email, 1, instr(email, '@') - 1) "
                     "ELSE 'Nutzer' END WHERE username=''"
                 )
+            # Zuletzt gesehene Adresse -- fuer `aquaticy list` und Ai-guard (9.5.16).
+            if "last_ip" not in columns:
+                conn.execute("ALTER TABLE users ADD COLUMN last_ip TEXT NOT NULL DEFAULT ''")
+            if "last_seen" not in columns:
+                conn.execute("ALTER TABLE users ADD COLUMN last_seen REAL NOT NULL DEFAULT 0")
         secure_file(self.db_path)
 
     def profile_dir(self, user_id: str) -> Path:
@@ -303,9 +312,12 @@ class AuthStore:
     def _account(self, row: sqlite3.Row | None) -> Account | None:
         if row is None:
             return None
+        schluessel = row.keys()
         return Account(
             str(row["id"]), str(row["email"]), str(row["plan"]), row["created_at"],
-            str(row["username"])
+            str(row["username"]),
+            str(row["last_ip"]) if "last_ip" in schluessel and row["last_ip"] else "",
+            float(row["last_seen"]) if "last_seen" in schluessel and row["last_seen"] else 0.0,
         )
 
     def register(
@@ -337,8 +349,17 @@ class AuthStore:
         salt = secrets.token_bytes(16)
         user_id = secrets.token_hex(16)
         now = time.time()
+        vergeben = ValueError(
+            "Mit diesen Angaben lässt sich kein neues Konto anlegen. Hast du schon eins? "
+            "Dann melde dich an — sonst wähle einen anderen Nutzernamen."
+        )
         try:
             with self._lock, self._connect() as conn:
+                # Nutzernamen sind eindeutig (seit 9.5.16) -- sonst traefe
+                # `aquaticy ban <name>` womoeglich das falsche Konto.
+                if conn.execute("SELECT 1 FROM users WHERE lower(username) = lower(?)",
+                                (username,)).fetchone():
+                    raise vergeben
                 conn.execute(
                     "INSERT INTO users "
                     "(id, email, username, password_hash, password_salt, plan, created_at, "
@@ -356,7 +377,9 @@ class AuthStore:
                     ),
                 )
         except sqlite3.IntegrityError as exc:
-            raise ValueError("Für diese E-Mail-Adresse gibt es bereits ein Konto.") from exc
+            # Ein Satz fuer E-Mail UND Nutzername (seit 9.5.16): vorher sagte die
+            # Registrierung genau, welche E-Mail-Adresse hier ein Konto hat.
+            raise vergeben from exc
         folder = self.profile_dir(user_id)
         secure_directory(folder)
         return Account(user_id, email, plan, now, username)
@@ -466,6 +489,32 @@ class AuthStore:
         with self._connect() as conn:
             rows = conn.execute("SELECT * FROM users ORDER BY created_at").fetchall()
         return [account for row in rows if (account := self._account(row)) is not None]
+
+    def note_seen(self, user_id: str, ip: str) -> None:
+        """Haelt die zuletzt gesehene Adresse eines Kontos fest (im Klartext).
+
+        Fuer `aquaticy list` (der Betreiber sieht, von wo ein Konto kommt) und
+        fuer Ai-guard, das damit eine Adresse sperren kann.
+        """
+        adresse = str(ip or "").strip()[:64]
+        if not adresse or adresse == "unknown":
+            return
+        with suppress(sqlite3.Error), self._lock, self._connect() as conn:
+            conn.execute("UPDATE users SET last_ip=?, last_seen=? WHERE id=?",
+                         (adresse, time.time(), str(user_id)))
+
+    def account_by_name(self, name: str) -> Account | None:
+        """Ein Konto nach Nutzername oder E-Mail (fuer `aquaticy ban/unban`)."""
+        wanted = str(name or "").strip()
+        if not wanted:
+            return None
+        with self._connect() as conn:
+            row = conn.execute(
+                "SELECT * FROM users WHERE lower(username)=lower(?) OR lower(email)=lower(?) "
+                "ORDER BY created_at LIMIT 1",
+                (wanted, normalize_email(wanted) if "@" in wanted else wanted),
+            ).fetchone()
+        return self._account(row)
 
 
 def folder_bytes(folder: Path) -> int:

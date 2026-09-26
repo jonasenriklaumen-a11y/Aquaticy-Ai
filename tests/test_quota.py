@@ -69,8 +69,19 @@ def test_the_first_week_does_not_start_before_the_account() -> None:
     assert anfang == _ts(*ERSTELLT) and ende == _ts(2026, 9, 29, 14, 32)
 
 
+def _woche_voll(konto: Quota, bis: float) -> None:
+    """Eine volle Woche -- verteilt auf Sitzungen, denn seit 9.5.16 bucht keine
+    einzelne Buchung ueber das Limit der Sitzung hinaus."""
+    rest, zeitpunkt = WEEK_TOKENS, bis - 9 * (SESSION_SECONDS + 60)
+    while rest > 0:
+        teil = min(rest, SESSION_TOKENS)
+        konto.record(teil, "m", now=zeitpunkt)
+        rest -= teil
+        zeitpunkt += SESSION_SECONDS + 60
+
+
 def test_last_weeks_usage_does_not_count(konto: Quota) -> None:
-    konto.record(WEEK_TOKENS, "m", now=_ts(2026, 9, 28, 20, 0))
+    _woche_voll(konto, _ts(2026, 9, 28, 20, 0))
     with pytest.raises(QuotaExceeded) as fehler:
         konto.check(now=_ts(2026, 9, 29, 14, 0))
     assert fehler.value.which == "week"

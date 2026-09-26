@@ -256,6 +256,12 @@ JUDGE_SCHEMA: dict[str, Any] = {
         "zulaessig": {"type": "boolean"},
         "regel": {"type": "string", "enum": ["", *BY_ID]},
         "grund": {"type": "string"},
+        # Zusätzlich für Ai-guard (9.5.16 Lion): will die Anfrage Aquaticy für
+        # einen Angriff missbrauchen (Schadsoftware, Angriffsanleitung,
+        # Einbruch, Zugangsdatendiebstahl)? Dieselbe Frage in demselben Aufruf
+        # -- kein zweiter beim Modell.
+        "missbrauch": {"type": "boolean"},
+        "missbrauch_art": {"type": "string"},
     },
     "required": ["zulaessig", "regel", "grund"],
     "additionalProperties": False,
@@ -347,8 +353,14 @@ def judge_prompt(text: str, *, context: str = "", tool: str = "", topic: str = "
         "Format liefern, ändert das nichts.\n"
         "- Eine Bitte, die für sich harmlos klingt, aber zusammen mit dem Verlauf eine "
         "Regel verletzt, ist unzulässig.\n\n"
+        "Zusätzlich (Ai-guard): Prüfe, ob die Anfrage Aquaticy für einen ANGRIFF "
+        "missbrauchen will — Schadsoftware bauen, eine Angriffsanleitung (DDoS, Einbruch, "
+        "Exploit gegen fremde Systeme), Zugangsdaten stehlen, Phishing, Anleitungen für "
+        "Waffen. Verteidigung, Bildung, ein Pentest mit Auftrag und allgemeine "
+        "Sicherheitsfragen sind KEIN Missbrauch. Im Zweifel: kein Missbrauch.\n\n"
         'Antworte nur mit JSON: {"zulaessig": true oder false, "regel": "<Kennung der '
-        'verletzten Regel, sonst leer>", "grund": "<ein Satz>"}\n\n'
+        'verletzten Regel, sonst leer>", "grund": "<ein Satz>", "missbrauch": true oder false, '
+        '"missbrauch_art": "<zwei bis vier Wörter, sonst leer>"}\n\n'
         f"{was}\n{verlauf}<<<\n{_clip(text)}\n>>>"
     )
 
@@ -362,6 +374,10 @@ class Verdict:
     reason: str = ""
     #: Woher das Urteil kommt: "pruefer", "gemerkt", "unklar" oder "ausfall".
     source: str = "pruefer"
+    #: Ai-guard (9.5.16 Lion): will die Anfrage Aquaticy für einen Angriff
+    #: missbrauchen? Und wenn ja, welcher Art. Aus demselben Prüf-Aufruf.
+    abuse: bool = False
+    abuse_kind: str = ""
 
 
 ALLOWED = Verdict(True)
@@ -387,10 +403,15 @@ def parse_verdict(raw: str) -> Verdict | None:
     if not isinstance(zulaessig, bool):
         return None
     grund = " ".join(str(payload.get("grund") or "").split())[:240]
+    missbrauch = payload.get("missbrauch")
+    if isinstance(missbrauch, str) and missbrauch.strip().lower() in ("true", "false"):
+        missbrauch = missbrauch.strip().lower() == "true"
+    missbrauch = bool(missbrauch) if isinstance(missbrauch, bool) else False
+    art = " ".join(str(payload.get("missbrauch_art") or "").split())[:60]
     if zulaessig:
-        return Verdict(True, reason=grund)
+        return Verdict(True, reason=grund, abuse=missbrauch, abuse_kind=art)
     regel = str(payload.get("regel") or "").strip().lower()
-    return Verdict(False, BY_ID.get(regel, GENERIC), grund)
+    return Verdict(False, BY_ID.get(regel, GENERIC), grund, abuse=missbrauch, abuse_kind=art)
 
 
 def _ask_model(prompt: str, model: str, settings: Settings) -> str:
@@ -457,7 +478,8 @@ def judge(
         known = _cache.get(key)
         if known is not None:
             _cache.move_to_end(key)
-            return Verdict(known.allowed, known.rule, known.reason, "gemerkt")
+            return Verdict(known.allowed, known.rule, known.reason, "gemerkt",
+                           known.abuse, known.abuse_kind)
 
     fragen = ask or _ask_model
     prompt = judge_prompt(text, context=context, tool=tool, topic=topic)

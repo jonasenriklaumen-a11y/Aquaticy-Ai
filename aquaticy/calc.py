@@ -91,6 +91,11 @@ def calculate(expression: str) -> float:
     except SyntaxError as exc:
         raise CalcError(f"Kein gueltiger Ausdruck: {exc.msg}.") from exc
     result = _evaluate(tree)
+    if isinstance(result, complex):
+        # (-1) ** 0.5 ergibt in Python eine komplexe Zahl -- das ist hier
+        # keine Antwort (bis 9.5.15 kam "(6.1e-17+1j)" zurueck).
+        raise CalcError(
+            "Das Ergebnis ist keine reelle Zahl (z. B. Wurzel aus einer negativen Zahl).")
     if isinstance(result, float) and (math.isinf(result) or math.isnan(result)):
         raise CalcError("Ergebnis ausserhalb des darstellbaren Bereichs.")
     return result

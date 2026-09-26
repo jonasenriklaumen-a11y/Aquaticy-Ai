@@ -549,19 +549,23 @@ class Google:
         Der Entwurf steht danach in Gmail unter "Entwürfe". Ob er hinausgeht,
         entscheidet ein Mensch; Aquaticy hat dafuer gar nicht die Rechte.
         """
+        from email.message import EmailMessage
+
         subject = " ".join(str(subject).split())[:300]
         if not subject and not body:
             raise GoogleError("Ein Entwurf ohne Betreff und ohne Text waere leer.")
-        kopf = [f"To: {str(to).strip()}"] if to else []
+        # Empfaenger werden geprueft und neu geschrieben (seit 9.5.16): bis
+        # dahin landete "a@b.de\r\nBcc: fremd@x.de" woertlich im Kopf, und
+        # ein praepariertes Dokument haette so einen stillen Empfaenger
+        # untergebracht.
+        nachricht = EmailMessage()
+        if to:
+            nachricht["To"] = mail_addresses(to)
         if cc:
-            kopf.append(f"Cc: {str(cc).strip()}")
-        kopf += [
-            f"Subject: {subject}",
-            "Content-Type: text/plain; charset=utf-8",
-            "MIME-Version: 1.0",
-        ]
-        roh = "\r\n".join(kopf) + "\r\n\r\n" + str(body or "")
-        codiert = base64.urlsafe_b64encode(roh.encode("utf-8")).decode("ascii")
+            nachricht["Cc"] = mail_addresses(cc)
+        nachricht["Subject"] = subject
+        nachricht.set_content(str(body or ""), charset="utf-8", cte="8bit")
+        codiert = base64.urlsafe_b64encode(nachricht.as_bytes()).decode("ascii")
         data = self._write(
             "POST", f"{GMAIL_API}/drafts", {"message": {"raw": codiert}}
         )
@@ -581,6 +585,32 @@ class Google:
 # ---------------------------------------------------------------------------
 # Aufbereiten
 # ---------------------------------------------------------------------------
+#: Eine Mailadresse, wie sie in einen Entwurf darf -- ohne Anzeigenamen-Tricks.
+_ADRESSE = re.compile(r"^[A-Za-z0-9.!#$%&'*+/=?^_`{|}~-]+@[A-Za-z0-9-]+(?:\.[A-Za-z0-9-]+)+$")
+#: So viele Empfaenger hat ein Entwurf hoechstens.
+MAX_RECIPIENTS = 20
+
+
+def mail_addresses(text: str) -> str:
+    """Prueft eine Empfaengerliste und schreibt sie sauber neu.
+
+    Raises:
+        GoogleError: bei Zeilenumbruechen, unlesbaren oder zu vielen Adressen.
+    """
+    from email.utils import formataddr, getaddresses
+
+    roh = str(text or "")
+    if any(zeichen in roh for zeichen in "\r\n\x00"):
+        raise GoogleError("Empfänger dürfen keine Zeilenumbrüche enthalten.")
+    paare = [(name, adresse.strip()) for name, adresse in getaddresses([roh]) if adresse.strip()]
+    if not paare:
+        raise GoogleError("Keine gültige Empfängeradresse.")
+    if len(paare) > MAX_RECIPIENTS:
+        raise GoogleError(f"Höchstens {MAX_RECIPIENTS} Empfänger je Entwurf.")
+    for _, adresse in paare:
+        if not _ADRESSE.match(adresse):
+            raise GoogleError(f"'{adresse[:80]}' ist keine gültige Mailadresse.")
+    return ", ".join(formataddr((" ".join(name.split())[:80], adresse)) for name, adresse in paare)
 def _times(start: str, end: str, whole_day: bool) -> tuple[dict[str, str], dict[str, str]]:
     """Macht aus zwei Zeitangaben das, was der Kalender erwartet.
 

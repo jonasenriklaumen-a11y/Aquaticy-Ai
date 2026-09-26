@@ -401,7 +401,7 @@ def _konto(port: int, plan: str = "normal", code: str = "") -> str:
     _req(port, "POST", "/api/consent", {"accepted": True})
     zustimmung = _req.letzter_keks  # type: ignore[attr-defined]
     status, daten = _req(port, "POST", "/api/auth/register", {
-        "email": f"{plan}{time.time_ns()}@example.org", "username": "Seashell",
+        "email": f"{plan}{time.time_ns()}@example.org", "username": f"Seashell{time.time_ns()}",
         "password": "ein langes Passwort", "plan": plan, "pro_code": code,
         "terms_accepted": True}, zustimmung)
     assert status == 200, daten
@@ -652,7 +652,7 @@ def test_the_version_carries_its_name(tmp_path: Path, monkeypatch: pytest.Monkey
     from aquaticy.auth import AuthStore, pro_code_for
 
     assert f"{aquaticy.__version__} {aquaticy.__codename__}" == aquaticy.VERSION_LABEL
-    assert aquaticy.__codename__ == "Seashell"
+    assert aquaticy.__codename__ == "Lion"
     runner = CliRunner()
     assert aquaticy.VERSION_LABEL in runner.invoke(cli.app, ["version"]).output
     # "aquaticy list" zeigt, wie viele eigene Schluessel ein Konto hat --
@@ -664,8 +664,8 @@ def test_the_version_carries_its_name(tmp_path: Path, monkeypatch: pytest.Monkey
         konto = store.register("liste@example.org", "ein langes Passwort", "normal",
                                username="Liste", terms_accepted=True, terms_version="1")
         store.vault(konto).set("TAVILY_API_KEY", "tvly-liste-geheim-9999")
-        ausgabe = runner.invoke(cli.app, ["list"]).output
-        assert "Eigene" in ausgabe and "Schlüssel" in ausgabe
+        ausgabe = runner.invoke(cli.app, ["list"], env={"COLUMNS": "200"}).output
+        assert "Schlüss" in ausgabe  # Spalte "Eigene Schlüssel" (ggf. gekürzt)
         zeile = next(z for z in ausgabe.splitlines() if z.startswith("Liste"))
         assert "1" in zeile.split(), "wie viele -- sonst nichts"
         assert "geheim" not in ausgabe and "9999" not in ausgabe

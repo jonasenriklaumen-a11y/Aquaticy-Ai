@@ -293,7 +293,8 @@ def _konto(port: int, plan: str = "normal", code: str = "") -> str:
     _, kopf, _ = _anfrage(port, "POST", "/api/consent", {"accepted": True})
     zustimmung = kopf["Set-Cookie"].split(";", 1)[0]
     status, kopf, daten = _anfrage(port, "POST", "/api/auth/register", {
-        "email": f"{plan}{os.urandom(3).hex()}@example.org", "username": "Tester",
+        "email": f"{plan}{os.urandom(3).hex()}@example.org",
+        "username": f"Tester{os.urandom(3).hex()}",
         "password": "ein langes Passwort", "plan": plan, "pro_code": code,
         "terms_accepted": True}, zustimmung)
     assert status == 200, daten
@@ -316,7 +317,7 @@ def test_odd_plans_never_become_pro(server: int, plan: Any) -> None:
     _, kopf, _ = _anfrage(server, "POST", "/api/consent", {"accepted": True})
     zustimmung = kopf["Set-Cookie"].split(";", 1)[0]
     status, _, daten = _anfrage(server, "POST", "/api/auth/register", {
-        "email": f"p{os.urandom(3).hex()}@example.org", "username": "P",
+        "email": f"p{os.urandom(3).hex()}@example.org", "username": f"P{os.urandom(3).hex()}",
         "password": "ein langes Passwort", "plan": plan, "terms_accepted": True}, zustimmung)
     assert status == 400 or daten["account"]["plan"] == "normal"
 

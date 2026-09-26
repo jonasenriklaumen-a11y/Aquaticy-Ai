@@ -11,6 +11,7 @@ from typing import Any
 from rich.console import Console, Group
 from rich.live import Live
 from rich.markdown import Markdown
+from rich.markup import escape
 from rich.panel import Panel
 from rich.table import Table
 from rich.text import Text
@@ -246,7 +247,7 @@ class ChatRenderer:
         for position, task in enumerate(tasks):
             label = ROLE_LABELS.get(str(rollen[position]) if position < len(rollen) else "", "")
             zusatz = f"  · {label}" if label else ""
-            self.console.print(f"          [dim]{shorten(task, 80)}{zusatz}[/dim]")
+            self.console.print(f"          [dim]{_fremd(shorten(task, 80))}{_fremd(zusatz)}[/dim]")
 
     def _on_checkers(self, payload: dict[str, Any]) -> None:
         self._flush_reading()
@@ -296,7 +297,8 @@ class ChatRenderer:
         self._flush_reading()
         task = shorten(payload.get("task", ""), 62)
         if payload.get("error"):
-            self.console.print(f"  [yellow][Teil][/yellow] {task} [red](fehlgeschlagen)[/red]")
+            self.console.print(
+                f"  [yellow]\\[Teil][/yellow] {_fremd(task)} [red](fehlgeschlagen)[/red]")
         else:
             calls = int(payload.get("tool_calls", 0) or 0)
             wort = "Aufruf" if calls == 1 else "Aufrufe"
@@ -398,7 +400,7 @@ class ChatRenderer:
 
     def _on_error(self, payload: dict[str, Any]) -> None:
         self._flush_reading()
-        self.console.print(f"  [red][Fehler][/red] {payload.get('message', '')}")
+        self.console.print(f"  [red]\\[Fehler][/red] {_fremd(payload.get('message', ''))}")
 
     def _on_answer_chunk(self, payload: dict[str, Any]) -> None:
         if not self._streaming_answer:
@@ -543,21 +545,30 @@ def render_image(console: Console, url: str, width: int = 34) -> bool:
     return False
 
 
+def _fremd(text: object) -> str:
+    """Text aus einer fremden Seite -- nie als Rich-Markup gelesen (seit 9.5.16).
+
+    Bis dahin brach ein Produktname mit ``[/]`` die Ausgabe ab (MarkupError),
+    und ``[link=...]`` legte einen fremden Link ins Terminal.
+    """
+    return escape(str(text if text is not None else ""))
+
+
 def product_card(product: Product) -> Panel:
     """Eine Produktkarte mit Preis, Bild-URL und Specs."""
     table = Table(show_header=False, box=None, pad_edge=False)
     table.add_column(style="cyan", no_wrap=True, width=12)
     table.add_column(overflow="fold")
     if product.image_url:
-        table.add_row("[Bild]", f"[blue]{product.image_url}[/blue]")
+        table.add_row(Text("[Bild]"), Text(product.image_url, style="blue"))
     if product.rating is not None:
-        table.add_row("Bewertung", f"{product.rating}")
+        table.add_row("Bewertung", _fremd(product.rating))
     if product.availability:
-        table.add_row("Verfuegbar", product.availability)
+        table.add_row("Verfuegbar", Text(product.availability))
     for key, value in list(product.specs.items())[:12]:
-        table.add_row(key, value)
-    table.add_row("Quelle", f"[dim]{product.source_domain}[/dim]")
-    title = f"{product.name}  [bold green]{product.price_display()}[/bold green]"
+        table.add_row(Text(key), Text(value))
+    table.add_row("Quelle", Text(product.source_domain, style="dim"))
+    title = f"{_fremd(product.name)}  [bold green]{_fremd(product.price_display())}[/bold green]"
     return Panel(Group(table), title=title, title_align="left", border_style="cyan")
 
 
@@ -566,9 +577,9 @@ def comparison_table(products: list[Product]) -> Table:
     table = Table(title="Vergleich", title_justify="left", header_style="bold cyan")
     table.add_column("", style="cyan", no_wrap=True)
     for product in products:
-        table.add_column(product.name[:28], overflow="fold")
+        table.add_column(Text(product.name[:28]), overflow="fold")
 
-    table.add_row("Preis", *[product.price_display() for product in products])
+    table.add_row("Preis", *[Text(product.price_display()) for product in products])
     table.add_row(
         "Bewertung",
         *[str(product.rating) if product.rating is not None else "–" for product in products],
@@ -580,9 +591,9 @@ def comparison_table(products: list[Product]) -> Table:
             if key not in keys:
                 keys.append(key)
     for key in keys[:14]:
-        table.add_row(key, *[product.specs.get(key, "–") for product in products])
+        table.add_row(Text(key), *[Text(product.specs.get(key, "–")) for product in products])
 
-    table.add_row("Quelle", *[product.source_domain or "–" for product in products])
+    table.add_row("Quelle", *[Text(product.source_domain or "–") for product in products])
     return table
 
 
@@ -608,5 +619,5 @@ def print_visuals(console: Console, visuals: list[dict[str, str]]) -> None:
             continue
         console.print()
         render_image(console, url)
-        console.print(f"[Bild] [blue]{url}[/blue]")
+        console.print(Text.assemble(("[Bild] ", ""), (url, "blue")))
 

@@ -39,6 +39,9 @@ MIN_CONTENT_CHARS = 200
 #: Wie viel Text bekommt der Agent maximal pro Seite?
 MAX_TEXT_CHARS = 20_000
 #: Wie viel HTML laden wir maximal herunter?
+#: So vielen Weiterleitungen folgt ein Seitenabruf hoechstens.
+MAX_REDIRECTS = 5
+
 MAX_HTML_BYTES = 4_000_000
 #: Obergrenze fuer PDFs -- Datenblaetter sind klein, Scans riesig.
 MAX_PDF_BYTES = 25_000_000
@@ -272,6 +275,7 @@ class RobotsPolicy:
         self._user_agent = user_agent
         self._parsers: dict[str, urllib.robotparser.RobotFileParser | None] = {}
         self._lock = threading.Lock()
+        self._origin_locks: dict[str, threading.Lock] = {}
 
     def allows(self, url: str) -> bool:
         """Darf *url* laut robots.txt abgerufen werden? Im Zweifel: ja."""
@@ -279,10 +283,23 @@ class RobotsPolicy:
         if parsed.scheme not in ("http", "https") or not parsed.netloc:
             return False
         origin = f"{parsed.scheme}://{parsed.netloc}"
+        # Geladen wird AUSSERHALB der gemeinsamen Sperre (seit 9.5.16): ein
+        # langsames robots.txt (bis zehn Sekunden) hielt sonst alle Agenten
+        # auf allen anderen Seiten mit an. Je Origin laedt nur einer.
         with self._lock:
-            if origin not in self._parsers:
-                self._parsers[origin] = self._load(origin)
-            parser = self._parsers[origin]
+            bekannt = origin in self._parsers
+            sperre = None if bekannt else self._origin_locks.setdefault(origin, threading.Lock())
+        if sperre is not None:
+            with sperre:
+                with self._lock:
+                    bekannt = origin in self._parsers
+                if not bekannt:
+                    geladen = self._load(origin)
+                    with self._lock:
+                        self._parsers[origin] = geladen
+                        self._origin_locks.pop(origin, None)
+        with self._lock:
+            parser = self._parsers.get(origin)
         if parser is None:
             return True
         return parser.can_fetch(self._user_agent, url)
@@ -519,8 +536,13 @@ class Fetcher:
 
         try:
             # Jede Weiterleitung wird einzeln geprueft, die Antwort beim Lesen
-            # begrenzt (bis 9.5.14: erst ganz geladen, dann gewogen).
-            response = netguard.get(self._client, url, max_bytes=_page_limit)
+            # begrenzt (bis 9.5.14: erst ganz geladen, dann gewogen). Seit
+            # 9.5.16 gelten robots.txt, Blockerliste und Drossel auch fuer
+            # jedes Weiterleitungsziel -- nicht nur fuer die erste Adresse.
+            response, sperre = self._get_following(url)
+            if sperre:
+                result.skipped_reason = sperre
+                return result
         except netguard.BlockedTarget:
             result.skipped_reason = "not_public"
             return result
@@ -561,6 +583,38 @@ class Fetcher:
         html = response.text[:MAX_HTML_BYTES]
         return self._finish(result, html, want_products=want_products)
 
+    def _blocked_domain(self, domain: str) -> bool:
+        return any(domain == blocked or domain.endswith(f".{blocked}")
+                   for blocked in self.rules.known_blocking_domains)
+
+    def _get_following(self, url: str) -> tuple[httpx.Response, str]:
+        """GET mit Weiterleitungen -- jede einzeln nach allen Regeln geprueft.
+
+        Returns:
+            (Antwort, Abbruchgrund). Der Grund ist "" oder ein ``skipped_reason``.
+        """
+        aktuell = url
+        antwort: httpx.Response | None = None
+        for _schritt in range(MAX_REDIRECTS + 1):
+            if antwort is not None:
+                ziel = domain_of(aktuell)
+                if not netguard.url_allowed(aktuell):
+                    raise netguard.BlockedTarget("Weiterleitung nicht oeffentlich.")
+                if self._blocked_domain(ziel):
+                    return antwort, "blocked_by_list"
+                if self.respect_robots and not self.robots.allows(aktuell):
+                    return antwort, "robots_disallowed"
+                self.throttle.wait(ziel)
+            antwort = netguard.get(self._client, aktuell, max_bytes=_page_limit,
+                                   follow_redirects=False)
+            if not antwort.is_redirect:
+                return antwort, ""
+            ort = antwort.headers.get("location", "")
+            if not ort:
+                return antwort, "http_error"
+            aktuell = urljoin(aktuell, ort)
+        raise httpx.TooManyRedirects("Zu viele Weiterleitungen.", request=None)
+
     def _capture(self, url: str) -> PublicVisual | None:
         """Nimmt die Seite im Browser auf -- mit laufender Wiedergabe.
 
@@ -591,14 +645,9 @@ class Fetcher:
                 return None, "Die Adresse ist nicht öffentlich erreichbar."
             domain = domain_of(current)
             if self.respect_robots and not self.robots.allows(current):
-                # Interaktive öffentliche Kartenansichten werden wie von einem
-                # Menschen im Browser geöffnet. Es werden dabei keine Endpunkte
-                # gecrawlt und keine Datenlisten ausgelesen, sondern genau ein
-                # sichtbarer Schnappschuss aufgenommen.
-                if dynamic_visual_page(current):
-                    captured = self._capture(current)
-                    if captured is not None:
-                        return captured, ""
+                # Auch kein Browser-Schnappschuss als Ausweg (seit 9.5.16): bis
+                # dahin wurde eine per robots.txt gesperrte Kartenansicht
+                # trotzdem im Browser geoeffnet. robots.txt gilt -- immer.
                 return None, "robots.txt erlaubt diesen Abruf nicht."
             self.throttle.wait(domain)
             try:
@@ -733,7 +782,12 @@ class Fetcher:
         result.text = text[:MAX_TEXT_CHARS]
 
         if want_products:
-            product = extract_product(html, result.final_url or result.url)
+            try:
+                product = extract_product(html, result.final_url or result.url)
+            except Exception:
+                # Seltsame Strukturdaten duerfen nie den Text der Seite kosten
+                # (bis 9.5.15 brach der ganze Abruf ab).
+                product = None
             if product is not None:
                 result.products = [product]
                 result.product_hint = True

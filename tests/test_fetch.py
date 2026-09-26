@@ -334,12 +334,19 @@ def test_dynamic_visual_page_uses_browser_capture(monkeypatch: pytest.MonkeyPatc
     assert visual.content == b"screen"
 
 
-def test_public_google_street_view_is_captured_as_one_visible_frame(
+def test_a_map_view_blocked_by_robots_is_not_captured_either(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
+    """Seit 9.5.16: robots.txt gilt auch fuer den Browser-Schnappschuss.
+
+    Bis 9.5.15 wurde eine gesperrte Kartenansicht trotzdem im Browser
+    geoeffnet -- das widersprach der Zusage "robots.txt wird respektiert".
+    """
     monkeypatch.setattr("aquaticy.fetch.public_web_url", lambda url: True)
+    aufnahmen: list[str] = []
     monkeypatch.setattr(
-        "aquaticy.browser.capture_visual", lambda *args, **kwargs: (b"street", "image/jpeg")
+        "aquaticy.browser.capture_visual",
+        lambda *args, **kwargs: aufnahmen.append("x") or (b"street", "image/jpeg"),
     )
 
     class DenyRobots:
@@ -352,8 +359,8 @@ def test_public_google_street_view_is_captured_as_one_visible_frame(
         visual, error = fetcher.load_public_visual(
             "https://www.google.com/maps/@?api=1&map_action=pano&viewpoint=50,6"
         )
-    assert error == "" and visual is not None
-    assert visual.content == b"street"
+    assert visual is None and "robots.txt" in error
+    assert aufnahmen == []
 
 
 def test_a_player_page_is_captured_live_instead_of_its_poster(

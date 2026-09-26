@@ -52,4 +52,11 @@ if [[ ! -f .env ]]; then
     exit 1
 fi
 
+# Ein eigener Schluessel fuer die optionale SearXNG-Instanz (seit 9.5.16) --
+# sonst liefe sie mit dem Platzhalter aus docker/searxng/settings.yml.
+if ! grep -q '^SEARXNG_SECRET=.' .env; then
+    geheim="$(od -An -N32 -tx1 /dev/urandom | tr -d ' \n')"
+    printf '\nSEARXNG_SECRET=%s\n' "$geheim" >> .env
+fi
+
 exec docker compose run --rm aquaticy "$@"
