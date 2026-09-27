@@ -133,7 +133,9 @@ def test_the_ban_reason_is_printed(tmp_path: Path, capsys: Any) -> None:
 
 # -- Oberflaeche ---------------------------------------------------------------
 def test_a_slash_command_glows_in_the_accent_colour() -> None:
-    html = (Path(__file__).resolve().parent.parent / "aquaticy" / "webui.html").read_text()
+    html = (Path(__file__).resolve().parent.parent / "aquaticy" / "webui.html").read_text(
+        encoding="utf-8"
+    )
     assert "#input.is-command{color:var(--accent-text)" in html
     assert 'input.classList.toggle("is-command", input.value.trimStart().startsWith("/"))' in html
     # Nach dem Absenden ist die Zeile leer -- und leuchtet nicht mehr.

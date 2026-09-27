@@ -162,6 +162,8 @@ def test_the_terms_mention_ai_guard() -> None:
 def test_the_settings_show_a_small_hint() -> None:
     from pathlib import Path
 
-    html = (Path(__file__).resolve().parent.parent / "aquaticy" / "webui.html").read_text()
+    html = (Path(__file__).resolve().parent.parent / "aquaticy" / "webui.html").read_text(
+        encoding="utf-8"
+    )
     assert 'class="aiguard-hint"' in html
     assert "liest Ai-guard mit" in html

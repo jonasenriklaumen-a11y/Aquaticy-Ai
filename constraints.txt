@@ -1,4 +1,4 @@
-# Aquaticy 9.5.15 Seashell -- genau die Versionen, mit denen die Tests liefen.
+# Aquaticy 9.5.19 Sunflower -- feste Abhaengigkeiten fuer reproduzierbare Builds.
 #
 # Reproduzierbar installieren:
 #   pip install -c constraints.txt -e ".[browser,dev]"

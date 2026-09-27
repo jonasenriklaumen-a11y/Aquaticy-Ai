@@ -1,4 +1,4 @@
-# Aquaticy AI
+# Aquaticy AI 9.5.19 Sunflower
 
 **Aquaticy** recherchiert für dich. Du stellst eine Frage, Aquaticy sucht im Web, liest die
 passenden Seiten und fasst das Ergebnis zusammen — mit Quelle an jeder Angabe. Es läuft im
@@ -108,9 +108,10 @@ $ aquaticy
 
 ```bash
 # 1. Installieren (aus diesem Repo)
-git clone https://github.com/jonasenriklaumen-a11y/Aquaticy-Ai
+git clone --branch Aquaticy-ai --single-branch https://github.com/jonasenriklaumen-a11y/Aquaticy-Ai.git
 cd Aquaticy-Ai
-uv tool install .
+uv tool install --force --reinstall .
+aquaticy --version            # 9.5.19 Sunflower
 
 # 2. Einrichten — fragt nach Modell und Schlüssel und testet beide
 aquaticy setup
@@ -128,10 +129,18 @@ aquaticy web
 
 ```bash
 cd ~/Aquaticy-Ai
-git pull
-uv tool install . --force --reinstall
+git switch Aquaticy-ai
+git pull --ff-only origin Aquaticy-ai
+uv tool install --force --reinstall .
 aquaticy --version
 ```
+
+Die Installation liest den Code aus dem aktuellen Repo-Ordner. Ein bereits installiertes
+`aquaticy` aktualisiert sich durch `git pull` allein nicht: der letzte `uv`-Befehl
+installiert die neue Fassung erneut. Wenn du GitHubs [Download ZIP](https://github.com/jonasenriklaumen-a11y/Aquaticy-Ai/archive/refs/heads/Aquaticy-ai.zip)
+verwendest, lade das ZIP neu herunter, entpacke es und führe
+`uv tool install --force --reinstall .` im entpackten Ordner aus. Ein altes ZIP
+oder ein anderer Ordner enthält weiterhin den alten Code.
 
 `aquaticy setup` fragt genau zwei Dinge:
 
@@ -171,7 +180,7 @@ powershell -c "irm https://astral.sh/uv/install.ps1 | iex"
 git clone --branch Aquaticy-ai `
   https://github.com/jonasenriklaumen-a11y/Aquaticy-Ai.git
 cd Aquaticy-Ai
-uv tool install .
+uv tool install --force --reinstall .
 uv tool update-shell        # danach PowerShell neu öffnen
 
 aquaticy install-model      # holt Ollama per winget und lädt die Modelle
@@ -584,6 +593,10 @@ docker compose build aquaticy                                # mit Chromium (Sta
 AQUATICY_IMAGE_TARGET=slim docker compose build aquaticy     # ohne Chromium, ~700 MB kleiner
 ```
 
+Nach einem `git pull` oder einem neuen ZIP muss auch das Container-Image neu gebaut
+werden: `docker compose build aquaticy`. Ein bereits laufender Web-Container
+braucht danach einen Neustart mit `docker compose up -d --force-recreate aquaticy`.
+
 Der Container trennt das Dateisystem vom Rechner; ins Internet darf Aquaticy weiterhin, sonst
 könnte es nicht recherchieren. Noch strenger abgeschottet: `compose.sandbox.yaml`
 (`aquaticy sandbox` zeigt, was offen steht).
@@ -658,7 +671,7 @@ aquaticy unban "name"          # Sperre aufheben, Anhaltspunkte zurücksetzen
 ## Entwicklung
 
 ```bash
-git clone https://github.com/jonasenriklaumen-a11y/Aquaticy-Ai
+git clone --branch Aquaticy-ai --single-branch https://github.com/jonasenriklaumen-a11y/Aquaticy-Ai.git
 cd Aquaticy-Ai
 uv venv && uv pip install -c constraints.txt -e ".[browser,dev]"
 

@@ -234,7 +234,18 @@ def test_an_addon_start_path_stays_in_its_folder(helfer: ModuleType, tmp_path: P
     ordner = tmp_path / "blender"
     (ordner / "app").mkdir(parents=True)
     (ordner / "app" / "blender").write_text("#!/bin/sh\n")
-    (ordner / "raus").symlink_to("/bin/sh")
+    try:
+        (ordner / "raus").symlink_to("/bin/sh")
+    except OSError as exc:
+        if getattr(exc, "winerror", None) != 1314:
+            raise
+        # Windows ohne Entwickler-Modus darf keine Symlinks anlegen.
+        symlink_available = False
+    else:
+        symlink_available = True
     assert helfer.innerhalb(ordner, "app/blender") == (ordner / "app" / "blender").resolve()
-    for start in ("/bin/sh", "../../bin/sh", "raus", "", "app"):
+    starts = ("/bin/sh", "../../bin/sh", "", "app")
+    if symlink_available:
+        starts += ("raus",)
+    for start in starts:
         assert helfer.innerhalb(ordner, start) is None, start
