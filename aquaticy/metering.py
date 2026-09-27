@@ -23,7 +23,7 @@ Jetzt gilt:
   Seitenabrufe, Suchen, Handlungen im User mode --, kostet den Server, egal
   mit wessen Schluessel das Modell laeuft. Sie wird in Token umgerechnet
   (``WORK_COSTS``), damit sie in dasselbe Kontingent passt.
-* Hat das Konto ein Kontingent (``settings.quota``, nur normale Konten), wird
+* Hat das Konto ein Kontingent (``settings.quota``, Normal und Pro), wird
   VOR jedem gestellten Aufruf und vor jeder Serverarbeit geprueft. Ist
   Sitzung oder Woche aufgebraucht, kommt ``QuotaExceeded``.
 * Ein erstelltes Bild zaehlt pauschal ``IMAGE_TOKENS`` -- ein Bildmodell
@@ -98,7 +98,7 @@ WORK_COSTS: dict[str, tuple[str, int]] = {
 
 
 def quota_of(settings: Any) -> Any:
-    """Das Kontingent des Kontos -- ``None`` heisst: keins (Pro, lokal)."""
+    """Das Kontingent des Kontos -- ``None`` heisst: keins (Ultra, lokal)."""
     quota = getattr(settings, "quota", None)
     return quota if hasattr(quota, "check") and hasattr(quota, "record") else None
 
@@ -208,6 +208,20 @@ class Reservation:
             self._quota.settle(self._nummer, 0, self.model)
         except Exception:
             LOG.exception("Kontingent: Freigeben fehlgeschlagen (%s)", self.model)
+
+    def settle_work(self, tokens: int) -> None:
+        """Verrechnet Serverarbeit ohne Luecke zwischen Freigabe und Buchung."""
+        if not self._offen:
+            return
+        self._offen = False
+        if self._quota is None:
+            return
+        try:
+            self._quota.settle(self._nummer, max(0, int(tokens)), self.model)
+        except Exception:
+            # Die Mindestreservierung bleibt bei einem Datenbankfehler stehen.
+            LOG.exception("Kontingent: Serverarbeit liess sich nicht verrechnen (%s)",
+                          self.model)
 
 
 def reserve(settings: Any, model: str, estimate: int) -> Reservation:
@@ -331,9 +345,8 @@ def charge_work(settings: Any, kind: str, amount: float = 1.0) -> None:
 def reserve_work(settings: Any, kind: str, amount: float = 1.0) -> Reservation:
     """Haelt die Mindestkosten einer Serverarbeit frei, solange sie laeuft (atomar).
 
-    Danach wird die Reservierung freigegeben und die echte Arbeit gebucht
-    (``charge_work``). So koennen parallele Werkzeuge nicht alle auf den
-    letzten freien Rest zugleich losgehen.
+    Danach wird dieselbe Reservierung auf die echten Kosten verrechnet. So
+    bleibt die Buchung auch waehrend der Abrechnung fuer andere sichtbar.
     """
     quota = quota_of(settings)
     if quota is None:

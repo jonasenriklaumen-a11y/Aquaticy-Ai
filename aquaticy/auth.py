@@ -7,6 +7,7 @@ import hmac
 import os
 import re
 import secrets
+import shutil
 import sqlite3
 import subprocess
 import threading
@@ -545,6 +546,7 @@ class AuthStore:
                 (pro_code or "").strip(), self.ultra_code):
             raise ValueError("Der Ultra-Code stimmt nicht.")
         salt = secrets.token_bytes(16)
+        password_hash = _password_hash(password, salt)
         user_id = secrets.token_hex(16)
         now = time.time()
         vergeben = ValueError(
@@ -566,10 +568,14 @@ class AuthStore:
             pruefe_adresse = ""
         try:
             with self._lock, self._connect() as conn:
+                # Die Sperre muss in SQLite liegen: mehrere Web-Prozesse haben
+                # verschiedene Python-Locks und duerfen nicht beide die noch
+                # freie Adresse bzw. denselben Nutzernamen sehen.
+                conn.execute("BEGIN IMMEDIATE")
                 # Nutzernamen sind eindeutig (seit 9.5.16) -- sonst traefe
                 # `aquaticy ban <name>` womoeglich das falsche Konto.
-                if conn.execute("SELECT 1 FROM users WHERE lower(username) = lower(?)",
-                                (username,)).fetchone():
+                if any(str(row[0]).casefold() == username.casefold() for row in
+                       conn.execute("SELECT username FROM users")):
                     raise vergeben
                 # Ein Konto pro Adresse (seit 9.5.17): gibt es von dieser
                 # Adresse schon eins, geht kein zweites.
@@ -588,7 +594,7 @@ class AuthStore:
                         user_id,
                         email,
                         username,
-                        _password_hash(password, salt),
+                        password_hash,
                         salt,
                         plan,
                         now,
@@ -730,17 +736,51 @@ class AuthStore:
                          (adresse, time.time(), str(user_id)))
 
     def account_by_name(self, name: str) -> Account | None:
-        """Ein Konto nach Nutzername oder E-Mail (fuer `aquaticy ban/unban`)."""
+        """Ein Konto nach E-Mail oder Nutzername fuer Betreiberbefehle."""
         wanted = str(name or "").strip()
         if not wanted:
             return None
         with self._connect() as conn:
-            row = conn.execute(
-                "SELECT * FROM users WHERE lower(username)=lower(?) OR lower(email)=lower(?) "
-                "ORDER BY created_at LIMIT 1",
-                (wanted, normalize_email(wanted) if "@" in wanted else wanted),
-            ).fetchone()
-        return self._account(row)
+            try:
+                email = normalize_email(wanted)
+            except ValueError:
+                email = ""
+            if email:
+                row = conn.execute("SELECT * FROM users WHERE email=?", (email,)).fetchone()
+                if row is not None:
+                    return self._account(row)
+            matches = [row for row in conn.execute("SELECT * FROM users")
+                       if str(row["username"]).casefold() == wanted.casefold()]
+        if len(matches) > 1:
+            raise ValueError(
+                "Mehrere Konten haben diesen Nutzernamen. Verwende die E-Mail-Adresse."
+            )
+        return self._account(matches[0]) if matches else None
+
+    def remove_account(self, account: Account) -> None:
+        """Loescht Konto, Sitzungen, Verbrauch, Sperren und das private Profil."""
+        if not re.fullmatch(r"[0-9a-f]{32}", account.id):
+            raise ValueError("Ungültige Kontokennung; das Profil wurde nicht gelöscht.")
+        profile = self.profile_dir(account.id)
+        if profile.is_symlink():
+            raise ValueError("Das Kontoprofil ist ein symbolischer Link; Löschung abgebrochen.")
+        with self._lock, self._connect() as conn:
+            conn.execute("BEGIN IMMEDIATE")
+            if conn.execute("DELETE FROM users WHERE id=?", (account.id,)).rowcount != 1:
+                raise ValueError("Das Konto existiert nicht mehr.")
+            for table, column in (("token_usage", "account_id"),
+                                  ("token_sessions", "account_id"),
+                                  ("aiguard_flags", "user_id"),
+                                  ("api_keys", "account_id")):
+                if conn.execute("SELECT 1 FROM sqlite_master WHERE type='table' AND name=?",
+                                (table,)).fetchone():
+                    conn.execute(f"DELETE FROM {table} WHERE {column}=?", (account.id,))
+            if conn.execute("SELECT 1 FROM sqlite_master WHERE type='table' "
+                            "AND name='aiguard_bans'").fetchone():
+                conn.execute("DELETE FROM aiguard_bans WHERE subject=?",
+                             (f"user:{account.id}",))
+        if profile.exists():
+            shutil.rmtree(profile)
 
 
 def folder_bytes(folder: Path) -> int:

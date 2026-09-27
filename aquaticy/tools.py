@@ -2655,14 +2655,13 @@ class Toolbox:
             # Auch ein Werkzeug, das abbricht, hat auf dem Server gearbeitet --
             # bis 9.5.15 wurde es dann gar nicht gebucht.
             payload = {"error": f"{type(exc).__name__}: {exc}"}
-        finally:
-            vorab.cancel()
         try:
-            self._charge_work(name, art, payload, vorher)
+            vorab.settle_work(self._work_cost(name, art, payload, vorher))
         except Exception:
             import logging
 
             logging.getLogger("aquaticy.metering").exception("Serverarbeit nicht gebucht")
+            vorab.settle_work(metering.work_cost(art))
         return self._after_untrusted(name, payload)
 
     def _after_untrusted(self, name: str, payload: Any) -> Any:
@@ -2697,40 +2696,42 @@ class Toolbox:
         return {"error": f"Vom Nutzer nicht bestätigt (Antwort: {antwort!r}).",
                 "bestaetigung": False}
 
-    def _charge_work(self, name: str, art: str, payload: Any, vorher: str) -> None:
-        """Bucht, was wirklich auf dem Server gearbeitet hat -- keine Fehlversuche."""
+    def _work_cost(self, name: str, art: str, payload: Any, vorher: str) -> int:
+        """Berechnet die echten Kosten fuer eine bereits reservierte Arbeit."""
         if not isinstance(payload, dict):
-            return
+            return metering.work_cost(art)
         if art in ("werkstatt", "datei"):
             jetzt = getattr(self._sandbox_box, "name", "") or ""
+            kosten = 0
             if jetzt and jetzt != vorher:
-                metering.charge_work(self.settings, "werkstatt_start")
+                kosten += metering.work_cost("werkstatt_start")
             if art == "werkstatt":
                 if "exit_code" in payload:
-                    metering.charge_work(self.settings, "werkstatt",
-                                         float(payload.get("seconds") or 0.0))
+                    kosten += metering.work_cost(
+                        "werkstatt", float(payload.get("seconds") or 0.0))
             elif not payload.get("error"):
-                metering.charge_work(self.settings, "datei")
-            return
+                kosten += metering.work_cost("datei")
+            return kosten
         if name == "fetch_page":
             ohne_abruf = {"invalid_url", "blocked_by_list", "robots_disallowed", "legal_guard",
                           "timeout", "network_error", "not_public"}
             if payload.get("via") != "cache" and payload.get("skipped_reason") not in ohne_abruf:
-                metering.charge_work(self.settings, "seite")
-            return
+                return metering.work_cost("seite")
+            return 0
         if payload.get("error"):
-            return
+            return 0
         if name in ("web_search", "search_news"):
             if not payload.get("cached"):
                 anzahl = len(payload.get("queries") or []) or 1
-                metering.charge_work(self.settings, "suche", anzahl)
+                return metering.work_cost("suche", anzahl)
         elif name == "find_profiles":
             anzahl = len(payload.get("profiles") or []) + len(payload.get("not_found") or [])
-            metering.charge_work(self.settings, "suche", anzahl or 1)
+            return metering.work_cost("suche", anzahl or 1)
         elif name == "read_feeds":
-            metering.charge_work(self.settings, "seite", int(payload.get("feeds") or 1))
+            return metering.work_cost("seite", int(payload.get("feeds") or 1))
         else:
-            metering.charge_work(self.settings, art)
+            return metering.work_cost(art)
+        return 0
 
     def _call(self, name: str, arguments: dict[str, Any]) -> dict[str, Any]:
         """Fuehrt den Tool-Call *name* mit *arguments* aus."""

@@ -132,14 +132,19 @@ def test_the_ban_reason_is_printed(tmp_path: Path, capsys: Any) -> None:
 
 
 # -- Oberflaeche ---------------------------------------------------------------
-def test_a_slash_command_glows_in_the_accent_colour() -> None:
+def test_only_a_complete_slash_command_glows_in_the_accent_colour() -> None:
     html = (Path(__file__).resolve().parent.parent / "aquaticy" / "webui.html").read_text(
         encoding="utf-8"
     )
-    assert "#input.is-command{color:var(--accent-text)" in html
-    assert 'input.classList.toggle("is-command", input.value.trimStart().startsWith("/"))' in html
-    # Nach dem Absenden ist die Zeile leer -- und leuchtet nicht mehr.
-    assert html.count('input.classList.remove("is-command")') >= 3
+    assert ".input-mirror .command-word{color:var(--accent-text)" in html
+    assert 'slashBefehle.has(match[2].toLowerCase())' in html
+    assert 'input.classList.toggle("is-command", Boolean(erkannt))' in html
+    assert (
+        'inputMirror.append(wort, document.createTextNode(input.value.slice(match[0].length)))'
+        in html
+    )
+    # Nach dem Absenden wird auch der Spiegel geleert.
+    assert html.count('input.value = ""; input.style.height = "auto"; markiereBefehl()') >= 3
 
 
 def test_person_search_is_allowed_but_private_snooping_is_not() -> None:

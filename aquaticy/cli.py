@@ -513,6 +513,26 @@ def list_users_command() -> None:
         console.print("[dim]Noch keine Konten angelegt.[/dim]")
 
 
+@app.command("remove")
+def remove_command(
+    account: str = typer.Argument(..., help="Nutzername oder E-Mail-Adresse des Kontos."),
+) -> None:
+    """Löscht ein Konto mit Sitzungen, Verbrauch und privaten Daten."""
+    from aquaticy.auth import AuthStore, pro_code_for
+
+    settings = get_settings()
+    store = AuthStore(settings.data_dir, pro_code_for(settings.data_dir))
+    try:
+        konto = store.account_by_name(account)
+        if konto is None:
+            raise ValueError("Kein Konto mit diesem Nutzernamen oder dieser E-Mail-Adresse.")
+        store.remove_account(konto)
+    except (ValueError, OSError) as exc:
+        console.print(f"[red]{exc}[/red]")
+        raise typer.Exit(code=1) from exc
+    console.print("[green]Konto und private Daten gelöscht.[/green]")
+
+
 def _ist_adresse(wert: str) -> bool:
     import ipaddress
 
@@ -544,7 +564,11 @@ def ban_command(
                       else "[red]Das ist keine gültige Adresse.[/red]")
         return
     store = AuthStore(settings.data_dir, pro_code_for(settings.data_dir))
-    konto = store.account_by_name(wen)
+    try:
+        konto = store.account_by_name(wen)
+    except ValueError as exc:
+        console.print(f"[red]{exc}[/red]")
+        raise typer.Exit(code=1) from exc
     if konto is None:
         console.print(f"[yellow]Kein Konto mit Name oder E-Mail „{wen}“.[/yellow]")
         raise typer.Exit(code=1)
@@ -569,7 +593,11 @@ def unban_command(
                       else "[yellow]Diese Adresse war nicht gesperrt.[/yellow]")
         return
     store = AuthStore(settings.data_dir, pro_code_for(settings.data_dir))
-    konto = store.account_by_name(wen)
+    try:
+        konto = store.account_by_name(wen)
+    except ValueError as exc:
+        console.print(f"[red]{exc}[/red]")
+        raise typer.Exit(code=1) from exc
     if konto is None:
         console.print(f"[yellow]Kein Konto mit Name oder E-Mail „{wen}“.[/yellow]")
         raise typer.Exit(code=1)
@@ -1455,20 +1483,45 @@ def install_model_command(
 # Chat
 # ---------------------------------------------------------------------------
 HELP_TEXT = """\
-[bold]Slash-Befehle[/bold]
+[bold]Slash-Befehle (Terminal und Website)[/bold]
   [cyan]/location <ort>[/cyan]      Ortsfilter setzen (leer = aufheben)
   [cyan]/model <name>[/cyan]        Modell wechseln, z.B. mistral/mistral-large-latest
   [cyan]/max <frage>[/cyan]         mit voller Mannschaft recherchieren (Pro-Modus)
   [cyan]/export html|md|csv[/cyan]  Recherche dieser Sitzung speichern
   [cyan]/image <pfad>[/cyan]        Bild beschreiben lassen und danach recherchieren
   [cyan]/history[/cyan]             Fruehere Recherchen anzeigen
-  [cyan]/notes[/cyan]               Merkzettel anzeigen (verwalten: aquaticy notes)
+  [cyan]/notes[/cyan]               Merkzettel anzeigen; Website: delete <Nr>, clear
   [cyan]/clear[/cyan]               Gespraechsverlauf verwerfen
   [cyan]/memory[/cyan]              Langzeitspeicher anzeigen
   [cyan]/forget[/cyan]              Langzeitspeicher leeren
   [cyan]/uploads [clear][/cyan]     Hochgeladenes anzeigen oder loeschen
   [cyan]/help[/cyan]                Diese Uebersicht
-  [cyan]/quit[/cyan]                Beenden (auch Strg+D)
+  [cyan]/quit, /exit, /q[/cyan]     Terminal beenden; im Browser Fenster schliessen
+
+[bold]Terminal-Befehle[/bold]
+  aquaticy chat                 Interaktiver Chat
+  aquaticy setup                Ersteinrichtung
+  aquaticy config               Konfiguration zeigen
+  aquaticy search               Websuche
+  aquaticy fetch                Webseite lesen
+  aquaticy cache                Cache verwalten
+  aquaticy version              Versionsnummer
+  aquaticy sandbox              Sandbox-Status
+  aquaticy list                 Konten und Nutzung
+  aquaticy remove KONTONAME     Konto und private Daten loeschen
+  aquaticy ban                  Konto oder Adresse sperren
+  aquaticy unban                Konto oder Adresse freigeben
+  aquaticy pro-code             Pro-Registrierungscode anzeigen
+  aquaticy ultra-code           Ultra-Registrierungscode anzeigen
+  aquaticy notes                Notizen verwalten
+  aquaticy history              Verlauf anzeigen
+  aquaticy web                  Browseroberflaeche starten
+  aquaticy google               Google-Verbindung verwalten
+  aquaticy connect-ha           Home Assistant verbinden
+  aquaticy lan                  LAN-Funktionen
+  aquaticy install-browser      Browser einrichten
+  aquaticy install-model        Lokales Modell einrichten
+  aquaticy export               Recherchen exportieren
 """
 
 

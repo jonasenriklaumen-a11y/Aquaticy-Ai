@@ -962,6 +962,7 @@ HELP_MARKDOWN = """### Befehle
 - `/uploads` — zeigen, was du hochgeladen hast
 - `/uploads clear` — alle hochgeladenen Dateien loeschen
 - `/forget` — den Langzeitspeicher leeren
+- `/quit`, `/exit`, `/q` — im Browser das Fenster schliessen
 - `/help` — diese Uebersicht
 
 Dauerhaft aendern lassen sich Modell, Suche und Ort oben unter **Einstellungen**."""

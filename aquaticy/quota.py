@@ -195,6 +195,7 @@ class Quota:
         """Beginnt eine Sitzung, falls gerade keine laeuft. Returns: ihr Beginn."""
         now = time.time() if now is None else now
         with self._lock, self._connect() as conn:
+            conn.execute("BEGIN IMMEDIATE")
             start = self._session_start(conn, now)
             if start is None:
                 start = now
@@ -211,8 +212,14 @@ class Quota:
         if tokens <= 0:
             return
         now = time.time() if now is None else now
-        self.begin(now)
         with self._lock, self._connect() as conn:
+            conn.execute("BEGIN IMMEDIATE")
+            if self._session_start(conn, now) is None:
+                conn.execute(
+                    "INSERT INTO token_sessions (account_id, started_at) VALUES (?, ?) "
+                    "ON CONFLICT(account_id) DO UPDATE SET started_at=excluded.started_at",
+                    (self.account_id, now),
+                )
             # Auch nachtraeglich Gebuchtes (Serverarbeit) nie ueber das Limit.
             tokens = min(tokens, self._frei(conn, now))
             if tokens <= 0:
@@ -293,14 +300,19 @@ class Quota:
         """Was in Sitzung und Woche noch frei ist -- ohne die Buchung *ohne*."""
         woche_anfang, _ = week_window(self.created_at, now)
         start = self._session_start(conn, now)
-        abzug = 0
+        reserviert = 0
+        gebucht_am = 0.0
         if ohne:
             zeile = conn.execute(
                 "SELECT tokens, at FROM token_usage WHERE rowid = ? AND account_id = ?",
                 (int(ohne), self.account_id)).fetchone()
-            abzug = int(zeile["tokens"]) if zeile is not None else 0
-        sitzung = (self._sum(conn, start) - abzug) if start is not None else 0
-        woche = self._sum(conn, woche_anfang) - abzug
+            if zeile is not None:
+                reserviert = int(zeile["tokens"])
+                gebucht_am = float(zeile["at"])
+        sitzung = (self._sum(conn, start) -
+                   (reserviert if gebucht_am >= start else 0)) if start is not None else 0
+        woche = self._sum(conn, woche_anfang) - (
+            reserviert if gebucht_am >= woche_anfang else 0)
         return max(0, min(self.session_tokens - sitzung, self.week_tokens - woche))
 
     def settle(self, reservation: int, tokens: int, model: str = "") -> None:
@@ -312,6 +324,7 @@ class Quota:
         """
         tokens = max(0, int(tokens or 0))
         with self._lock, self._connect() as conn:
+            conn.execute("BEGIN IMMEDIATE")
             if tokens > 0:
                 tokens = min(tokens, self._frei(conn, time.time(), ohne=int(reservation)))
             if tokens <= 0:

@@ -1,4 +1,4 @@
-# Aquaticy AI 9.5.19 Sunflower
+# Aquaticy AI 9.5.20 Spark
 
 **Aquaticy** recherchiert für dich. Du stellst eine Frage, Aquaticy sucht im Web, liest die
 passenden Seiten und fasst das Ergebnis zusammen — mit Quelle an jeder Angabe. Es läuft im
@@ -111,7 +111,7 @@ $ aquaticy
 git clone --branch Aquaticy-ai --single-branch https://github.com/jonasenriklaumen-a11y/Aquaticy-Ai.git
 cd Aquaticy-Ai
 uv tool install --force --reinstall .
-aquaticy --version            # 9.5.19 Sunflower
+aquaticy --version            # 9.5.20 Spark
 
 # 2. Einrichten — fragt nach Modell und Schlüssel und testet beide
 aquaticy setup
@@ -251,9 +251,12 @@ aquaticy install-browser
 | `/export html\|md\|csv` | Recherche dieser Sitzung speichern |
 | `/history` | frühere Recherchen anzeigen |
 | `/notes` | Merkzettel anzeigen |
+| `/notes delete <nr>` / `/notes clear` | Notiz oder alle Notizen löschen (Website) |
 | `/clear` | Gespräch neu beginnen |
+| `/memory` / `/forget` | Langzeitspeicher anzeigen oder leeren |
+| `/uploads` / `/uploads clear` | Hochgeladene Dateien anzeigen oder löschen |
 | `/help` | Übersicht |
-| `/quit` | beenden (auch <kbd>Strg</kbd>+<kbd>D</kbd>) |
+| `/quit` / `/exit` / `/q` | Terminal beenden (auch <kbd>Strg</kbd>+<kbd>D</kbd>); im Browser Fenster schließen |
 
 ### Optionen
 
@@ -286,6 +289,7 @@ aquaticy connect-ha             # Home Assistant verbinden
 aquaticy lan                    # Geräte im eigenen Netz anzeigen
 aquaticy sandbox                # zeigt, wie abgeschottet Aquaticy gerade läuft
 aquaticy list                   # Konten mit Adresse, Nutzung und Ai-guard-Stand
+aquaticy remove "name"         # Konto samt Sitzungen, Verbrauch und privaten Daten löschen
 aquaticy ban "name"             # Konto oder IP-Adresse sperren
 aquaticy unban "name"           # wieder freigeben
 aquaticy pro-code               # Code für neue Pro-Konten
@@ -304,7 +308,7 @@ aquaticy web --lan    # zeigt alle Adressen, unter denen es im Heimnetz erreichb
 
 **Chat.** Links die letzten Chats (durchsuchbar), in der Mitte das Gespräch, unten die
 Eingabe mit den drei Arbeitsweisen Normal, Pro und Code. Dateien und Bilder hängst du mit 📎 an.
-Beginnt eine Eingabe mit `/`, leuchtet sie im Akzentton — so siehst du, dass es ein Befehl ist.
+Ein vollständig geschriebener Slash-Befehl leuchtet im Akzentton; der Text dahinter bleibt normal.
 
 **Modellauswahl** (oben in der Mitte):
 - **Denktiefe** Low / Medium / High — wie gründlich Aquaticy nachdenkt.

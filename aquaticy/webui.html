@@ -444,10 +444,17 @@ body.start footer{position:static;background:none;padding:0 24px 4px}
 textarea{width:100%;background:transparent;border:0;color:var(--text);resize:none;
   font:inherit;outline:none;max-height:200px;min-height:26px;padding:2px 3px;display:block}
 textarea::placeholder{color:var(--text-3)}
-/* Ein Slash-Befehl (z.B. /max) wird als Befehl kenntlich: die Schrift nimmt
-   den Akzentton an und leuchtet leicht -- im Standard-Design also grün. */
-#input.is-command{color:var(--accent-text);font-weight:600;
+.input-wrap{position:relative}
+/* Das Textarea bleibt die echte, barrierefreie Eingabe. Der Spiegel faerbt
+   ausschliesslich ein vollstaendiges Befehlswort, nie dessen Argumente. */
+.input-mirror{position:absolute;inset:0;pointer-events:none;overflow:hidden;
+  white-space:pre-wrap;overflow-wrap:break-word;font:inherit;color:var(--text);
+  padding:2px 3px;min-height:26px;max-height:200px;visibility:hidden}
+.input-mirror .command-word{color:var(--accent-text);font-weight:600;
   text-shadow:0 0 8px var(--accent-soft),0 0 2px var(--accent-soft)}
+#input.is-command{color:transparent;caret-color:var(--text)}
+#input.is-command::selection{color:var(--text);background:var(--accent-soft)}
+#input.is-command + .input-mirror{visibility:visible}
 .crow{display:flex;align-items:center;gap:6px;margin-top:6px}
 .crow .spacer{flex:1}
 /* Ein eigenes `display` schlaegt sonst das `hidden`-Attribut, und der
@@ -1325,7 +1332,8 @@ input:focus,select:focus{border-color:var(--accent)}
     </div>
     <div class="files" id="files"></div>
     <div class="composer">
-      <textarea id="input" rows="1" placeholder="Frag etwas …"></textarea>
+      <div class="input-wrap"><textarea id="input" rows="1" placeholder="Frag etwas …"></textarea>
+        <div class="input-mirror" id="input-mirror" aria-hidden="true"></div></div>
       <input type="file" id="picker" multiple hidden
              accept="image/*,.pdf,.txt,.md,.csv,.json,.log,.yaml,.yml">
       <div class="crow">
@@ -1990,7 +1998,7 @@ input:focus,select:focus{border-color:var(--accent)}
 const $ = (s) => document.querySelector(s);
 const thread = $("#thread"), main = $("#main"), input = $("#input"), send = $("#send");
 let busy = false;
-const aquaticyVersion = window.__AQUATICY_VERSION__ || "9.5.19 Sunflower";
+const aquaticyVersion = window.__AQUATICY_VERSION__ || "9.5.20 Spark";
 $("#version").textContent = "v" + aquaticyVersion;
 document.title = `Aquaticy AI ${aquaticyVersion}`;
 
@@ -2833,7 +2841,7 @@ addEventListener("keydown", (e) => {
 /* ---------- Slash-Befehle ---------- */
 async function runCommand(line){
   setBusy(true);
-  addUser(line); input.value = ""; input.style.height = "auto"; input.classList.remove("is-command");
+  addUser(line); input.value = ""; input.style.height = "auto"; markiereBefehl();
   const { steps, bubble } = addBot();
   steps.remove();
   try {
@@ -2875,7 +2883,7 @@ async function ask(text){
   setBusy(true);
   const attachments = pending;
   pending = []; drawFiles();
-  addUser(text, attachments); input.value = ""; input.style.height = "auto"; input.classList.remove("is-command");
+  addUser(text, attachments); input.value = ""; input.style.height = "auto"; markiereBefehl();
   noteChat(text.trim() || "Angehängte Datei");
   const { steps, bubble } = addBot();
   await verfolge(() => {
@@ -3264,14 +3272,33 @@ async function wiederAufnehmen(){
 }
 
 /* ---------- Eingabe ---------- */
-// Faengt die Zeile mit einem "/" an, ist es ein Befehl -- dann leuchtet die
-// Schrift im Akzentton (im Standard-Design grün), damit man es gleich sieht.
+const slashBefehle = new Set(["location","model","max","image","export",
+  "history","notes","clear","memory","uploads","forget","help","quit","exit","q"]);
+const inputMirror = $("#input-mirror");
+// Nur ein vollstaendiger, bekannter Befehl bekommt den Akzentton. Der Rest
+// wird als normaler Text gespiegelt, auch wenn ein Argument folgt.
 function markiereBefehl(){
-  input.classList.toggle("is-command", input.value.trimStart().startsWith("/"));
+  const match = /^(\s*)\/([a-z]+)(?=\s|$)/i.exec(input.value);
+  const erkannt = match && slashBefehle.has(match[2].toLowerCase());
+  input.classList.toggle("is-command", Boolean(erkannt));
+  inputMirror.replaceChildren();
+  if (erkannt){
+    inputMirror.append(document.createTextNode(match[1]));
+    const wort = document.createElement("span");
+    wort.className = "command-word";
+    wort.textContent = "/" + match[2];
+    inputMirror.append(wort, document.createTextNode(input.value.slice(match[0].length)));
+    inputMirror.scrollTop = input.scrollTop;
+    inputMirror.scrollLeft = input.scrollLeft;
+  }
 }
 input.addEventListener("input", () => {
   input.style.height = "auto"; input.style.height = Math.min(input.scrollHeight,200) + "px";
   markiereBefehl();
+});
+input.addEventListener("scroll", () => {
+  inputMirror.scrollTop = input.scrollTop;
+  inputMirror.scrollLeft = input.scrollLeft;
 });
 input.addEventListener("keydown", (e) => {
   if (e.key === "Enter" && !e.shiftKey){ e.preventDefault(); ask(input.value); }
@@ -3335,7 +3362,7 @@ async function neuerChat({ leiste = true } = {}){
   greet();
   loadRecents();
   if (leiste && narrow()) document.body.classList.add("collapsed");
-  input.value = ""; input.style.height = "auto"; input.classList.remove("is-command"); input.focus();
+  input.value = ""; input.style.height = "auto"; markiereBefehl(); input.focus();
 }
 $("#btn-new").addEventListener("click", () => neuerChat());
 $("#btn-notes").addEventListener("click", () => {
