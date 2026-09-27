@@ -361,6 +361,13 @@ def test_the_pro_system_view_stays_closed(server: int) -> None:
     assert _anfrage(server, "GET", "/api/system", None, cookie)[0] == 403
 
 
+def test_a_pro_account_does_not_see_the_load_either(server: int) -> None:
+    """Seit 9.5.21 nur Ultra -- auch ein echtes Pro-Konto bekommt 403."""
+    cookie = _konto(server, "pro", "PRO234567")
+    status, _, daten = _anfrage(server, "GET", "/api/system", None, cookie)
+    assert status == 403 and "cpu" not in daten
+
+
 def test_accounts_cannot_see_each_other(server: int) -> None:
     eins, zwei = _konto(server), _konto(server)
     _anfrage(server, "POST", "/api/jobs", {"action": "add", "question": "Wetter Bremen",

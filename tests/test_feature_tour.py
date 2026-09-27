@@ -78,7 +78,7 @@ def tour(server: tuple[int, Path], request: pytest.FixtureRequest,  # noqa: F811
 @pytest.mark.parametrize("tour", ["normal", "pro", "ultra"], indirect=True)
 def test_every_page_and_endpoint(tour: Tour, tmp_path: Path) -> None:
     status, konto = tour("GET", "/api/account")
-    # pro = Pro oder Ultra (Auslastung); ultra = alles, ohne Limit (seit 9.5.17).
+    # pro = Pro oder Ultra; ultra = alles, ohne Limit (seit 9.5.17).
     pro, ultra = konto["pro"], konto["ultra"]
     assert konto["usage"]["limited"] is not ultra
     assert status == 200 and konto["plan"] == ("ultra" if ultra else "pro" if pro else "normal")
@@ -95,7 +95,8 @@ def test_every_page_and_endpoint(tour: Tour, tmp_path: Path) -> None:
         assert status == 200 and isinstance(daten, dict) and daten, route
     status, config = tour("GET", "/api/config")
     assert config["account"]["pro"] is pro and "sk-fake" not in json.dumps(config)
-    assert tour("GET", "/api/system")[0] == (200 if pro else 403)
+    # Die Auslastung des Rechners gibt es seit 9.5.21 nur mit Ultra.
+    assert tour("GET", "/api/system")[0] == (200 if ultra else 403)
     assert tour("GET", "/api/run")[0] == 404, "noch kein Lauf"
     assert tour("GET", "/api/werkstatt/bildschirm?leise=1")[0] == 204
     assert tour("GET", "/api/media?id=../../etc/passwd")[0] == 404

@@ -392,6 +392,11 @@ def normales_konto(browser: Any, port: int, log: Protokoll, fehler: list[str]) -
                f"im Konto steht Prozent: {pg.inner_text('#account-tokens')!r}")
     log.pruefe(not pg.inner_text("#zaehler").strip(),
                "Tokenzahlen sieht ein normales Konto nicht")
+    # 9.5.21: Die Auslastung des Rechners gehoert zu Ultra -- Normal (und Pro)
+    # sehen den Abschnitt gar nicht, und der Server gibt die Zahlen nicht heraus.
+    log.pruefe(pg.is_hidden("#pro-system"), "die Auslastung ist für Normal nicht zu sehen")
+    status = pg.evaluate("async () => (await fetch('/api/system')).status")
+    log.pruefe(status == 403, f"und am Fenster vorbei gibt der Server sie nicht her ({status})")
     # 9.5.17: "Eigene Modelle" -- erst da, wenn man oben selbst etwas hinzufuegt.
     # Die Schluessel bleiben dabei nur bei diesem Konto und nie im Browser.
     log.pruefe(pg.is_hidden("#sec-schluessel"),
@@ -1457,14 +1462,31 @@ def rundgang(pg: Any, log: Protokoll, agent: FakeAgent, bilder: Path | None,
         pg.fill("#input", "Hallo")
         log.pruefe(not pg.eval_on_selector("#input", "e => e.classList.contains('is-command')"),
                    "normaler Text leuchtet nicht")
-        pg.fill("#input", "/max")
-        farbe = pg.eval_on_selector("#input", "e => [e.classList.contains('is-command'),"
-                                              " getComputedStyle(e).color,"
-                                              " getComputedStyle(e).textShadow]")
-        akzent = pg.eval_on_selector(
-            "html", "e => getComputedStyle(e).getPropertyValue('--accent-text').trim()")
-        log.pruefe(farbe[0] and farbe[2] != "none",
-                   f"ein /Befehl leuchtet im Akzentton ({farbe[1]}, Akzent {akzent})")
+        # Seit 9.5.20 faerbt ein Spiegel ueber dem Eingabefeld nur das
+        # Befehlswort -- das Argument dahinter bleibt normaler Text.
+        pg.fill("#input", "/max 5")
+        farbe = pg.evaluate("""() => {
+          const wort = document.querySelector('#input-mirror .command-word');
+          const spiegel = document.querySelector('#input-mirror');
+          const probe = document.createElement('span');
+          probe.style.color = 'var(--accent-text)';
+          document.body.appendChild(probe);
+          const akzent = getComputedStyle(probe).color;
+          probe.remove();
+          return [document.querySelector('#input').classList.contains('is-command'),
+                  getComputedStyle(spiegel).visibility,
+                  wort ? wort.textContent : '', wort ? getComputedStyle(wort).color : '',
+                  wort ? getComputedStyle(wort).textShadow : 'none', akzent,
+                  spiegel.textContent];
+        }""")
+        log.pruefe(farbe[0] and farbe[1] == "visible" and farbe[2] == "/max"
+                   and farbe[3] == farbe[5] and farbe[4] != "none",
+                   f"ein /Befehl leuchtet im Akzentton ({farbe[2]!r}, {farbe[3]}, "
+                   f"Akzent {farbe[5]})")
+        log.pruefe(farbe[6] == "/max 5", "das Argument dahinter steht als normaler Text da")
+        pg.fill("#input", "/gibtsnicht")
+        log.pruefe(not pg.eval_on_selector("#input", "e => e.classList.contains('is-command')"),
+                   "ein unbekannter /Befehl leuchtet nicht")
         pg.fill("#input", "/help")
         pg.click("#send")
         pg.wait_for_timeout(300)

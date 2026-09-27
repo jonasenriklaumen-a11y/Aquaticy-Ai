@@ -1,4 +1,4 @@
-# Aquaticy AI 9.5.20 Spark
+# Aquaticy AI 9.5.21 Spark
 
 **Aquaticy** recherchiert für dich. Du stellst eine Frage, Aquaticy sucht im Web, liest die
 passenden Seiten und fasst das Ergebnis zusammen — mit Quelle an jeder Angabe. Es läuft im
@@ -111,7 +111,7 @@ $ aquaticy
 git clone --branch Aquaticy-ai --single-branch https://github.com/jonasenriklaumen-a11y/Aquaticy-Ai.git
 cd Aquaticy-Ai
 uv tool install --force --reinstall .
-aquaticy --version            # 9.5.20 Spark
+aquaticy --version            # 9.5.21 Spark
 
 # 2. Einrichten — fragt nach Modell und Schlüssel und testet beide
 aquaticy setup
@@ -333,7 +333,7 @@ Ein vollständig geschriebener Slash-Befehl leuchtet im Akzentton; der Text dahi
   Schlüssel einträgst, und zeigt genau diese. Schlüssel werden verschlüsselt gespeichert und
   nie an den Browser zurückgegeben.
 - **Werkstatt** — Größe, User mode, Add-ons, Login-Apps.
-- **Speicher**, **Mitlesen**, **Auslastung** (Pro/Ultra), **Nutzung**, **Aufträge**,
+- **Speicher**, **Mitlesen**, **Auslastung** (nur Ultra), **Nutzung**, **Aufträge**,
   **Gmail & Kalender**, **Zuhause & Netz** (Ultra), **Suche**, **Ort & Sprache**,
   **Helfer & Grenzen**, **Dev settings**.
 
@@ -353,7 +353,7 @@ ausgenommen).
 | Recherche, Chat, Code-Modus, Add-ons ohne Werkstatt | ✔ | ✔ | ✔ |
 | Nutzung je 5-Stunden-Sitzung | 200.000 Token | 400.000 Token | unbegrenzt |
 | Nutzung je Woche | 1,5 Mio. Token | 3 Mio. Token | unbegrenzt |
-| Auslastungsanzeige | – | ✔ | ✔ |
+| Auslastungsanzeige | – | – | ✔ |
 | Heimnetz, Home Assistant, Lagerverwaltung | – | – | ✔ |
 | User mode, Werkstatt „Plus“, Werkstatt-Add-ons | – | – | ✔ |
 | Eigene Adressen für Modell und Suche | – | – | ✔ |

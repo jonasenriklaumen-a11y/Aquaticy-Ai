@@ -1702,11 +1702,28 @@ def test_no_storage_line_when_memory_is_off(client, session: web.ChatSession) ->
     assert "storage" not in json.loads(client("GET", "/api/system")[1])
 
 
-def test_normal_account_cannot_read_server_load(client, session: web.ChatSession) -> None:
-    session.account = web.Account("normal", "normal@example.org", "normal", 0)
+@pytest.mark.parametrize("plan", ["normal", "pro"])
+def test_only_ultra_reads_server_load(client, session: web.ChatSession, plan: str) -> None:
+    """Seit 9.5.21 sehen Normal und Pro die Auslastung des Rechners nicht."""
+    session.account = web.Account(plan, f"{plan}@example.org", plan, 0)
     status, body = client("GET", "/api/system")
     assert status == 403
-    assert "Pro-Konto" in json.loads(body)["error"]
+    assert "nur mit Ultra" in json.loads(body)["error"]
+    assert "cpu" not in json.loads(body)
+
+
+def test_an_ultra_account_reads_server_load(client, session: web.ChatSession) -> None:
+    session.account = web.Account("ultra", "ultra@example.org", "ultra", 0)
+    status, body = client("GET", "/api/system")
+    assert status == 200 and json.loads(body)["cpu"]["cores"] >= 1
+
+
+def test_the_load_section_is_hidden_until_ultra() -> None:
+    """Die Oberflaeche zeigt den Abschnitt gar nicht erst -- nicht nur gesperrt."""
+    html = web.UI_FILE.read_text(encoding="utf-8")
+    assert '<fieldset id="pro-system" hidden>' in html
+    assert "system.hidden = !ultra;" in html
+    assert "START.load === true && kontoPro" in html
 
 
 # -- Slash-Befehle fuer den Speicher --------------------------------------

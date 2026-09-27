@@ -1656,9 +1656,9 @@ input:focus,select:focus{border-color:var(--accent)}
         </div>
       </fieldset>
 
-      <fieldset id="pro-system"><legend>Auslastung · Pro</legend>
+      <fieldset id="pro-system" hidden><legend>Auslastung · Ultra</legend>
         <div class="pro-lock" id="system-lock" hidden>🔒 Die Auslastungsanzeige
-          gehört zu Pro.</div>
+          gehört zu Ultra.</div>
         <div class="check">
           <input type="checkbox" role="switch" class="schalter" id="showload">
           <label for="showload" style="margin:0">Auslastung des Rechners anzeigen
@@ -1998,7 +1998,7 @@ input:focus,select:focus{border-color:var(--accent)}
 const $ = (s) => document.querySelector(s);
 const thread = $("#thread"), main = $("#main"), input = $("#input"), send = $("#send");
 let busy = false;
-const aquaticyVersion = window.__AQUATICY_VERSION__ || "9.5.20 Spark";
+const aquaticyVersion = window.__AQUATICY_VERSION__ || "9.5.21 Spark";
 $("#version").textContent = "v" + aquaticyVersion;
 document.title = `Aquaticy AI ${aquaticyVersion}`;
 
@@ -4104,7 +4104,7 @@ $("#btn-settings").addEventListener("click", async () => {
   jobFelder();
   loadJobs();
   $("#showtrace").checked = document.body.classList.contains("tracing");
-  const wanted = START.load === true;
+  const wanted = START.load === true && kontoPro;   // kontoPro = Ultra
   $("#showload").checked = wanted;
   if (wanted) $("#showload").dispatchEvent(new Event("change"));
   searchKeyHint();
@@ -4126,19 +4126,19 @@ async function loadAccount(account){
   $("#account-email").textContent = account?.email || "…";
   greet();
   $("#account-plan").textContent = account?.plan_label || (account?.pro ? "Pro" : "Normal");
-  // "pro" = Pro ODER Ultra (Auslastungsanzeige). "ultra" = die Vollstufe, die
-  // Netz-Features und das Abschalten der Leitplanken erlaubt (seit 9.5.17).
-  const pro = account?.pro === true;
+  // "ultra" = die Vollstufe: Netz-Features, das Abschalten der Leitplanken
+  // (seit 9.5.17) und die Auslastungsanzeige (seit 9.5.21).
   const ultra = account?.ultra === true;
   const section = $("#pro-features");
   section.classList.toggle("locked-feature", !ultra);
   $("#pro-lock").hidden = ultra;
   section.querySelectorAll("input,select,button").forEach(field => { field.disabled = !ultra; });
+  // Normal und Pro sehen die Auslastung gar nicht -- nicht einmal gesperrt.
   const system = $("#pro-system");
-  system.classList.toggle("locked-feature", !pro);
-  $("#system-lock").hidden = pro;
-  system.querySelectorAll("input,button").forEach(field => { field.disabled = !pro; });
-  if (!pro){
+  system.hidden = !ultra;
+  $("#system-lock").hidden = true;
+  system.querySelectorAll("input,button").forEach(field => { field.disabled = !ultra; });
+  if (!ultra){
     stopLoad();
     $("#showload").checked = false;
     $("#usage-note").innerHTML = "";

@@ -3344,8 +3344,11 @@ class Handler(BaseHTTPRequestHandler):
                 ),
             })
         elif route == "/api/system":
-            if not SESSION.pro:
-                self._json({"error": "Die Auslastungsanzeige braucht ein Pro-Konto."}, 403)
+            # Seit 9.5.21 nur Ultra -- Normal und Pro sehen die Auslastung des
+            # Rechners nicht (sie verraet Prozessor, Speicher und Grafikkarte
+            # des Betreibers).
+            if not SESSION.ultra:
+                self._json({"error": "Die Auslastungsanzeige gibt es nur mit Ultra."}, 403)
                 return
             from aquaticy.system import snapshot
 
