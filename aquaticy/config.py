@@ -368,8 +368,8 @@ class Settings:
     #: Darf aquaticy das eigene Netz durchsuchen?
     lan_enabled: bool = True
     #: Leitplanken nach Grundgesetz und BGB (siehe aquaticy/guardrails.py).
-    #: Immer an -- abschalten kann sie nur ein Pro-Konto in den Einstellungen,
-    #: nie ein Satz im Chat. Bei normalen Konten setzt der Server sie
+    #: Immer an -- abschalten kann sie nur ein Ultra-Konto in den Einstellungen,
+    #: nie ein Satz im Chat. Bei Normal und Pro setzt der Server sie
     #: zwangsweise wieder auf an, egal was in deren `.env` steht.
     legal_guard: bool = True
     #: Das Hauptmodell je Nachricht automatisch waehlen (Dev settings, fuer jedes
@@ -392,7 +392,7 @@ class Settings:
     #: Der Schluesselbund des Kontos fuer interne Geheimnisse (GitHub-Token,
     #: seit 9.5.16). ``None`` = ohne Konten: dann die .env des Betreibers.
     secret_vault: Any = None
-    #: Eine Modell-Adresse, die das Konto SELBST eingetragen hat (nur Pro).
+    #: Eine Modell-Adresse, die das Konto SELBST eingetragen hat (nur Ultra).
     #: Nur dorthin darf ein eigener Schluessel neben dem Anbieter selbst gehen
     #: -- nie an eine Adresse des Betreibers.
     own_api_base: str = ""
@@ -531,7 +531,7 @@ class Settings:
         Leer heisst: zum Anbieter selbst. Eine eingetragene Adresse gilt nur
         beim Anbieter des Hauptmodells, und nur wenn sie zum Modell passt
         (Ollama-Port, siehe base_fits). Eingetragen hat sie entweder der
-        Betreiber (in der Umgebung des Servers) oder -- nur Pro -- das Konto
+        Betreiber (in der Umgebung des Servers) oder -- nur Ultra -- das Konto
         selbst (``own_api_base``).
         """
         if not self.api_base:
@@ -643,7 +643,7 @@ class Settings:
         kwargs: dict[str, object] = {}
         gleich = provider_of(model) == provider_of(self.api_base_for or self.model)
         # Die eingetragene Adresse -- und ob das KONTO sie eingetragen hat
-        # (nur Pro). Dann ist sie fremd fuer alles, was dem Betreiber gehoert.
+        # (nur Ultra). Dann ist sie fremd fuer alles, was dem Betreiber gehoert.
         adresse, adresse_des_kontos = self.route(model)
         if self.key_source(model) == "own":
             # Ein eigener Schluessel des Kontos (9.5.14 Seashell): fuer JEDES

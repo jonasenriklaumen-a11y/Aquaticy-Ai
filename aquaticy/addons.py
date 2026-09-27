@@ -77,7 +77,7 @@ class AddOn:
     summary: str
     #: Wie man sich anmeldet: token | qr | keine | feeds
     login: str
-    #: Braucht die Werkstatt im User mode (und damit Pro)?
+    #: Braucht die Werkstatt im User mode (und damit Ultra)?
     werkstatt: bool = False
     #: Was installiert wird: "" (nichts) | webapp | signal | blender
     programm: str = ""
@@ -1286,6 +1286,11 @@ def _tagesschau_erlaubt(jetzt: float | None = None) -> bool:
         return True
 
 
+def _objekt(wert: Any) -> dict[str, Any]:
+    """Eine JSON-Antwort als Objekt -- alles andere (Liste, null, Text) als leer."""
+    return wert if isinstance(wert, dict) else {}
+
+
 def _eigener_client(client: httpx.Client | None) -> tuple[httpx.Client, bool]:
     if client is not None:
         return client, False
@@ -1316,7 +1321,7 @@ def news(topic: str = "", query: str = "", limit: Any = 10, *,
             antwort = client.get(f"{TAGESSCHAU}/news/",
                                  params={"ressort": RESSORTS[thema]} if RESSORTS[thema] else {})
         antwort.raise_for_status()
-        daten = antwort.json() or {}
+        daten = _objekt(antwort.json())
     except (httpx.HTTPError, ValueError) as exc:
         return {"error": f"Tagesschau nicht erreichbar ({type(exc).__name__})."}
     finally:
@@ -1353,7 +1358,7 @@ def wikipedia(query: str, lang: str = "de", *,
         suche = client.get(f"{basis}/w/rest.php/v1/search/page",
                            params={"q": begriff, "limit": 5})
         suche.raise_for_status()
-        seiten = (suche.json() or {}).get("pages") or []
+        seiten = [s for s in _objekt(suche.json()).get("pages") or [] if isinstance(s, dict)]
         if not seiten:
             return {"error": f"Zu '{begriff}' gibt es keinen Wikipedia-Artikel ({sprache})."}
         schluessel = str(seiten[0].get("key") or seiten[0].get("title") or "")
@@ -1361,13 +1366,13 @@ def wikipedia(query: str, lang: str = "de", *,
         zusammenfassung = client.get(f"{basis}/api/rest_v1/page/summary/"
                                      + quote(schluessel, safe=""))
         zusammenfassung.raise_for_status()
-        artikel = zusammenfassung.json() or {}
+        artikel = _objekt(zusammenfassung.json())
     except (httpx.HTTPError, ValueError) as exc:
         return {"error": f"Wikipedia nicht erreichbar ({type(exc).__name__})."}
     finally:
         if eigener:
             client.close()
-    link = ((artikel.get("content_urls") or {}).get("desktop") or {}).get("page")
+    link = _objekt(_objekt(artikel.get("content_urls")).get("desktop")).get("page")
     return {
         "titel": artikel.get("title") or schluessel,
         "beschreibung": _kurz(artikel.get("description"), 200),
@@ -1404,13 +1409,13 @@ def currency(amount: Any = 1, base: str = "EUR", to: str = "",
         if antwort.status_code == 404:
             return {"error": f"Die EZB fuehrt keinen Kurs fuer {von} oder {', '.join(ziele)}."}
         antwort.raise_for_status()
-        daten = antwort.json() or {}
+        daten = _objekt(antwort.json())
     except (httpx.HTTPError, ValueError) as exc:
         return {"error": f"Kurse nicht erreichbar ({type(exc).__name__})."}
     finally:
         if eigener:
             client.close()
-    kurse = daten.get("rates") or {}
+    kurse = _objekt(daten.get("rates"))
     return {
         "betrag": betrag, "von": von, "stand": daten.get("date"),
         "ergebnis": {code: round(betrag * float(kurs), 4) for code, kurs in kurse.items()
@@ -1452,7 +1457,8 @@ def holidays(country: str = "DE", year: Any = None, region: str = "",
     for tag in daten if isinstance(daten, list) else []:
         if not isinstance(tag, dict):
             continue
-        gebiete = tag.get("counties") or []
+        roh_gebiete = tag.get("counties")
+        gebiete = [str(g) for g in roh_gebiete] if isinstance(roh_gebiete, list) else []
         if bundesland and not tag.get("global") and bundesland not in gebiete:
             continue
         tage.append({

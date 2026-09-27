@@ -16,7 +16,8 @@ Kontos -- nicht im Profilordner, nicht im Browser. Wer Verlauf, Speicher oder
 Chats loescht, loescht damit nicht seinen Verbrauch. Gerechnet wird nur hier
 auf dem Server; der Browser bekommt Prozent und Uhrzeiten, keine Tokenzahlen.
 
-Pro-Konten und der lokale Betrieb ohne Konten haben kein Kontingent.
+Pro-Konten haben das doppelte Kontingent; Ultra-Konten und der lokale Betrieb
+ohne Konten haben keins.
 """
 
 from __future__ import annotations
@@ -381,16 +382,23 @@ class Quota:
         if benutzt["week"] >= self.week_tokens or self.week_tokens - benutzt["week"] < need:
             raise QuotaExceeded(
                 "Dein Wochenkontingent ist aufgebraucht. Es setzt sich "
-                f"{when_phrase(stand['week']['resets_text'])} zurück. Mit einem Pro-Konto gibt es "
-                "kein Limit.", "week", public(stand))
+                f"{when_phrase(stand['week']['resets_text'])} zurück. {self._mehr()}",
+                "week", public(stand))
         if stand["session"]["active"] and (
             benutzt["session"] >= self.session_tokens
             or self.session_tokens - benutzt["session"] < need
         ):
             raise QuotaExceeded(
                 "Das Kontingent dieser 5-Stunden-Sitzung ist aufgebraucht. Es setzt sich "
-                f"{when_phrase(stand['session']['resets_text'])} zurück. Mit einem Pro-Konto gibt "
-                "es kein Limit.", "session", public(stand))
+                f"{when_phrase(stand['session']['resets_text'])} zurück. {self._mehr()}",
+                "session", public(stand))
+
+    def _mehr(self) -> str:
+        """Der Hinweis auf mehr Kontingent -- passend zum Tarif (seit 9.5.17 hat
+        auch Pro ein Limit; bis 9.5.18 stand hier "Mit Pro kein Limit")."""
+        if self.factor > 1:
+            return "Mit einem Ultra-Konto gibt es kein Limit."
+        return "Ein Pro-Konto hat doppelt so viel, ein Ultra-Konto gar kein Limit."
 
 
 def when_phrase(text: str) -> str:

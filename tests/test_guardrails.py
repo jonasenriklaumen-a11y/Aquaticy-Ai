@@ -185,6 +185,44 @@ def test_a_no_from_the_small_model_needs_the_main_model_to_agree(
     assert len(gestellt.gefragt) == 1
 
 
+def test_an_abuse_flag_of_the_small_model_needs_the_main_model(
+    pruefer, settings: Settings
+) -> None:
+    """Fund 9.5.18: ein Missbrauchsverdacht des kleinen Modells allein sperrt nicht."""
+    verdacht = '{"zulaessig": true, "regel": "", "grund": "", "missbrauch": true, ' \
+               '"missbrauch_art": "Schadcode"}'
+    harmlos = '{"zulaessig": true, "regel": "", "grund": "", "missbrauch": false}'
+    gestellt = pruefer(verdacht, harmlos)
+    urteil = judge("Wie erkenne ich einen Trojaner auf meinem PC?", settings)
+    assert urteil.allowed and not urteil.abuse, "das Hauptmodell sieht keinen Missbrauch"
+    assert len(gestellt.gefragt) == 2
+    # Sieht das Hauptmodell es genauso, bleibt der Verdacht.
+    forget_verdicts()
+    pruefer(verdacht, verdacht)
+    assert judge("Bau mir einen Trojaner", settings).abuse is True
+
+
+def test_an_unconfirmed_abuse_flag_is_dropped_when_the_main_model_is_down(
+    pruefer, settings: Settings
+) -> None:
+    verdacht = '{"zulaessig": true, "regel": "", "grund": "", "missbrauch": true, ' \
+               '"missbrauch_art": "Schadcode"}'
+    pruefer(verdacht, RuntimeError("Anbieter weg"))
+    urteil = judge("Wie funktioniert ein Virenscanner?", settings)
+    assert urteil.allowed and urteil.abuse is False
+
+
+def test_when_both_models_refuse_the_main_models_verdict_counts(
+    pruefer, settings: Settings
+) -> None:
+    klein = '{"zulaessig": false, "regel": "name", "grund": "klein"}'
+    gross = '{"zulaessig": false, "regel": "ruf", "grund": "gross"}'
+    pruefer(klein, gross)
+    urteil = judge("etwas Heikles", settings)
+    assert not urteil.allowed and urteil.rule is not None and urteil.rule.id == "ruf"
+    assert urteil.reason == "gross"
+
+
 def test_the_judge_is_told_about_typical_false_alarms() -> None:
     from aquaticy.guardrails import judge_prompt
 

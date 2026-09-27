@@ -58,6 +58,17 @@ class H(BaseHTTPRequestHandler):
         user = str(msgs[letzte].get("content")) if letzte >= 0 else ""
         tool_done = any(m.get("role") == "tool" for m in msgs[letzte + 1 :])
         tool_calls = None
+        if rf == "urteil" and "PRUEFAUSFALL" in user:
+            # Der Anbieter faellt fuer die Pruefung aus (9.5.18: das darf nie ein
+            # Ai-guard-Anhaltspunkt sein).
+            fehler = json.dumps({"error": {"message": "overloaded", "type": "server_error"}})
+            fehler_bytes = fehler.encode()
+            self.send_response(503)
+            self.send_header("Content-Type", "application/json")
+            self.send_header("Content-Length", str(len(fehler_bytes)))
+            self.end_headers()
+            self.wfile.write(fehler_bytes)
+            return
         if rf == "urteil":
             text = json.dumps(
                 {

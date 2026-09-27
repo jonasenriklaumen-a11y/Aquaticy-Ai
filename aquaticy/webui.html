@@ -3508,6 +3508,9 @@ document.querySelectorAll("#tmodes .tmode").forEach(button =>
   button.addEventListener("click", () => setTheme(button.dataset.tmode)));
 $("#theme-reset").addEventListener("click", () => {
   design = { ...DESIGN_STANDARD };
+  // Auch die eigenen Farben auf dem Server leeren -- sonst kaemen sie nach
+  // dem Neuladen im Designer wieder (Fund 9.5.18).
+  merkeZustand({ design });
   setTheme("system"); setPalette("");
 });
 const themeBox = $("#themebox");
@@ -4212,7 +4215,8 @@ $("#usermode").addEventListener("click", async (e) => {
   await guardDialog({
     title: "Das gibt es leider nur mit einem Ultra-Konto.",
     text: "Der User mode — die Werkstatt als Desktop mit Internet — gehört zu Ultra. "
-      + "Die Add-ons ohne Werkstatt (GitHub, Wetter, RSS-Feeds) kannst du trotzdem nutzen.",
+      + "Die Add-ons ohne Werkstatt (GitHub, Wetter, RSS-Feeds, Tagesschau, Wikipedia, "
+      + "Währungsrechner, Feiertage) kannst du trotzdem nutzen.",
     ok: "Verstanden",
   });
 });

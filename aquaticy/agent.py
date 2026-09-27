@@ -1572,7 +1572,7 @@ class Agent:
                  and eintrag.get("model") == self.active_model)
         return eintrag.get("mission") if passt else None
 
-    def _warm_workshop(self) -> None:
+    def _warm_workshop(self) -> threading.Thread | None:
         """Startet die Werkstatt schon im Hintergrund (Code-Modus, 9.5.18).
 
         Bis das Modell seinen ersten Befehl schickt, vergehen einige Sekunden
@@ -1583,25 +1583,29 @@ class Agent:
         Abschottung (Podman/Docker) und nur, wenn das Kontingent noch reicht.
         """
         if self.stopped:
-            return
-        try:
-            from aquaticy import metering
-            from aquaticy import sandbox as werkstatt
-
-            if werkstatt.find_runtime() is None:
-                return
-            metering.check_work(self.settings, "werkstatt")
-            box = self.toolbox._sandbox()
-            if getattr(box, "alive", False):
-                return
-        except Exception:
-            return
+            return None
+        box = getattr(self.toolbox, "_sandbox_box", None)
+        if box is not None and getattr(box, "alive", False):
+            return None
 
         def hochfahren() -> None:
+            # Alles im Hintergrund -- auch die Suche nach Podman/Docker: sie ruft
+            # `docker info` auf und darf den Turn keine Sekunde aufhalten.
             with contextlib.suppress(Exception):
-                box.ensure()
+                from aquaticy import metering
+                from aquaticy import sandbox as werkstatt
 
-        threading.Thread(target=hochfahren, daemon=True, name="aquaticy-werkstatt-start").start()
+                if werkstatt.find_runtime() is None:
+                    return
+                metering.check_work(self.settings, "werkstatt")
+                werkstatt_box = self.toolbox._sandbox()
+                if not getattr(werkstatt_box, "alive", False):
+                    werkstatt_box.ensure()
+
+        faden = threading.Thread(target=hochfahren, daemon=True,
+                                 name="aquaticy-werkstatt-start")
+        faden.start()
+        return faden
 
     def _fresh_hits(self, question: str) -> str:
         """Sucht fuer die Gegenprobe selbst -- nur auf noch ungelesenen Seiten.
@@ -1920,7 +1924,12 @@ class Agent:
         zweck = purpose or ("code" if clean_mode(self.mode) == "code" else "work")
         if zweck in self._code_model:
             return self._code_model[zweck]
-        with self._strong_lock:
+        # Laeuft die Suche schon in einem anderen Faden (parallel zur
+        # Rechtspruefung) und haengt sie, wartet dieser hier nicht endlos:
+        # dann gilt fuer den Moment das eingestellte Modell ("").
+        if not self._strong_lock.acquire(timeout=STRONG_LOOKUP_WAIT):
+            return ""
+        try:
             if zweck not in self._code_model:
                 from aquaticy.system import strongest_model
 
@@ -1931,6 +1940,8 @@ class Agent:
                     # bleibt es beim eingestellten Modell.
                     self._code_model[zweck] = ""
             return self._code_model[zweck]
+        finally:
+            self._strong_lock.release()
 
     def _apply_mode(self, mode: str) -> None:
         """Tauscht den Antwortteil des Systemprompts fuer diesen Turn.
@@ -3098,10 +3109,12 @@ class Agent:
         """
         for message in reversed(self.messages):
             if message.get("role") == "assistant":
-                inhalt = str(message.get("content") or "").rstrip()
-                return inhalt.endswith("?")
-            if message.get("role") == "user":
-                continue
+                inhalt = str(message.get("content") or "").strip()
+                # Die letzte Zeile zaehlt, ohne Links -- so faellt auch
+                # "Soll ich weitersuchen? 🙂" oder "**Passt das?** Sonst ..."
+                # auf (Fund 9.5.18: bisher nur ein "?" ganz am Ende).
+                zeile = inhalt.splitlines()[-1] if inhalt else ""
+                return "?" in re.sub(r"https?://\S+", "", zeile)
         return False
 
     def _type_out(self, text: str, stream: bool) -> None:

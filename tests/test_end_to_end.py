@@ -218,6 +218,26 @@ def test_aiguard_bans_after_two_indicators(server: tuple[int, Path]) -> None:
     assert status == 403 and json.loads(daten)["code"] == "banned"
 
 
+def test_an_outage_of_the_legal_check_never_bans(server: tuple[int, Path]) -> None:
+    """Fund 9.5.18: faellt die Rechtspruefung aus, ist das kein Anhaltspunkt.
+
+    Vorher zaehlte jede Ablehnung -- auch "Das Modell fuer die Pruefung hat nicht
+    geantwortet". Zwei Anbieter-Ausfaelle in zwei Chats sperrten so ein Konto.
+    """
+    port, _konten = server
+    cookie = _konto(port)
+    for runde in range(3):
+        if runde:
+            _req(port, "POST", "/api/clear", None, cookie)
+        status, ereignisse = _chat(port, cookie, "PRUEFAUSFALL: Gute Cafés in Bremen?")
+        assert status == 200
+        assert any(e.get("type") == "guard" and e.get("source") == "ausfall"
+                   for e in ereignisse), ereignisse
+        assert not any(e.get("type") == "banned" for e in ereignisse)
+    status, _, _ = _req(port, "POST", "/api/chat", {"message": "Hallo"}, cookie)
+    assert status == 200, "das Konto ist nicht gesperrt"
+
+
 def test_the_terminal_can_ban_and_unban(server: tuple[int, Path]) -> None:
     from aquaticy.aiguard import AiGuard
     from aquaticy.auth import AuthStore

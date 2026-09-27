@@ -18,11 +18,13 @@ import json
 import logging
 import os
 import queue
+import re
 import secrets
 import socket
 import sqlite3
 import threading
 import time
+import unicodedata
 import webbrowser
 from collections import OrderedDict
 from dataclasses import replace
@@ -360,7 +362,7 @@ IMAGE_TYPES = {".png", ".jpg", ".jpeg", ".webp", ".gif", ".bmp"}
 #: spaeter auf einem Webserver, laufen sie dort.
 BLOCKED_UPLOAD_SUFFIXES = frozenset({
     ".php", ".php2", ".php3", ".php4", ".php5", ".php6", ".php7", ".php8", ".phtml",
-    ".pht", ".phps", ".phar", ".inc.php",
+    ".pht", ".phps", ".phar",
     ".jsp", ".jspx", ".jspf", ".jsw", ".jsv", ".jspa",
 })
 BLOCKED_UPLOAD_MESSAGE = (
@@ -370,22 +372,45 @@ BLOCKED_UPLOAD_MESSAGE = (
 
 
 def blocked_upload(name: str) -> bool:
-    """Ist *name* ein PHP- oder JSP-Skript -- auch hinter einer zweiten Endung?"""
-    basis = Path(str(name or "").replace("\\", "/")).name.lower().strip()
-    teile = basis.split(".")[1:]
-    return any(f".{teil.strip()}" in BLOCKED_UPLOAD_SUFFIXES for teil in teile)
+    """Ist *name* ein PHP- oder JSP-Skript -- auch hinter einer zweiten Endung?
+
+    Vollbreite Zeichen ("ｐｈｐ") werden per NFKC zu normalen; Steuerzeichen,
+    Leerraum und die Tricks mancher Server (";" bei IIS, ":" fuer NTFS-Streams,
+    "%00") trennen wie ein Punkt. So faengt die Pruefung auch
+    "shell.php\\x00.jpg", "shell.php .png", "x.jsp;.png" und "shell.php."
+    (Fund 9.5.18) -- ein harmloses "jsp-vs-php.pdf" aber nicht.
+    """
+    basis = unicodedata.normalize("NFKC", str(name or "")).replace("\\", "/")
+    basis = basis.rstrip("/ ").rsplit("/", 1)[-1].casefold()
+    teile = _UPLOAD_TRENNER.split(basis)[1:]
+    return any(f".{teil}" in BLOCKED_UPLOAD_SUFFIXES for teil in teile if teil)
+
+
+_UPLOAD_TRENNER = re.compile(r"[.\s;:%$\x00-\x1f\x7f]+")
 
 
 #: Die ersten Bytes echter Bilddateien. Eine "Bild"-Datei ohne sie ist keine.
-_IMAGE_MAGIC = (b"\x89PNG\r\n\x1a\n", b"\xff\xd8\xff", b"GIF87a", b"GIF89a", b"BM")
+_IMAGE_MAGIC = (
+    (b"\x89PNG\r\n\x1a\n", "image/png"), (b"\xff\xd8\xff", "image/jpeg"),
+    (b"GIF87a", "image/gif"), (b"GIF89a", "image/gif"), (b"BM", "image/bmp"),
+)
+
+
+def image_mime(data: bytes) -> str:
+    """Die Bildart laut den ersten Bytes -- "" fuer alles, was kein Bild ist.
+
+    Zaehlt statt der Angabe des Browsers: Die laesst sich beliebig faelschen
+    (Fund 9.5.18: ein PNG mit "image/gif" wurde als .gif abgelegt).
+    """
+    head = bytes(data[:16])
+    if head[:4] == b"RIFF" and head[8:12] == b"WEBP":
+        return "image/webp"
+    return next((mime for magie, mime in _IMAGE_MAGIC if head.startswith(magie)), "")
 
 
 def looks_like_image(data: bytes) -> bool:
     """Beginnt *data* wirklich wie ein PNG, JPEG, GIF, WebP oder BMP?"""
-    head = bytes(data[:16])
-    if head[:4] == b"RIFF" and head[8:12] == b"WEBP":
-        return True
-    return any(head.startswith(magie) for magie in _IMAGE_MAGIC)
+    return bool(image_mime(data))
 
 
 #: Endungen, deren Inhalt direkt als Text taugt.
@@ -880,7 +905,7 @@ def _profile_settings(profile: Path, plan: str, account: Account | None = None) 
     # Suchmaschine, die der Betreiber selbst gewaehlt hat (seit 9.5.16).
     settings.operator_search_backends = (
         None if plan == "ultra" else frozenset({(base.search_backend or "").lower()}))
-    # Eine Modell-Adresse, die das Konto selbst eingetragen hat (nur Pro, s.u.).
+    # Eine Modell-Adresse, die das Konto selbst eingetragen hat (nur Ultra, s.u.).
     eigene_adresse = raw.get("AQUATICY_API_BASE", "").strip()
     settings.own_api_base = (
         eigene_adresse if plan == "ultra" and eigene_adresse
@@ -2913,9 +2938,7 @@ class Handler(BaseHTTPRequestHandler):
         try:
             # `keep`: darauf beruft sich der Auftrag bei jedem Lauf. Ohne das
             # waere das Foto nach zweihundert Schnappschuessen weg.
-            return save_snapshot(
-                settings.data_dir, data, str(payload.get("image_type") or ""), keep=True
-            ), ""
+            return save_snapshot(settings.data_dir, data, image_mime(data), keep=True), ""
         except (OSError, ValueError):
             return "", "Dieses Bildformat wird nicht unterstützt (JPEG, PNG, WebP, GIF)."
 
@@ -4042,7 +4065,12 @@ p{{margin:0 0 8px;color:#57534a}}</style></head><body><main>
                 # Prüf-Aufruf des Rechtsrahmens): eine Ablehnung nach Grundgesetz/
                 # BGB ("guard"), oder eine erkannte Missbrauchsabsicht ("abuse").
                 anlass = ""
-                if kind == "guard" and payload.get("stage") == "anfrage":
+                # Nur ein echtes Urteil ueber die Anfrage zaehlt -- nie ein Ausfall
+                # der Pruefung ("ausfall") oder eine unlesbare Antwort ("unklar"):
+                # dafuer kann der Nutzer nichts (Fund 9.5.18: zwei Anbieter-Ausfaelle
+                # in zwei Chats haetten sonst ein Konto gesperrt).
+                if (kind == "guard" and payload.get("stage") == "anfrage"
+                        and payload.get("source") not in ("ausfall", "unklar")):
                     anlass = "Rechtsrahmen: " + str(payload.get("title") or "")
                 elif kind == "abuse":
                     anlass = "Missbrauch: " + str(payload.get("art") or "")

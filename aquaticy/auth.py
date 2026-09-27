@@ -23,7 +23,7 @@ from aquaticy.memory import secure_file
 SESSION_DAYS = 30
 
 #: Das Kontingent eines normalen Kontos steht seit 9.5.14 in aquaticy/quota.py
-#: (5-Stunden-Sitzung und Woche). Ein Pro-Konto hat keines.
+#: (5-Stunden-Sitzung und Woche). Pro hat das doppelte, Ultra keines.
 EMAIL_RE = re.compile(r"^[^\s@]{1,64}@[^\s@]{1,190}\.[^\s@]{2,63}$")
 USERNAME_RE = re.compile(r"^[^\x00-\x1f\x7f]{2,40}$")
 PRO_CODE_RE = re.compile(r"^[A-Z0-9]{9}$")
@@ -33,6 +33,43 @@ PRO_CODE_IN_TEXT_RE = re.compile(r"(?<![A-Z0-9])[A-Z0-9]{9}(?![A-Z0-9])", re.IGN
 #: Sonderzeichen -- ein eigenes, sicheres Passwort, unabhängig vom Pro-Code.
 ULTRA_SPECIALS = "!@#$%&*+-=?"
 ULTRA_CODE_LEN = 14
+
+
+#: Alle Spalten der Kontentabelle, in der Reihenfolge des Neubaus (9.5.18).
+USERS_COLUMNS = (
+    "id", "email", "username", "password_hash", "password_salt", "plan", "created_at",
+    "terms_version", "terms_accepted_at", "last_ip", "last_seen", "created_ip",
+)
+
+
+def _users_ddl(name: str) -> str:
+    """Die Kontentabelle in ihrer heutigen Form -- mit Vorgaben fuer alte Daten."""
+    return (
+        f"CREATE TABLE {name} ("
+        "id TEXT PRIMARY KEY, "
+        "email TEXT NOT NULL UNIQUE, "
+        "username TEXT NOT NULL DEFAULT '', "
+        "password_hash BLOB NOT NULL, "
+        "password_salt BLOB NOT NULL, "
+        "plan TEXT NOT NULL CHECK(plan IN ('normal','pro','ultra')), "
+        "created_at REAL NOT NULL, "
+        "terms_version TEXT NOT NULL DEFAULT '', "
+        "terms_accepted_at REAL NOT NULL DEFAULT 0, "
+        "last_ip TEXT NOT NULL DEFAULT '', "
+        "last_seen REAL NOT NULL DEFAULT 0, "
+        "created_ip TEXT NOT NULL DEFAULT '')"
+    )
+
+
+_SESSIONS_DDL = (
+    "CREATE TABLE sessions ("
+    "token_hash TEXT PRIMARY KEY, "
+    "user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE, "
+    "device_hash TEXT NOT NULL, "
+    "ip_hash TEXT NOT NULL, "
+    "created_at REAL NOT NULL, "
+    "expires_at REAL NOT NULL)"
+)
 
 
 @dataclass(frozen=True, slots=True)
@@ -351,36 +388,9 @@ class AuthStore:
             )
             # Konten aus 9.4.2 bleiben gültig. Für neue Konten wird die
             # ausdrücklich bestätigte Fassung unten beim INSERT festgehalten.
-            # Alte Tabellen (vor 9.5.17) erlauben per CHECK nur normal/pro.
-            # Dann die Tabelle einmal ohne die enge Bedingung neu aufbauen,
-            # damit Ultra-Konten angelegt werden können.
-            sql = conn.execute(
-                "SELECT sql FROM sqlite_master WHERE type='table' AND name='users'"
-            ).fetchone()
-            if sql and "ultra" not in str(sql[0] or ""):
-                conn.executescript(
-                    """
-                    ALTER TABLE users RENAME TO users_alt;
-                    CREATE TABLE users (
-                        id TEXT PRIMARY KEY,
-                        email TEXT NOT NULL UNIQUE,
-                        username TEXT NOT NULL,
-                        password_hash BLOB NOT NULL,
-                        password_salt BLOB NOT NULL,
-                        plan TEXT NOT NULL CHECK(plan IN ('normal','pro','ultra')),
-                        created_at REAL NOT NULL,
-                        terms_version TEXT NOT NULL DEFAULT '',
-                        terms_accepted_at REAL NOT NULL DEFAULT 0,
-                        last_ip TEXT NOT NULL DEFAULT '',
-                        last_seen REAL NOT NULL DEFAULT 0
-                    );
-                    INSERT INTO users (id, email, username, password_hash, password_salt,
-                        plan, created_at, terms_version, terms_accepted_at)
-                        SELECT id, email, username, password_hash, password_salt,
-                        plan, created_at, terms_version, terms_accepted_at FROM users_alt;
-                    DROP TABLE users_alt;
-                    """
-                )
+            # Alte Tabellen (vor 9.5.17) erlauben per CHECK nur normal/pro --
+            # und eine mit 9.5.17 fehlerhaft umgebaute Datenbank wird repariert.
+            self._migrate_tables(conn)
             columns = {str(row["name"]) for row in conn.execute("PRAGMA table_info(users)")}
             if "terms_version" not in columns:
                 conn.execute(
@@ -392,11 +402,13 @@ class AuthStore:
                 )
             if "username" not in columns:
                 conn.execute("ALTER TABLE users ADD COLUMN username TEXT NOT NULL DEFAULT ''")
-                conn.execute(
-                    "UPDATE users SET username=CASE "
-                    "WHEN instr(email, '@') > 1 THEN substr(email, 1, instr(email, '@') - 1) "
-                    "ELSE 'Nutzer' END WHERE username=''"
-                )
+            # Auch nach einem Neubau einer sehr alten Tabelle (ohne Nutzernamen)
+            # bekommt jedes Konto einen Namen -- leer ist er sonst nie.
+            conn.execute(
+                "UPDATE users SET username=CASE "
+                "WHEN instr(email, '@') > 1 THEN substr(email, 1, instr(email, '@') - 1) "
+                "ELSE 'Nutzer' END WHERE username=''"
+            )
             # Zuletzt gesehene Adresse -- fuer `aquaticy list` und Ai-guard (9.5.16).
             if "last_ip" not in columns:
                 conn.execute("ALTER TABLE users ADD COLUMN last_ip TEXT NOT NULL DEFAULT ''")
@@ -406,6 +418,85 @@ class AuthStore:
             if "created_ip" not in columns:
                 conn.execute("ALTER TABLE users ADD COLUMN created_ip TEXT NOT NULL DEFAULT ''")
         secure_file(self.db_path)
+
+    def _migrate_tables(self, conn: sqlite3.Connection) -> None:
+        """Baut ``users`` und ``sessions`` um, wo es noetig ist -- ohne Datenverlust.
+
+        Drei Faelle (Fund 9.5.18):
+
+        * **Alte Tabelle** (vor 9.5.17): ihr CHECK erlaubt kein "ultra". Sie wird
+          nach dem Verfahren aus der SQLite-Dokumentation neu gebaut: Fremd-
+          schluessel aus, neue Tabelle anlegen, ALLE vorhandenen Spalten
+          kopieren, alte loeschen, neue umbenennen -- in einer Transaktion.
+          9.5.17 benannte stattdessen die alte Tabelle um; SQLite zog dabei den
+          Fremdschluessel von ``sessions`` auf "users_alt" mit, das DROP danach
+          loeschte per CASCADE alle Sitzungen, und neue Anmeldungen scheiterten
+          an "no such table: main.users_alt". Ausserdem gingen ``last_ip`` und
+          ``last_seen`` verloren.
+        * **Verwaiste ``users_alt``** aus einem abgebrochenen Umbau: deren Konten
+          kommen zurueck.
+        * **``sessions`` zeigt auf "users_alt"**: die Tabelle wird neu verknuepft.
+        """
+        def zustand() -> tuple[bool, bool, bool]:
+            tabellen = {
+                str(row[0]): str(row[1] or "")
+                for row in conn.execute("SELECT name, sql FROM sqlite_master WHERE type='table'")
+            }
+            return ("ultra" not in tabellen.get("users", "ultra"), "users_alt" in tabellen,
+                    "users_alt" in tabellen.get("sessions", ""))
+
+        if not any(zustand()):
+            return
+
+        def spalten(tabelle: str) -> list[str]:
+            return [str(row[1]) for row in conn.execute(f"PRAGMA table_info({tabelle})")]
+
+        conn.commit()
+        vorher = conn.isolation_level
+        conn.isolation_level = None
+        # Muss ausserhalb einer Transaktion stehen, sonst wirkt es nicht.
+        conn.execute("PRAGMA foreign_keys=OFF")
+        try:
+            conn.execute("BEGIN IMMEDIATE")
+            # Ein zweiter Prozess kann inzwischen umgebaut haben: erst jetzt,
+            # unter der Schreibsperre, zaehlt der Zustand.
+            neubau, verwaist, _ = zustand()
+            if neubau:
+                gemeinsam = [s for s in USERS_COLUMNS if s in spalten("users")]
+                conn.execute(_users_ddl("users_neu"))
+                liste = ", ".join(gemeinsam)
+                conn.execute(f"INSERT INTO users_neu ({liste}) SELECT {liste} FROM users")
+                conn.execute("DROP TABLE users")
+                conn.execute("ALTER TABLE users_neu RENAME TO users")
+            if verwaist:
+                gemeinsam = [s for s in USERS_COLUMNS
+                             if s in spalten("users_alt") and s in spalten("users")]
+                liste = ", ".join(gemeinsam)
+                conn.execute(
+                    f"INSERT OR IGNORE INTO users ({liste}) SELECT {liste} FROM users_alt")
+                conn.execute("DROP TABLE users_alt")
+            sitzungs_sql = str((conn.execute(
+                "SELECT sql FROM sqlite_master WHERE type='table' AND name='sessions'"
+            ).fetchone() or [""])[0] or "")
+            if "users_alt" in sitzungs_sql:
+                conn.execute(_SESSIONS_DDL.replace("CREATE TABLE sessions",
+                                                   "CREATE TABLE sessions_neu"))
+                conn.execute(
+                    "INSERT OR IGNORE INTO sessions_neu SELECT s.token_hash, s.user_id, "
+                    "s.device_hash, s.ip_hash, s.created_at, s.expires_at FROM sessions s "
+                    "WHERE s.user_id IN (SELECT id FROM users)")
+                conn.execute("DROP TABLE sessions")
+                conn.execute("ALTER TABLE sessions_neu RENAME TO sessions")
+            conn.execute("CREATE INDEX IF NOT EXISTS sessions_user_idx ON sessions(user_id)")
+            conn.execute("CREATE INDEX IF NOT EXISTS sessions_expiry_idx ON sessions(expires_at)")
+            conn.execute("COMMIT")
+        except Exception:
+            if conn.in_transaction:
+                conn.execute("ROLLBACK")
+            raise
+        finally:
+            conn.execute("PRAGMA foreign_keys=ON")
+            conn.isolation_level = vorher
 
     def profile_dir(self, user_id: str) -> Path:
         return self.users_dir / user_id

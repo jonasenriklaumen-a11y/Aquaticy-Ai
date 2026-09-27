@@ -15,7 +15,7 @@ Nicht aenderbar ist alles, was Aquaticy mehr Zugriff auf fremdes Eigentum gaebe:
 * ob er ins Heimnetz sehen darf (``LAN_ENABLED``),
 * ob er sich Dinge merken darf (``MEMORY``),
 * ob er sich an die Rechts-Leitplanken haelt (``LEGAL_GUARD``) -- die schaltet
-  nur ein Pro-Konto in den Einstellungen ab, nie ein Satz im Chat,
+  nur ein Ultra-Konto in den Einstellungen ab, nie ein Satz im Chat,
 * ob die Werkstatt ins Internet darf und er sie bedient wie ein Mensch
   (``VM_USER_MODE``), und welches Abbild dort laeuft.
 
