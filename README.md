@@ -1,4 +1,4 @@
-# Aquaticy AI 9.5.23 Spark
+# Aquaticy AI 9.5.24 Spark
 
 **Aquaticy** recherchiert für dich. Du stellst eine Frage, Aquaticy sucht im Web, liest die
 passenden Seiten und fasst das Ergebnis zusammen — mit Quelle an jeder Angabe. Es läuft im
@@ -111,7 +111,7 @@ $ aquaticy
 git clone --branch Aquaticy-ai --single-branch https://github.com/jonasenriklaumen-a11y/Aquaticy-Ai.git
 cd Aquaticy-Ai
 uv tool install --force --reinstall .
-aquaticy --version            # 9.5.23 Spark
+aquaticy --version            # 9.5.24 Spark
 
 # 2. Einrichten — fragt nach Modell und Schlüssel und testet beide
 aquaticy setup
@@ -524,16 +524,27 @@ Geschichte, Geschichten, Humor oder Kritik sind frei, und ein Nein des schnellen
 zählt erst, wenn auch das Hauptmodell es so sieht. Abschalten lassen sich die Leitplanken nur mit
 einem Ultra-Konto und nie aus dem Chat heraus.
 
-**Ai-guard** läuft auf jedem Konto und erkennt über mehrere Chats hinweg, wenn jemand versucht,
-Aquaticy für Angriffe oder Rechtsbrüche zu missbrauchen (z. B. Schadsoftware, DDoS-Anleitungen).
-Nach **zwei Anhaltspunkten** wird ein Normal- oder Pro-Konto gesperrt und der Grund im Terminal
-genannt; bei Ultra-Konten warnt Ai-guard nur im Terminal. Die Daten werden ausschließlich dafür
-genutzt. Sperren und freigeben:
+**Ai-guard** läuft auf jedem Konto und entscheidet nach **Art und Schwere**, was passiert:
+
+| Art | Was passiert |
+|---|---|
+| Beleidigung, leicht | nur **dieser Chat** wird gesperrt — neue Chats gehen |
+| Beleidigung, mittel bis schwer | Bann für 1 Tag, 7 Tage oder für immer |
+| Schadsoftware bauen/installieren (auch in der Werkstatt) | sofort Bann, 4 Tage bis für immer |
+| Angriffshilfe, schwerer GG/BGB-Verstoß (z. B. Diebstahl, Betrug), Versuche, die Schutzregeln auszuhebeln | ab dem **zweiten** Anhaltspunkt Bann, 1 Tag bis für immer |
+| Bagatellen („bei Rot über die Ampel, ist das ok?“), Bildung, Verteidigung | nichts |
+
+Bei einem Bann bleibt der Chat, in dem es passiert ist, dauerhaft gesperrt. Der **Werkstatt-Wächter**
+prüft, was in der Werkstatt gebaut, installiert oder ausgeführt werden soll, und stoppt
+Schadsoftware, bevor sie läuft. Ein gesperrtes Konto kann sich anmelden, aber nicht schreiben:
+oben links unter der Versionsnummer steht ein rotes **Info** mit Dauer, Grund und was man tun kann.
+Ultra-Konten werden nur im Terminal gewarnt. Die Daten dienen ausschließlich dem Missbrauchsschutz.
 
 ```bash
-aquaticy ban "name"            # Konto sperren
+aquaticy ban "name"            # Konto dauerhaft sperren
+aquaticy ban "name" --tage 7   # Konto für 7 Tage sperren
 aquaticy ban 203.0.113.7       # IP-Adresse sperren
-aquaticy unban "name"          # wieder freigeben
+aquaticy unban "name"          # wieder freigeben (auch Chatsperren)
 aquaticy list                  # Konten mit IP-Adresse und Ai-guard-Stand
 ```
 

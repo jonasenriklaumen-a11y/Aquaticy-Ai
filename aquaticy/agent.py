@@ -2650,11 +2650,13 @@ class Agent:
             question, self._recent_context(include_last=True)
         )
         self._model_ready()
-        if verdict.abuse and verdict.allowed:
-            # Missbrauchsabsicht, aber keine Rechtsverletzung: die Anfrage läuft
-            # weiter (das Modell antwortet nach seiner Richtlinie), Ai-guard
-            # merkt sich den Anhaltspunkt (9.5.16 Lion, aquaticy/aiguard.py).
-            self._emit("abuse", art=verdict.abuse_kind or "Missbrauch")
+        if verdict.abuse:
+            # Fehlverhalten mit Art und Schwere (seit 9.5.24 auch bei einer
+            # Ablehnung): Ai-guard entscheidet daraus Chatsperre oder Bann
+            # (aquaticy/aiguard.py). Eine blosse Ablehnung ohne Missbrauch --
+            # etwa eine Bagatelle -- zaehlt dagegen nicht mehr.
+            self._emit("abuse", art=verdict.abuse_kind or "Missbrauch",
+                       schwere=int(verdict.abuse_severity or 0))
         if verdict.allowed:
             return None
         antwort = refusal_text(verdict)

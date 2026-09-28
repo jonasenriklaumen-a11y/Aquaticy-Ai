@@ -95,7 +95,18 @@ body.collapsed aside{margin-left:-260px}
 .mark{width:22px;height:22px;flex:0 0 auto;color:var(--accent)}
 .brand .name{font-weight:600;letter-spacing:-.01em;font-size:16px}
 .brand .ver{font-size:11px;color:var(--text-3);font-variant-numeric:tabular-nums;
-  border:1px solid var(--line-2);border-radius:999px;padding:1px 7px;margin-left:auto}
+  border:1px solid var(--line-2);border-radius:999px;padding:1px 7px}
+/* Versionsnummer und darunter -- nur bei einer Sperre -- das rote „Info“ (9.5.24). */
+.ver-stack{margin-left:auto;display:flex;flex-direction:column;align-items:flex-end;gap:3px}
+.ban-info{background:none;border:0;padding:0 2px;cursor:pointer;color:var(--err);
+  font:700 11px/1.2 inherit;text-decoration:underline;text-underline-offset:2px}
+.ban-info[hidden]{display:none}
+.ban-info:focus-visible{outline:2px solid var(--err);outline-offset:2px;border-radius:3px}
+.ban-dot{background:var(--err)!important}
+.ban-facts{margin:10px 0 4px;display:grid;grid-template-columns:auto 1fr;gap:6px 14px;
+  font-size:13.5px}
+.ban-facts dt{color:var(--text-3);font-weight:600}
+.ban-facts dd{margin:0;color:var(--text)}
 .newchat{margin:4px 12px 14px;display:flex;align-items:center;gap:9px;width:calc(100% - 24px);
   background:transparent;border:1px solid var(--line-2);border-radius:11px;padding:9px 12px;
   cursor:pointer;color:var(--text);text-align:left;font-size:14px}
@@ -1200,7 +1211,12 @@ input:focus,select:focus{border-color:var(--accent)}
       <path d="M12 1.6l1.9 6.1 5.6-3-3 5.6 6.1 1.9-6.1 1.9 3 5.6-5.6-3L12 22.4l-1.9-6.1-5.6 3 3-5.6L1.4 11.8l6.1-1.9-3-5.6 5.6 3z"/>
     </svg>
     <span class="name">Aquaticy AI</span>
-    <span class="ver" id="version">…</span>
+    <span class="ver-stack">
+      <span class="ver" id="version">…</span>
+      <!-- Ai-guard (9.5.24): nur sichtbar, wenn das Konto gesperrt ist. -->
+      <button type="button" class="ban-info" id="ban-info" hidden
+              aria-haspopup="dialog">Info</button>
+    </span>
   </div>
   <button class="newchat" id="btn-new"><span class="plus">+</span> Neuer Chat</button>
   <div class="side-title">Letzte Chats</div>
@@ -1398,6 +1414,22 @@ input:focus,select:focus{border-color:var(--accent)}
     <div class="actions">
       <button type="button" class="btn" id="guard-cancel">Abbrechen</button>
       <button type="button" class="btn primary" id="guard-ok">Weiter</button>
+    </div>
+  </div>
+</div>
+
+<div class="overlay ask" id="banbox">
+  <div class="sheet ask-sheet" role="alertdialog" aria-modal="true"
+       aria-labelledby="ban-title" aria-describedby="ban-reason">
+    <div class="ask-head"><span class="ask-dot ban-dot"></span>Ai-guard</div>
+    <div class="ask-q" id="ban-title">Dein Konto ist gesperrt</div>
+    <dl class="ban-facts">
+      <dt>Wie lange</dt><dd id="ban-duration"></dd>
+      <dt>Warum</dt><dd id="ban-reason"></dd>
+      <dt>Was du tun kannst</dt><dd id="ban-todo"></dd>
+    </dl>
+    <div class="actions">
+      <button type="button" class="btn primary" id="ban-ok">Verstanden</button>
     </div>
   </div>
 </div>
@@ -1998,7 +2030,7 @@ input:focus,select:focus{border-color:var(--accent)}
 const $ = (s) => document.querySelector(s);
 const thread = $("#thread"), main = $("#main"), input = $("#input"), send = $("#send");
 let busy = false;
-const aquaticyVersion = window.__AQUATICY_VERSION__ || "9.5.23 Spark";
+const aquaticyVersion = window.__AQUATICY_VERSION__ || "9.5.24 Spark";
 $("#version").textContent = "v" + aquaticyVersion;
 document.title = `Aquaticy AI ${aquaticyVersion}`;
 
@@ -2936,6 +2968,15 @@ async function verfolge(hole, steps, bubble, text){
         zeigeLimitHinweis(daten.usage);
         throw Object.assign(new Error(message), { gezeigt: true });
       }
+      if (daten && (daten.code === "banned" || daten.code === "chat_locked")){
+        // Ai-guard (9.5.24): gesperrtes Konto oder gesperrter Chat. Der Satz
+        // steht als Antwort da; beim Bann erscheint das rote „Info“.
+        step(steps, "[Ai-guard]", daten.code === "banned" ? "Konto gesperrt"
+             : "Chat gesperrt", "err");
+        bubble.innerHTML = md(message);
+        if (daten.code === "banned") zeigeSperre(daten.ban);
+        throw Object.assign(new Error(message), { gezeigt: true });
+      }
       throw new Error(message);
     }
     const reader = res.body.getReader(), dec = new TextDecoder();
@@ -3219,9 +3260,16 @@ async function verfolge(hole, steps, bubble, text){
       case "fallback": step(steps, "[Ausweich]", `${ev.source} → ${ev.target}`, "warn"); break;
       case "retry": step(steps, "[Neu]", `Versuch ${ev.attempt}: ${ev.reason}`, "warn"); break;
       case "banned":
-        // Ai-guard hat das Konto gesperrt (9.5.16 Lion). Der Grund steht als
-        // Antworttext; hier ein sichtbarer Vermerk im Mitlesen.
-        step(steps, "[Ai-guard]", "Konto gesperrt", "err"); break;
+        // Ai-guard hat das Konto gesperrt (9.5.16 Lion). Seit 9.5.24 erscheint
+        // dazu sofort das rote „Info“ mit Dauer und Grund.
+        step(steps, "[Ai-guard]", "Konto gesperrt — Details unter „Info“ oben links", "err");
+        pruefeSperre();
+        break;
+      case "chat_locked":
+        // Nur dieser Chat ist zu (9.5.24) -- ein neuer Chat geht weiter.
+        step(steps, "[Ai-guard]",
+             "Dieser Chat ist gesperrt (unangemessene Sprache). Ein neuer Chat geht.", "err");
+        break;
       case "error": step(steps, "[Fehler]", ev.message, "err"); break;
       case "chunk":
         answer += ev.text;
@@ -4133,7 +4181,9 @@ async function loadAccount(account){
   $("#account-username").textContent = currentUsername || "…";
   $("#account-email").textContent = account?.email || "…";
   greet();
-  $("#account-plan").textContent = account?.plan_label || (account?.pro ? "Pro" : "Normal");
+  $("#account-plan").textContent = account?.plan_label
+    || (account?.ultra ? "Ultra" : account?.plan === "pro" ? "Pro" : "Normal");
+  if (account && "ban" in account) zeigeSperre(account.ban);
   // "ultra" = die Vollstufe: Netz-Features, das Abschalten der Leitplanken
   // (seit 9.5.17) und die Auslastungsanzeige (seit 9.5.21).
   const ultra = account?.ultra === true;
@@ -4212,6 +4262,33 @@ function guardSchliessen(ergebnis){
 $("#guard-ok").addEventListener("click", () => guardSchliessen(true));
 $("#guard-cancel").addEventListener("click", () => guardSchliessen(false));
 guardBox.addEventListener("click", (e) => { if (e.target === guardBox) guardSchliessen(false); });
+
+/* ---------- Ai-guard: Sperre anzeigen (9.5.24) ---------- */
+// Ist das Konto gesperrt, steht unter der Versionsnummer ein rotes „Info“.
+// Ein Klick sagt, wie lange, warum und was man tun kann. Die Saetze schreibt
+// der Server (aquaticy/aiguard.py, ban_info) -- hier nur als Text eingesetzt.
+const banBox = $("#banbox");
+let sperre = { banned: false };
+function zeigeSperre(ban){
+  sperre = (ban && typeof ban === "object" && ban.banned) ? ban : { banned: false };
+  $("#ban-info").hidden = !sperre.banned;
+}
+function oeffneSperre(){
+  if (!sperre.banned) return;
+  $("#ban-duration").textContent = sperre.permanent
+    ? "Dauerhaft"
+    : String(sperre.duration || "") + (sperre.until ? ` (bis ${sperre.until})` : "");
+  $("#ban-reason").textContent = sperre.reason || "Verstoß gegen die Nutzungsregeln";
+  $("#ban-todo").textContent = sperre.what_to_do || "";
+  openOverlay(banBox);
+  requestAnimationFrame(() => $("#ban-ok").focus());
+}
+async function pruefeSperre(){
+  try { zeigeSperre((await (await api("/api/account")).json()).ban); } catch {}
+}
+$("#ban-info").addEventListener("click", oeffneSperre);
+$("#ban-ok").addEventListener("click", () => closeOverlay(banBox));
+banBox.addEventListener("click", (e) => { if (e.target === banBox) closeOverlay(banBox); });
 
 // Einschalten geht immer ohne Rueckfrage. Ausschalten: beim normalen Konto
 // ein freundliches Nein, bei Pro eine bewusste Entscheidung -- ein
@@ -5671,6 +5748,7 @@ async function starteOberflaeche(){
   refreshHeader();
   loadRecents();
   pruefeLimits();
+  pruefeSperre();   // Ai-guard (9.5.24): rotes „Info“, wenn das Konto gesperrt ist
   await wiederAufnehmen();
   input.focus();
 }

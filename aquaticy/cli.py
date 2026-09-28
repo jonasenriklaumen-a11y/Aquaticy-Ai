@@ -476,7 +476,9 @@ def list_users_command() -> None:
                   "Eigene Schlüssel", "Speicher", "Ai-guard", box=None, pad_edge=False)
     for account in accounts:
         profile = store.profile_dir(account.id)
-        if account.pro:
+        # Nur Ultra ist unbegrenzt (seit 9.5.17); bis 9.5.24 stand hier
+        # "account.pro" -- Pro hiess dann "kein Limit", Ultra bekam Prozent.
+        if account.ultra:
             sitzung = woche = "kein Limit"
         else:
             stand = store.quota(account).status()
@@ -493,7 +495,9 @@ def list_users_command() -> None:
         adresse = account.last_ip or "—"
         gesperrt = guard.is_banned(user_id=account.id, ip=account.last_ip)
         punkte = guard.flag_count(account.id)
-        stand_guard = ("[red]gesperrt[/red]" if gesperrt is not None
+        # Seit 9.5.24 mit Dauer: "gesperrt (noch 3 Tag(e))" oder "(dauerhaft)".
+        stand_guard = (f"[red]gesperrt ({gesperrt.remaining_text()})[/red]"
+                       if gesperrt is not None
                        else f"[yellow]{punkte} Anhaltspunkt(e)[/yellow]" if punkte
                        else "ok")
         table.add_row(
@@ -556,20 +560,25 @@ def _ist_adresse(wert: str) -> bool:
 def ban_command(
     wen: str = typer.Argument(..., help="Nutzername, E-Mail oder IP-Adresse."),
     grund: str = typer.Option("", "--grund", help="Kurzer Vermerk."),
+    tage: int = typer.Option(0, "--tage", help="Dauer in Tagen; 0 = für immer."),
 ) -> None:
     """Sperrt ein Konto oder eine IP-Adresse (Ai-guard).
 
-    aquaticy ban "anna"  ·  aquaticy ban 203.0.113.7
+    aquaticy ban "anna"  ·  aquaticy ban "anna" --tage 7  ·  aquaticy ban 203.0.113.7
     """
+    import time as _zeit
+
     from aquaticy.aiguard import guard_for
     from aquaticy.auth import AuthStore, pro_code_for
 
     settings = get_settings()
     guard = guard_for(settings.data_dir)
     wen = wen.strip()
+    bis = _zeit.time() + tage * 86400 if tage > 0 else 0.0
+    dauer = f" für {tage} Tag(e)" if tage > 0 else " dauerhaft"
     if _ist_adresse(wen):
-        adresse = guard.ban_ip(wen, reason=grund)
-        console.print(f"[green]Adresse {adresse} gesperrt.[/green]" if adresse
+        adresse = guard.ban_ip(wen, reason=grund, until=bis)
+        console.print(f"[green]Adresse {adresse}{dauer} gesperrt.[/green]" if adresse
                       else "[red]Das ist keine gültige Adresse.[/red]")
         return
     store = AuthStore(settings.data_dir, pro_code_for(settings.data_dir))
@@ -581,8 +590,8 @@ def ban_command(
     if konto is None:
         console.print(f"[yellow]Kein Konto mit Name oder E-Mail „{wen}“.[/yellow]")
         raise typer.Exit(code=1)
-    guard.ban_user(konto.id, reason=grund)
-    console.print(f"[green]Konto {konto.username} ({konto.email}) gesperrt.[/green]")
+    guard.ban_user(konto.id, reason=grund, until=bis)
+    console.print(f"[green]Konto {konto.username} ({konto.email}){dauer} gesperrt.[/green]")
 
 
 @app.command("unban")

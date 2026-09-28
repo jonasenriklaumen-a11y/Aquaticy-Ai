@@ -1782,7 +1782,12 @@ def start_user_scheduler(account: Account) -> None:
         if account.id in USER_SCHEDULERS:
             return
         # Das Kontingent steckt in den Einstellungen des Kontos (settings.quota).
-        scheduler = Scheduler(SESSIONS.get(account).settings)
+        # Waehrend einer Ai-guard-Sperre bleiben die Auftraege liegen (9.5.24).
+        konto_id = account.id
+        scheduler = Scheduler(
+            SESSIONS.get(account).settings,
+            paused=lambda: AIGUARD is not None and AIGUARD.is_banned(user_id=konto_id) is not None,
+        )
         scheduler.start()
         USER_SCHEDULERS[account.id] = scheduler
 
@@ -2809,6 +2814,18 @@ class Handler(BaseHTTPRequestHandler):
         return AUTH.session_account(self._cookie(AUTH_COOKIE), self._device(),
                                     self._client_ip())
 
+    def _ban_view(self, account: Any) -> dict[str, Any]:
+        """Die Sperre eines Kontos fuer die Oberflaeche (9.5.24) -- oder {banned: False}."""
+        if AIGUARD is None or account is None:
+            return {"banned": False}
+        from aquaticy.aiguard import ban_info
+
+        try:
+            return ban_info(AIGUARD.is_banned(user_id=str(getattr(account, "id", "")),
+                                              ip=self._client_ip()))
+        except Exception:
+            return {"banned": False}
+
     def _origin_ok(self) -> bool:
         # Moderne Browser sagen selbst, woher eine Anfrage kommt (seit 9.5.22
         # ausgewertet): von einer fremden Seite -- auch einer Nachbar-Subdomain
@@ -3200,6 +3217,8 @@ class Handler(BaseHTTPRequestHandler):
                     "ultra": account.ultra,
                     "plan_label": account.plan_label,
                     "usage": usage_view(SESSION.settings()),
+                    # Sperre (9.5.24): fuer das rote „Info“ unter der Versionsnummer.
+                    "ban": self._ban_view(account),
                 }
             )
         elif route == "/google":
@@ -3215,12 +3234,16 @@ class Handler(BaseHTTPRequestHandler):
                             "email": SESSION.account.email,
                             "username": SESSION.account.username,
                             "plan": SESSION.plan,
+                            # Seit 9.5.24: der Name des Tarifs kommt mit -- bis dahin
+                            # zeigte die Seite bei Ultra "Pro" (nur "pro" war gesetzt).
+                            "plan_label": SESSION.account.plan_label,
                             "pro": SESSION.pro,
                             "ultra": SESSION.ultra,
+                            "ban": self._ban_view(SESSION.account),
                         }
                         if SESSION.account is not None
                         else {"email": "lokal", "username": "", "plan": "ultra",
-                              "pro": True, "ultra": True}
+                              "plan_label": "Ultra", "pro": True, "ultra": True}
                     ),
                     "values": current_values(),
                     "key_name": api_key_name_for(settings.model),
@@ -3502,13 +3525,13 @@ class Handler(BaseHTTPRequestHandler):
                     LOGIN_FAILS.allow(konto_schluessel)
                     self._json({"ok": False, "error": "E-Mail oder Passwort stimmt nicht."}, 401)
                     return
-            # Ein gesperrtes Konto (oder eine gesperrte Adresse) kommt nicht
-            # herein -- weder mit richtigem Passwort noch über ein neues Konto
-            # von derselben Adresse (9.5.16 Lion).
+            # Eine gesperrte ADRESSE kommt nicht herein (9.5.16 Lion). Ein
+            # gesperrtes KONTO dagegen schon (seit 9.5.24): es soll unter „Info“
+            # sehen, warum und wie lange -- schreiben kann es nicht (/api/chat).
             if AIGUARD is not None:
                 from aquaticy.aiguard import BANNED_MESSAGE
 
-                if AIGUARD.is_banned(user_id=account.id, ip=self._client_ip()) is not None:
+                if AIGUARD.is_banned(ip=self._client_ip()) is not None:
                     self._json({"ok": False, "error": BANNED_MESSAGE, "code": "banned"}, 403)
                     return
             AUTH.note_seen(account.id, self._client_ip())
@@ -4099,9 +4122,17 @@ p{{margin:0 0 8px;color:#57534a}}</style></head><body><main>
         if AIGUARD is not None and konto is not None:
             gesperrt = AIGUARD.is_banned(user_id=konto.id, ip=self._client_ip())
             if gesperrt is not None:
-                from aquaticy.aiguard import BANNED_MESSAGE
+                from aquaticy.aiguard import BANNED_MESSAGE, ban_info
 
-                self._json({"error": BANNED_MESSAGE, "code": "banned"}, 403)
+                self._json({"error": BANNED_MESSAGE, "code": "banned",
+                            "ban": ban_info(gesperrt)}, 403)
+                return
+            # Chatsperre (9.5.24): nur DIESER Chat ist zu -- ein neuer geht.
+            aktueller = SESSION.current() if isinstance(SESSION, SessionProxy) else SESSION
+            if AIGUARD.chat_locked(konto.id, aktueller.chat_id()):
+                from aquaticy.aiguard import CHAT_LOCKED_MESSAGE
+
+                self._json({"error": CHAT_LOCKED_MESSAGE, "code": "chat_locked"}, 403)
                 return
 
         # Der Lauf gehoert ab hier dem Server, nicht der Verbindung. Reisst
@@ -4124,26 +4155,23 @@ p{{margin:0 0 8px;color:#57534a}}</style></head><body><main>
             kind = "chunk" if name == "answer_chunk" else name
             if geheim and kind not in ("chunk", "thought"):
                 payload = scrub_payload(payload, geheim)
-            if AIGUARD is not None and konto is not None:
-                # Zwei Wege zu einem Anhaltspunkt (9.5.16 Lion, aus demselben
-                # Prüf-Aufruf des Rechtsrahmens): eine Ablehnung nach Grundgesetz/
-                # BGB ("guard"), oder eine erkannte Missbrauchsabsicht ("abuse").
-                anlass = ""
-                # Nur ein echtes Urteil ueber die Anfrage zaehlt -- nie ein Ausfall
-                # der Pruefung ("ausfall") oder eine unlesbare Antwort ("unklar"):
-                # dafuer kann der Nutzer nichts (Fund 9.5.18: zwei Anbieter-Ausfaelle
-                # in zwei Chats haetten sonst ein Konto gesperrt).
-                if (kind == "guard" and payload.get("stage") == "anfrage"
-                        and payload.get("source") not in ("ausfall", "unklar")):
-                    anlass = "Rechtsrahmen: " + str(payload.get("title") or "")
-                elif kind == "abuse":
-                    anlass = "Missbrauch: " + str(payload.get("art") or "")
-                if anlass:
-                    with contextlib.suppress(Exception):
-                        if AIGUARD.note(konto.id, anlass, detail=anlass,
-                                        chat=session.chat_id(),
-                                        enforce=not getattr(konto, "ultra", False)):
-                            lauf.add({"type": "banned"})
+            if AIGUARD is not None and konto is not None and kind == "abuse":
+                # Seit 9.5.24 entscheidet Ai-guard aus Art und Schwere (aus
+                # demselben Prüf-Aufruf des Rechtsrahmens): Chatsperre, Bann
+                # fuer Tage oder fuer immer. Eine blosse Ablehnung nach GG/BGB
+                # ohne Missbrauch zaehlt nicht mehr -- "bei Rot ueber die Ampel,
+                # ist das ok?" soll niemanden sperren. Ausfall oder unklare
+                # Pruefung erzeugen gar kein "abuse" (Fund 9.5.18).
+                with contextlib.suppress(Exception):
+                    massnahme = AIGUARD.record_incident(
+                        konto.id, str(payload.get("art") or ""),
+                        int(payload.get("schwere") or 0),
+                        chat=session.chat_id(), detail=str(payload.get("art") or ""),
+                        enforce=not getattr(konto, "ultra", False))
+                    if massnahme.kind == "ban":
+                        lauf.add({"type": "banned"})
+                    elif massnahme.kind == "chat":
+                        lauf.add({"type": "chat_locked"})
             if kind == "done":
                 seen_done.set()
                 # Der Aufnahmezeitpunkt eines Bildes kommt als fertiger Text

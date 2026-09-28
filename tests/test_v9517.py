@@ -84,6 +84,18 @@ def test_one_account_per_public_ip(store: AuthStore) -> None:
                    **TERMS)
 
 
+def test_the_last_used_address_also_blocks_a_second_account(store: AuthStore) -> None:
+    """Seit 9.5.24: auch die zuletzt genutzte Adresse zaehlt, nicht nur die
+    Anlege-Adresse -- sonst sammelt eine Adresse mehrere Konten."""
+    a = store.register("a@e.de", "ein langes Passwort", "normal", username="aa",
+                       ip="203.0.113.9", **TERMS)
+    # Konto a wird spaeter von einer anderen Adresse aus genutzt.
+    store.note_seen(a.id, "198.51.100.20")
+    with pytest.raises(ValueError, match="schon ein Konto"):
+        store.register("b@e.de", "ein langes Passwort", "normal", username="bb",
+                       ip="198.51.100.20", **TERMS)
+
+
 def test_loopback_is_exempt_from_one_per_ip(store: AuthStore) -> None:
     store.register("a@e.de", "ein langes Passwort", "normal", username="aa", ip="127.0.0.1",
                    **TERMS)

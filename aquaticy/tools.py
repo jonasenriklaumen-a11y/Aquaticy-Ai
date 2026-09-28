@@ -2815,6 +2815,24 @@ class Toolbox:
         """Fuehrt den Tool-Call *name* mit *arguments* aus."""
         if self.guard is not None and name in SENSITIVE_TOOLS:
             verdict = self.guard.check_call(name, arguments)
+            if verdict.abuse:
+                # Werkstatt-Wächter (9.5.24): Schadsoftware oder Angriffshilfe
+                # wird gestoppt, bevor sie läuft -- und Ai-guard erfährt davon
+                # (härtere Sperre, aquaticy/aiguard.py).
+                from aquaticy.aiguard import normalize_category
+                from aquaticy.guardrails import STOP_TOOL_ABUSE
+
+                art = normalize_category(verdict.abuse_kind)
+                self._emit("abuse", art=art or verdict.abuse_kind or "Missbrauch",
+                           schwere=int(verdict.abuse_severity or 0), tool=name)
+                if art in STOP_TOOL_ABUSE:
+                    self._emit("guard", **event_payload(verdict, "werkzeug", name))
+                    return {
+                        "error": ("Ai-guard hat das gestoppt: Das sieht nach Schadsoftware "
+                                  "oder einem Angriff aus. Das baut und startet Aquaticy "
+                                  "nicht — versuche es nicht auf anderem Weg."),
+                        "skipped_reason": "aiguard_stop",
+                    }
             if not verdict.allowed:
                 self._emit("guard", **event_payload(verdict, "werkzeug", name))
                 return tool_refusal(verdict)

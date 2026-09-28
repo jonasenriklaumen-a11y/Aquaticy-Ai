@@ -395,6 +395,19 @@ def normales_konto(browser: Any, port: int, log: Protokoll, fehler: list[str]) -
     # 9.5.21: Die Auslastung des Rechners gehoert zu Ultra -- Normal (und Pro)
     # sehen den Abschnitt gar nicht, und der Server gibt die Zahlen nicht heraus.
     log.pruefe(pg.is_hidden("#pro-system"), "die Auslastung ist für Normal nicht zu sehen")
+    # 9.5.24: Das rote „Info“ gibt es nur bei einer Sperre.
+    log.pruefe(pg.is_hidden("#ban-info"), "ohne Sperre steht unter der Version kein „Info“")
+    pg.evaluate("zeigeSperre({banned: true, reason: 'Test', duration: 'noch 2 Tag(e)', "
+                "until: '01.01.2030', permanent: false, what_to_do: 'Warten.'})")
+    log.pruefe(pg.is_visible("#ban-info"), "bei einer Sperre erscheint das rote „Info“")
+    pg.click("#ban-info")
+    pg.wait_for_selector("#banbox.open", state="visible")
+    log.pruefe("noch 2 Tag" in pg.inner_text("#ban-duration")
+               and pg.inner_text("#ban-reason") == "Test",
+               "ein Klick zeigt Dauer und Grund")
+    pg.click("#ban-ok")
+    pg.wait_for_selector("#banbox", state="hidden")
+    pg.evaluate("zeigeSperre({banned: false})")
     status = pg.evaluate("async () => (await fetch('/api/system')).status")
     log.pruefe(status == 403, f"und am Fenster vorbei gibt der Server sie nicht her ({status})")
     # 9.5.17: "Eigene Modelle" -- erst da, wenn man oben selbst etwas hinzufuegt.

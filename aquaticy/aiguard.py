@@ -39,6 +39,8 @@ import hashlib
 import ipaddress
 import json
 import logging
+import math
+import re
 import sqlite3
 import threading
 import time
@@ -90,6 +92,144 @@ class Ban:
     at: float
     reason: str
     by: str
+    #: Wann die Sperre endet (Unix-Zeit). 0 heisst: fuer immer (seit 9.5.24).
+    until: float = 0.0
+
+    def active(self, now: float | None = None) -> bool:
+        """Gilt die Sperre gerade noch?"""
+        return self.until <= 0 or self.until > (time.time() if now is None else now)
+
+    def remaining_text(self, now: float | None = None) -> str:
+        """Wie lange noch -- fuer den Hinweis an den Nutzer."""
+        if self.until <= 0:
+            return "dauerhaft"
+        rest = self.until - (time.time() if now is None else now)
+        if rest <= 0:
+            return "abgelaufen"
+        if rest < 3600:
+            return f"noch {max(1, math.ceil(rest / 60))} Min."
+        # Auf die volle Stunde aufgerundet: direkt nach einem 7-Tage-Bann soll
+        # "noch 7 Tag(e)" stehen, nicht "noch 6 Tag(e), 23 Std.".
+        stunden_gesamt = math.ceil(rest / 3600)
+        tage, stunden = divmod(stunden_gesamt, 24)
+        if tage >= 1:
+            return f"noch {tage} Tag(e)" + (f", {stunden} Std." if stunden else "")
+        return f"noch {stunden} Std."
+
+
+# ---------------------------------------------------------------------------
+# Schweregrad -> Massnahme (seit 9.5.24)
+# ---------------------------------------------------------------------------
+#: Die Arten von Fehlverhalten, die Ai-guard unterscheidet. Alles andere ist
+#: harmlos und fuehrt zu nichts.
+#:  * ``beleidigung``  -- Beschimpfungen gegen Aquaticy oder andere.
+#:  * ``jailbreak``    -- wiederholte Versuche, die Regeln auszuhebeln oder
+#:                        Aquaticy etwas sagen zu lassen, was es nicht soll.
+#:  * ``malware``      -- Schadsoftware bauen, installieren oder ausfuehren.
+#:  * ``angriff``      -- andere Angriffshilfe (DDoS, Einbruch, Datendiebstahl,
+#:                        Waffen).
+#:  * ``rechtsbruch``  -- schwerer Verstoss gegen Grundgesetz/BGB, der einer
+#:                        realen Person oder Sache wirklich schadet (Diebstahl,
+#:                        Betrug). NICHT: Bagatellen wie "bei Rot gelaufen".
+KATEGORIEN = ("beleidigung", "jailbreak", "malware", "angriff", "rechtsbruch")
+
+#: Arten, die erst bei Wiederholung (``NEEDED`` Anhaltspunkte) sperren -- ein
+#: einzelner Anhaltspunkt kann ein Missverstaendnis sein.
+_MUSTER_ARTEN = frozenset({"jailbreak", "angriff", "rechtsbruch"})
+
+#: Arten, die sofort greifen -- schon ein klarer Fall reicht.
+_SOFORT_ARTEN = frozenset({"beleidigung", "malware"})
+
+_SYNONYME = {
+    "insult": "beleidigung", "beleidigung": "beleidigung", "beschimpfung": "beleidigung",
+    "hate": "beleidigung", "harassment": "beleidigung",
+    "jailbreak": "jailbreak", "prompt-injection": "jailbreak", "manipulation": "jailbreak",
+    "malware": "malware", "schadsoftware": "malware", "virus": "malware",
+    "schadcode": "malware", "schadprogramm": "malware",
+    "ransomware": "malware", "trojaner": "malware",
+    "angriff": "angriff", "attack": "angriff", "ddos": "angriff", "exploit": "angriff",
+    "phishing": "angriff", "einbruch": "angriff", "waffen": "angriff",
+    "rechtsbruch": "rechtsbruch", "diebstahl": "rechtsbruch", "betrug": "rechtsbruch",
+    "straftat": "rechtsbruch",
+}
+
+
+def normalize_category(art: str) -> str:
+    """Ordnet die Beschreibung des Modells einer bekannten Art zu -- oder ""."""
+    wort = str(art or "").strip().lower()
+    if wort in _SYNONYME:
+        return _SYNONYME[wort]
+    for teil in re.split(r"[^a-zäöüß]+", wort):
+        if teil in _SYNONYME:
+            return _SYNONYME[teil]
+    return ""
+
+
+@dataclass(frozen=True, slots=True)
+class Action:
+    """Was Ai-guard mit einem Vorfall tut."""
+
+    #: "none" (nur vermerken), "chat" (nur diesen Chat sperren), "ban" (Konto).
+    kind: str
+    #: Dauer eines Banns in Tagen. 0 = fuer immer. Bei "chat"/"none" ohne Belang.
+    days: int = 0
+    category: str = ""
+    reason: str = ""
+
+    @property
+    def until(self) -> float:
+        """Endzeit fuer einen zeitlich begrenzten Bann -- 0 bei "fuer immer"."""
+        return time.time() + self.days * 86400 if self.days > 0 else 0.0
+
+
+def decide(category: str, severity: int, prior: int = 0) -> Action:
+    """Entscheidet die Massnahme aus Art, Schwere (1-4) und bisherigen Mustern.
+
+    Args:
+        category: eine der :data:`KATEGORIEN` (oder etwas Unbekanntes -> nichts).
+        severity: 1 (leicht) bis 4 (sehr schwer). 0 oder weniger -> nichts.
+        prior: wie viele Muster-Anhaltspunkte das Konto schon hat (fuer die
+            Arten, die erst bei Wiederholung sperren).
+
+    Returns:
+        Die :class:`Action`. Die Dauer waechst mit der Schwere:
+        Beleidigung leicht -> Chatsperre, sonst 1/7 Tage bis fuer immer;
+        Malware haerter -> 4/14/30 Tage bis fuer immer; Angriff, Rechtsbruch
+        und Jailbreak erst ab dem zweiten Anhaltspunkt (1/7 Tage bis immer).
+    """
+    art = normalize_category(category)
+    stufe = max(0, min(4, int(severity or 0)))
+    if not art or stufe <= 0:
+        return Action("none", category=art)
+
+    if art == "beleidigung":
+        # Leicht: nur der Chat, in dem beleidigt wurde. Sonst Konto-Bann, der
+        # mit der Schwere waechst -- bei einem Bann wird der Chat mitgesperrt.
+        return {
+            1: Action("chat", category=art, reason="unangemessene Sprache"),
+            2: Action("ban", 1, art, "schwere Beleidigung"),
+            3: Action("ban", 7, art, "schwere Beleidigung"),
+            4: Action("ban", 0, art, "wiederholte schwere Beleidigung"),
+        }[stufe]
+
+    if art == "malware":
+        # Haerter gesehen (Wunsch des Betreibers): schon ein klarer Fall sperrt,
+        # 4 Tage bis fuer immer.
+        return {
+            1: Action("ban", 4, art, "Versuch, Schadsoftware zu erstellen"),
+            2: Action("ban", 14, art, "Versuch, Schadsoftware zu erstellen"),
+            3: Action("ban", 30, art, "Versuch, Schadsoftware zu bauen und auszuführen"),
+            4: Action("ban", 0, art, "wiederholter Bau von Schadsoftware"),
+        }[stufe]
+
+    # angriff / rechtsbruch / jailbreak: erst das Muster (zwei Anhaltspunkte).
+    if prior + 1 < NEEDED:
+        return Action("none", category=art, reason="einzelner Anhaltspunkt")
+    dauer = {1: 1, 2: 1, 3: 7, 4: 0}[stufe]
+    grund = {"angriff": "wiederholte Angriffsversuche",
+             "rechtsbruch": "wiederholte schwere Rechtsverstöße",
+             "jailbreak": "wiederholte Versuche, die Schutzregeln auszuhebeln"}[art]
+    return Action("ban", dauer, art, grund)
 
 
 # ---------------------------------------------------------------------------
@@ -251,6 +391,12 @@ def _norm_ip(ip: str) -> str:
     return str(adresse)
 
 
+def _ban_of(row: Any) -> Ban:
+    """Eine Zeile aus ``aiguard_bans`` als :class:`Ban`."""
+    return Ban(str(row["subject"]), float(row["at"]), str(row["reason"]), str(row["by"]),
+               float(row["until"] or 0.0))
+
+
 class AiGuard:
     """Anhaltspunkte und Sperren, in derselben Datenbank wie die Konten."""
 
@@ -275,21 +421,44 @@ class AiGuard:
             conn.executescript(
                 """
                 CREATE TABLE IF NOT EXISTS aiguard_flags (
-                    user_id TEXT NOT NULL,
-                    at      REAL NOT NULL,
-                    kind    TEXT NOT NULL,
-                    detail  TEXT NOT NULL DEFAULT '',
-                    chat    TEXT NOT NULL DEFAULT ''
+                    user_id  TEXT NOT NULL,
+                    at       REAL NOT NULL,
+                    kind     TEXT NOT NULL,
+                    detail   TEXT NOT NULL DEFAULT '',
+                    chat     TEXT NOT NULL DEFAULT '',
+                    category TEXT NOT NULL DEFAULT '',
+                    severity INTEGER NOT NULL DEFAULT 0
                 );
                 CREATE INDEX IF NOT EXISTS aiguard_flags_user ON aiguard_flags(user_id);
                 CREATE TABLE IF NOT EXISTS aiguard_bans (
                     subject TEXT PRIMARY KEY,
                     at      REAL NOT NULL,
                     reason  TEXT NOT NULL DEFAULT '',
-                    by      TEXT NOT NULL DEFAULT ''
+                    by      TEXT NOT NULL DEFAULT '',
+                    until   REAL NOT NULL DEFAULT 0
+                );
+                CREATE TABLE IF NOT EXISTS aiguard_chat_locks (
+                    user_id TEXT NOT NULL,
+                    chat    TEXT NOT NULL,
+                    at      REAL NOT NULL,
+                    reason  TEXT NOT NULL DEFAULT '',
+                    PRIMARY KEY (user_id, chat)
                 );
                 """
             )
+            # Aeltere Datenbanken (vor 9.5.24) kennen die neuen Spalten noch
+            # nicht -- fehlt eine, wird sie ergaenzt.
+            spalten_bans = {str(r["name"]) for r in conn.execute("PRAGMA table_info(aiguard_bans)")}
+            if "until" not in spalten_bans:
+                conn.execute("ALTER TABLE aiguard_bans ADD COLUMN until REAL NOT NULL DEFAULT 0")
+            spalten_flags = {str(r["name"])
+                             for r in conn.execute("PRAGMA table_info(aiguard_flags)")}
+            if "category" not in spalten_flags:
+                conn.execute("ALTER TABLE aiguard_flags ADD COLUMN category TEXT NOT NULL "
+                             "DEFAULT ''")
+            if "severity" not in spalten_flags:
+                conn.execute("ALTER TABLE aiguard_flags ADD COLUMN severity INTEGER NOT NULL "
+                             "DEFAULT 0")
 
     # -- Anhaltspunkte ----------------------------------------------------
     def note(self, user_id: str, kind: str, detail: str = "", chat: str = "",
@@ -345,6 +514,71 @@ class AiGuard:
                   f"zuletzt: {kind}) — nur Warnung, kein Bann.", flush=True)
         return gesperrt
 
+    def record_incident(self, user_id: str, category: str, severity: int, *,
+                        chat: str = "", detail: str = "", enforce: bool = True) -> Action:
+        """Vermerkt einen Vorfall mit Art und Schwere und setzt die Massnahme um.
+
+        Die Massnahme entscheidet :func:`decide` (seit 9.5.24): Chatsperre,
+        Bann fuer Tage oder fuer immer -- je nach Art und Schwere. Bei einem
+        Bann wird der Chat, in dem es passiert ist, zusaetzlich gesperrt.
+
+        Args:
+            enforce: ``False`` fuer Ultra-Konten -- dann nur eine Warnung im
+                Terminal, keine Sperre (wie seit 9.5.17).
+
+        Returns:
+            Die Massnahme, die tatsaechlich gilt (bei Ultra immer "none").
+        """
+        user_id = str(user_id or "")
+        art = normalize_category(category)
+        stufe = max(0, min(4, int(severity or 0)))
+        if not user_id or not art or stufe <= 0:
+            return Action("none", category=art)
+        with self._lock, self._connect() as conn:
+            schon = conn.execute(
+                "SELECT 1 FROM aiguard_flags WHERE user_id=? AND category=? AND chat=? "
+                "AND chat!=''", (user_id, art, str(chat)),
+            ).fetchone()
+            platz = ",".join("?" for _ in _MUSTER_ARTEN)
+            (vorher,) = conn.execute(
+                f"SELECT COUNT(*) FROM aiguard_flags WHERE user_id=? AND category IN ({platz})",
+                (user_id, *_MUSTER_ARTEN),
+            ).fetchone()
+            if schon is None or art in _SOFORT_ARTEN:
+                conn.execute(
+                    "INSERT INTO aiguard_flags (user_id, at, kind, detail, chat, category, "
+                    "severity) VALUES (?, ?, ?, ?, ?, ?, ?)",
+                    (user_id, time.time(), art, str(detail or art)[:200], str(chat)[:80],
+                     art, stufe),
+                )
+        # Dasselbe Muster im selben Chat zaehlt nur einmal -- sonst waere eine
+        # einzige, mehrfach geschickte Nachricht schon ein Bann.
+        if schon is not None and art in _MUSTER_ARTEN:
+            return Action("none", category=art, reason="schon vermerkt")
+        massnahme = decide(art, stufe, int(vorher))
+        if massnahme.kind == "none":
+            return massnahme
+        if not enforce:
+            LOG.warning("Ai-guard: Ultra-Konto %s — %s (%s), nur Warnung", user_id,
+                        massnahme.reason, art)
+            print(f"[Ai-guard] Ultra-Konto {user_id}: {massnahme.reason} ({art}, Stufe "
+                  f"{stufe}) — nur Warnung, keine Sperre.", flush=True)
+            return Action("none", category=art, reason=massnahme.reason)
+        if massnahme.kind == "chat":
+            self.lock_chat(user_id, chat, massnahme.reason)
+            print(f"[Ai-guard] Konto {user_id}: Chat gesperrt — {massnahme.reason}",
+                  flush=True)
+            return massnahme
+        # Bann -- und der Chat, in dem es passiert ist, bleibt fuer immer zu.
+        dauer = "für immer" if massnahme.days <= 0 else f"für {massnahme.days} Tag(e)"
+        self.ban_user(user_id, f"Ai-guard: {massnahme.reason} ({dauer})", "ai-guard",
+                      until=massnahme.until)
+        self.lock_chat(user_id, chat, massnahme.reason)
+        LOG.warning("Ai-guard: Konto %s gesperrt %s — %s", user_id, dauer, massnahme.reason)
+        print(f"[Ai-guard] Konto {user_id} gesperrt {dauer} — Grund: {massnahme.reason}",
+              flush=True)
+        return massnahme
+
     def flags(self, user_id: str) -> list[Flag]:
         with self._connect() as conn:
             rows = conn.execute(
@@ -361,32 +595,79 @@ class AiGuard:
             ).fetchone()
         return int(anzahl)
 
-    # -- Sperren ----------------------------------------------------------
-    def ban_user(self, user_id: str, reason: str = "", by: str = "terminal") -> None:
-        self._ban(f"user:{user_id!s}", reason or "Von Hand gesperrt", by)
+    def pattern_count(self, user_id: str) -> int:
+        """Anhaltspunkte der Muster-Arten (angriff/rechtsbruch/jailbreak, 9.5.24)."""
+        platz = ",".join("?" for _ in _MUSTER_ARTEN)
+        with self._connect() as conn:
+            (anzahl,) = conn.execute(
+                f"SELECT COUNT(*) FROM aiguard_flags WHERE user_id=? AND category IN ({platz})",
+                (str(user_id), *_MUSTER_ARTEN),
+            ).fetchone()
+        return int(anzahl)
 
-    def ban_ip(self, ip: str, reason: str = "", by: str = "terminal") -> str:
+    # -- Sperren ----------------------------------------------------------
+    def ban_user(self, user_id: str, reason: str = "", by: str = "terminal",
+                 until: float = 0.0) -> None:
+        self._ban(f"user:{user_id!s}", reason or "Von Hand gesperrt", by, until)
+
+    def ban_ip(self, ip: str, reason: str = "", by: str = "terminal", until: float = 0.0) -> str:
         """Sperrt eine Adresse. Returns: die normalisierte Adresse, oder "" wenn ungültig."""
         adresse = _norm_ip(ip)
         if adresse:
-            self._ban(f"ip:{adresse}", reason or "Von Hand gesperrt", by)
+            self._ban(f"ip:{adresse}", reason or "Von Hand gesperrt", by, until)
         return adresse
 
-    def _ban(self, subject: str, reason: str, by: str) -> None:
+    def _ban(self, subject: str, reason: str, by: str, until: float = 0.0) -> None:
         with self._lock, self._connect() as conn:
             conn.execute(
-                "INSERT INTO aiguard_bans (subject, at, reason, by) VALUES (?, ?, ?, ?) "
+                "INSERT INTO aiguard_bans (subject, at, reason, by, until) VALUES (?, ?, ?, ?, ?) "
                 "ON CONFLICT(subject) DO UPDATE SET at=excluded.at, reason=excluded.reason, "
-                "by=excluded.by",
-                (subject, time.time(), str(reason)[:200], str(by)[:60]),
+                "by=excluded.by, until=excluded.until",
+                (subject, time.time(), str(reason)[:200], str(by)[:60], float(until or 0.0)),
             )
 
+    # -- Chatsperre (9.5.24) ----------------------------------------------
+    def lock_chat(self, user_id: str, chat: str, reason: str = "") -> None:
+        """Sperrt genau einen Chat -- neue Chats bleiben moeglich."""
+        if not user_id or not chat:
+            return
+        with self._lock, self._connect() as conn:
+            conn.execute(
+                "INSERT INTO aiguard_chat_locks (user_id, chat, at, reason) VALUES (?, ?, ?, ?) "
+                "ON CONFLICT(user_id, chat) DO UPDATE SET at=excluded.at, reason=excluded.reason",
+                (str(user_id), str(chat)[:80], time.time(), str(reason)[:200]),
+            )
+
+    def chat_locked(self, user_id: str, chat: str) -> str:
+        """Grund, wenn dieser Chat gesperrt ist -- sonst ""."""
+        if not user_id or not chat:
+            return ""
+        with self._connect() as conn:
+            row = conn.execute(
+                "SELECT reason FROM aiguard_chat_locks WHERE user_id=? AND chat=?",
+                (str(user_id), str(chat)),
+            ).fetchone()
+        return str(row["reason"] or "unangemessene Sprache") if row else ""
+
+    def unlock_chat(self, user_id: str, chat: str = "") -> int:
+        """Hebt eine Chatsperre auf (leerer Chat: alle des Kontos)."""
+        with self._lock, self._connect() as conn:
+            if chat:
+                weg = conn.execute("DELETE FROM aiguard_chat_locks WHERE user_id=? AND chat=?",
+                                   (str(user_id), str(chat))).rowcount
+            else:
+                weg = conn.execute("DELETE FROM aiguard_chat_locks WHERE user_id=?",
+                                   (str(user_id),)).rowcount
+        return int(weg)
+
     def unban_user(self, user_id: str) -> bool:
-        """Gibt ein Konto frei -- samt seiner Anhaltspunkte, sonst sperrt es sich sofort neu."""
+        """Gibt ein Konto frei -- samt Anhaltspunkten und Chatsperren, sonst
+        sperrt es sich sofort neu."""
         with self._lock, self._connect() as conn:
             weg = conn.execute("DELETE FROM aiguard_bans WHERE subject=?",
                                (f"user:{user_id!s}",)).rowcount
             conn.execute("DELETE FROM aiguard_flags WHERE user_id=?", (str(user_id),))
+            conn.execute("DELETE FROM aiguard_chat_locks WHERE user_id=?", (str(user_id),))
         return bool(weg)
 
     def unban_ip(self, ip: str) -> bool:
@@ -410,30 +691,61 @@ class AiGuard:
             return None
         platz = ",".join("?" for _ in subjects)
         with self._connect() as conn:
-            row = conn.execute(
-                f"SELECT subject, at, reason, by FROM aiguard_bans WHERE subject IN ({platz}) "
-                "ORDER BY at LIMIT 1",
+            rows = conn.execute(
+                f"SELECT subject, at, reason, by, until FROM aiguard_bans "
+                f"WHERE subject IN ({platz}) ORDER BY at",
                 subjects,
-            ).fetchone()
-        return Ban(str(row["subject"]), float(row["at"]), str(row["reason"]),
-                   str(row["by"])) if row else None
+            ).fetchall()
+        # Eine abgelaufene Sperre (9.5.24, zeitlich begrenzt) zaehlt nicht mehr.
+        jetzt = time.time()
+        for row in rows:
+            ban = _ban_of(row)
+            if ban.active(jetzt):
+                return ban
+        return None
 
     def bans(self) -> list[Ban]:
         with self._connect() as conn:
             rows = conn.execute(
-                "SELECT subject, at, reason, by FROM aiguard_bans ORDER BY at"
+                "SELECT subject, at, reason, by, until FROM aiguard_bans ORDER BY at"
             ).fetchall()
-        return [Ban(str(r["subject"]), float(r["at"]), str(r["reason"]), str(r["by"]))
-                for r in rows]
+        return [_ban_of(r) for r in rows]
 
 
 #: Der Satz, den ein gesperrtes Konto zu sehen bekommt.
 BANNED_MESSAGE = (
-    "Dieses Konto ist gesperrt. Ai-guard hat wiederholt Anfragen erkannt, die "
-    "Aquaticy für Angriffe missbrauchen wollten (Schadsoftware, Angriffsanleitungen "
-    "oder Ähnliches). Wenn du das für einen Irrtum hältst, wende dich an den Betreiber "
-    "dieser Installation."
+    "Dieses Konto ist gesperrt. Ai-guard hat einen schweren Verstoß gegen die "
+    "Nutzungsregeln erkannt. Oben links unter der Versionsnummer steht unter „Info“, "
+    "warum und wie lange. Wenn du das für einen Irrtum hältst, wende dich an den "
+    "Betreiber dieser Installation."
 )
+
+#: Der Satz fuer einen gesperrten Chat (9.5.24).
+CHAT_LOCKED_MESSAGE = (
+    "In diesem Chat kannst du nicht mehr schreiben — Ai-guard hat ihn wegen "
+    "unangemessener Sprache gesperrt. Du kannst einen neuen Chat beginnen."
+)
+
+#: Was ein gesperrter Nutzer tun kann -- steht im Info-Fenster.
+WHAT_TO_DO = (
+    "Warte, bis die Sperre abläuft — danach geht alles wieder wie vorher. Hältst du die "
+    "Sperre für einen Irrtum, wende dich an den Betreiber dieser Installation; er kann "
+    "sie im Terminal aufheben (aquaticy unban)."
+)
+
+
+def ban_info(ban: Ban | None, now: float | None = None) -> dict[str, Any]:
+    """Was die Oberflaeche ueber eine Sperre zeigt (9.5.24). Leer, wenn keine."""
+    if ban is None or not ban.active(now):
+        return {"banned": False}
+    grund = ban.reason.removeprefix("Ai-guard: ").strip() or "Verstoß gegen die Nutzungsregeln"
+    if ban.until <= 0:
+        dauer, bis = "dauerhaft", ""
+    else:
+        dauer = ban.remaining_text(now)
+        bis = time.strftime("%d.%m.%Y, %H:%M Uhr", time.localtime(ban.until))
+    return {"banned": True, "reason": grund, "duration": dauer, "until": bis,
+            "permanent": ban.until <= 0, "what_to_do": WHAT_TO_DO}
 
 
 def guard_for(data_dir: Path | str) -> AiGuard:

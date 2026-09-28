@@ -590,8 +590,12 @@ class AuthStore:
                     raise vergeben
                 # Ein Konto pro Adresse (seit 9.5.17): gibt es von dieser
                 # Adresse schon eins, geht kein zweites.
+                # Seit 9.5.24 zaehlt auch die zuletzt genutzte Adresse: Konten aus
+                # der Zeit vor 9.5.17 haben keine Anlege-Adresse, und wer sein
+                # Konto spaeter von hier aus nutzt, belegt diese Adresse ebenso.
                 if pruefe_adresse and conn.execute(
-                        "SELECT 1 FROM users WHERE created_ip = ?", (pruefe_adresse,)).fetchone():
+                        "SELECT 1 FROM users WHERE created_ip = ? OR last_ip = ?",
+                        (pruefe_adresse, pruefe_adresse)).fetchone():
                     raise ValueError(
                         "Von dieser Adresse gibt es schon ein Konto. Pro Anschluss ist ein "
                         "Konto möglich — melde dich mit dem vorhandenen an."

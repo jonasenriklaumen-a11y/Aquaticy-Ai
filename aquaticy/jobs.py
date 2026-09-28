@@ -734,9 +734,12 @@ class Scheduler:
     ohnehin gegenseitig ausbremsen.
     """
 
-    def __init__(self, settings_getter: Any, on_run: Any = None) -> None:
+    def __init__(self, settings_getter: Any, on_run: Any = None, paused: Any = None) -> None:
         self._settings_getter = settings_getter
         self._on_run = on_run
+        #: Liefert True, solange nichts laufen darf -- etwa waehrend eine
+        #: Ai-guard-Sperre gilt (9.5.24). Die Auftraege bleiben liegen.
+        self._paused = paused
         self._stop = threading.Event()
         self._thread: threading.Thread | None = None
 
@@ -759,6 +762,13 @@ class Scheduler:
 
     def tick(self) -> int:
         """Ein Durchgang. Returns: wie viele Auftraege gelaufen sind."""
+        if self._paused is not None:
+            try:
+                if self._paused():
+                    return 0
+            except Exception:
+                LOG.exception("Auftraege: Sperrpruefung fehlgeschlagen")
+                return 0
         settings = self._settings_getter()
         store = JobStore(settings.db_path)
         gelaufen = 0

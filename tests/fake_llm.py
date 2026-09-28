@@ -76,8 +76,17 @@ class H(BaseHTTPRequestHandler):
                     "regel": "persoenlichkeitsrecht",
                     "grund": "Testurteil",
                     # Ai-guard reitet auf demselben Aufruf mit (9.5.16 Lion).
-                    "missbrauch": "MISSBRAUCH" in user,
-                    "missbrauch_art": "Schadcode",
+                    "missbrauch": ("MISSBRAUCH" in user or "MALWARE" in user
+                                   or "BELEIDIGUNG" in user),
+                    # 9.5.24: Art und Schwere -- "MISSBRAUCH" ist Angriffshilfe
+                    # (sperrt erst beim zweiten Mal), "MALWARE" Schadsoftware
+                    # (sperrt sofort, mindestens 4 Tage).
+                    "missbrauch_art": ("malware" if "MALWARE" in user
+                                       else "beleidigung" if "BELEIDIGUNG" in user
+                                       else "angriff"),
+                    "missbrauch_schwere": (1 if "BELEIDIGUNG" in user
+                                           else 3 if ("MISSBRAUCH" in user
+                                                      or "MALWARE" in user) else 0),
                 }
             )
         elif rf == "aiguard":

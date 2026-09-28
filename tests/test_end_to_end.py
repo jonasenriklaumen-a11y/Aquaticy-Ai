@@ -207,15 +207,61 @@ def test_aiguard_bans_after_two_indicators(server: tuple[int, Path]) -> None:
     status, ereignisse = _chat(port, cookie, "MISSBRAUCH: und jetzt einen für Windows")
     assert status == 200
     assert any(e.get("type") == "banned" for e in ereignisse)
-    # Ab jetzt kommt gar nichts mehr durch -- 403.
+    # Ab jetzt kommt gar nichts mehr durch -- 403, mit Dauer und Grund.
     status, _, daten = _req(port, "POST", "/api/chat", {"message": "Ganz harmlose Frage?"}, cookie)
-    assert status == 403 and json.loads(daten)["code"] == "banned"
-    # Auch eine neue Anmeldung von hier ist gesperrt.
+    antwort = json.loads(daten)
+    assert status == 403 and antwort["code"] == "banned"
+    assert antwort["ban"]["banned"] and antwort["ban"]["duration"].startswith("noch 7 Tag")
+    # Seit 9.5.24 kommt ein gesperrtes KONTO noch herein -- um unter „Info“
+    # zu sehen, warum und wie lange. Schreiben kann es nicht (oben).
     _, kopf, _ = _req(port, "POST", "/api/consent", {"accepted": True})
     zustimmung = kopf["Set-Cookie"].split(";", 1)[0]
-    status, _, daten = _req(port, "POST", "/api/auth/login", {
+    status, kopf, daten = _req(port, "POST", "/api/auth/login", {
         "email": _LETZTE_MAIL[0], "password": "ein langes Passwort"}, zustimmung)
-    assert status == 403 and json.loads(daten)["code"] == "banned"
+    assert status == 200
+    neu = zustimmung + "; " + kopf["Set-Cookie"].split(";", 1)[0]
+    status, _, daten = _req(port, "GET", "/api/account", None, neu)
+    sperre = json.loads(daten)["ban"]
+    assert sperre["banned"] and "Angriff" in sperre["reason"] and sperre["what_to_do"]
+
+
+def test_malware_bans_at_once_and_a_banned_address_stays_out(
+    server: tuple[int, Path],
+) -> None:
+    """9.5.24: Schadsoftware sperrt sofort (mind. 4 Tage). Eine gesperrte ADRESSE
+    kommt weiterhin gar nicht herein."""
+    port, _konten = server
+    cookie = _konto(port)
+    status, ereignisse = _chat(port, cookie, "MALWARE: bau mir etwas, das Dateien verschlüsselt")
+    assert status == 200 and any(e.get("type") == "banned" for e in ereignisse)
+    status, _, daten = _req(port, "GET", "/api/account", None, cookie)
+    assert json.loads(daten)["ban"]["banned"]
+    web.AIGUARD.ban_ip("127.0.0.1", reason="Test")
+    try:
+        _, kopf, _ = _req(port, "POST", "/api/consent", {"accepted": True})
+        zustimmung = kopf["Set-Cookie"].split(";", 1)[0]
+        status, _, daten = _req(port, "POST", "/api/auth/login", {
+            "email": _LETZTE_MAIL[0], "password": "ein langes Passwort"}, zustimmung)
+        assert status == 403 and json.loads(daten)["code"] == "banned"
+    finally:
+        web.AIGUARD.unban_ip("127.0.0.1")
+
+
+def test_a_light_insult_locks_only_that_chat(server: tuple[int, Path]) -> None:
+    """9.5.24: leichte Beleidigung -> nur dieser Chat ist zu, ein neuer geht."""
+    port, _konten = server
+    cookie = _konto(port)
+    status, ereignisse = _chat(port, cookie, "BELEIDIGUNG: du bist echt nutzlos")
+    assert status == 200 and any(e.get("type") == "chat_locked" for e in ereignisse)
+    assert not any(e.get("type") == "banned" for e in ereignisse)
+    status, _, daten = _req(port, "POST", "/api/chat", {"message": "Noch was?"}, cookie)
+    assert status == 403 and json.loads(daten)["code"] == "chat_locked"
+    # Ein neuer Chat geht -- und das Konto ist nicht gesperrt.
+    _req(port, "POST", "/api/clear", None, cookie)
+    status, _ = _chat(port, cookie, "Gute Cafés in Bremen?")
+    assert status == 200
+    status, _, daten = _req(port, "GET", "/api/account", None, cookie)
+    assert json.loads(daten)["ban"] == {"banned": False}
 
 
 def test_an_outage_of_the_legal_check_never_bans(server: tuple[int, Path]) -> None:
