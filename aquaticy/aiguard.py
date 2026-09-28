@@ -165,6 +165,151 @@ def normalize_category(art: str) -> str:
     return ""
 
 
+# ---------------------------------------------------------------------------
+# Beleidigungen: feste Erkennung (seit 9.5.25)
+# ---------------------------------------------------------------------------
+# Das Modell uebersah kurze Beschimpfungen oft ("ist ja nur ein Wort"). Diese
+# Erkennung laeuft deshalb ohne Modell -- aber nur fuer GERICHTETE Beleidigungen
+# ("du bist ...", "du X", "fick dich", ein Schimpfwort als ganze Nachricht).
+# Wer ueber ein Wort spricht ("Ist 'Idiot' strafbar?", "Der Idiot von
+# Dostojewski"), wird nicht erfasst -- das bleibt Sache des Modells.
+#: Die Woerter nach Stufe -- gesammelt ueber alle Altersgruppen (9.5.25, nach
+#: einer Recherche zu gaengigen Schimpfwoertern: Sprachratgeber, Wiktionary-
+#: Verzeichnis "Deutsch/Schimpfwörter", Artikel zur Jugendsprache). Sie zaehlen
+#: nur GERICHTET (siehe insult_level). Hass wegen Herkunft oder Religion steht
+#: bewusst nicht hier -- den erkennt der Rechtspruefer.
+_BELEIDIGUNG_STUFEN: tuple[tuple[int, tuple[str, ...]], ...] = (
+    # Stufe 1 -- abfaellig. Kinder und alle Altersgruppen.
+    (1, (
+        "dumm", "doof", "blöd", "bloed", "dämlich", "daemlich", "nutzlos", "unfähig",
+        "unfaehig", "hirnlos", "peinlich", "doofi", "doofkopp", "heulsuse", "petze",
+        "angsthase", "stinker", "langweiler", "kek", "noob", "npc", "cringe",
+        "stupid", "dumb", "useless", "worthless", "lame", "dork", "nerd", "weirdo",
+    )),
+    # Stufe 2 -- Schimpfwort. Jugendliche, Erwachsene, Aeltere.
+    (2, (
+        # Jugendliche
+        "opfer", "lauch", "lappen", "honk", "spacko", "otto", "vollopfer", "hurensohnopfer",
+        # Erwachsene
+        "idiot", "vollidiot", "trottel", "volltrottel", "depp", "dummkopf", "penner",
+        "versager", "loser", "vollpfosten", "pfosten", "pfeife", "flachpfeife", "knalltüte",
+        "knalltuete", "hornochse", "esel", "schwachkopf", "hohlbirne", "hohlkopf",
+        "dumpfbacke", "pappnase", "spinner", "evolutionsbremse", "clown", "affe", "kuh",
+        "sau", "schwein", "ratte", "pisser", "mistkerl", "blödmann", "bloedmann", "dödel",
+        "doedel", "vollhonk", "idiotin", "zicke", "tussi",
+        # Aeltere
+        "armleuchter", "stinkstiefel", "halunke", "gewitterziege", "hanswurst", "tölpel",
+        "toelpel", "rindvieh", "schafskopf", "blödian", "bloedian", "dussel", "trampel",
+        "taugenichts", "lump", "hampelmann", "kasper",
+        # Englisch
+        "moron", "jerk", "creep", "airhead", "nitwit", "dumbass", "idiots", "scumbag",
+        "clown", "fool", "imbecile", "cretin",
+    )),
+    # Stufe 3 -- grob, vulgaer oder herabwuerdigend (Behinderung, Sexualitaet).
+    (3, (
+        "arschloch", "wichser", "hurensohn", "missgeburt", "schlampe", "bastard", "fotze",
+        "scheißkerl", "scheisskerl", "drecksack", "dreckskerl", "mistgeburt", "hure",
+        "spast", "spasti", "mongo", "behindi", "schwuchtel", "kanake", "arschgesicht",
+        "asshole", "bitch", "dickhead", "motherfucker", "prick", "twat", "wanker",
+        "retard", "cunt", "slut", "whore",
+    )),
+)
+
+#: Woerter, die auch ganz normal vorkommen ("Ratte?", "Kuh", "Otto", "Pfeife").
+#: Sie zaehlen nur mit Anrede ("du Ratte"), nie als Nachricht fuer sich.
+_MEHRDEUTIG = frozenset({
+    "esel", "kuh", "sau", "schwein", "ratte", "affe", "otto", "clown", "kasper", "lump",
+    "pfeife", "pfosten", "fool", "nerd", "opfer", "lauch", "lappen", "zicke", "hure",
+    "kek", "npc", "noob", "cringe", "creep", "lame", "petze", "stinker", "trampel",
+    "dussel", "hampelmann", "hanswurst", "spinner", "versager", "loser", "penner",
+})
+
+#: Mehrwort-Beleidigungen -- ebenfalls nur gerichtet oder als ganze Nachricht.
+_BELEIDIGUNG_WENDUNGEN: tuple[tuple[int, str], ...] = (
+    (2, "blöde kuh"), (2, "bloede kuh"), (2, "dumme kuh"), (2, "dumme sau"),
+    (2, "alter sack"), (2, "dumme nuss"), (2, "blöde nuss"), (2, "deine mutter"),
+    (2, "piece of crap"), (3, "piece of shit"), (3, "son of a bitch"),
+    (3, "ich fick deine mutter"), (3, "fick deine mutter"), (3, "hurensohn du"),
+)
+
+#: Feste Wendungen -- immer gerichtet.
+_WENDUNGEN: tuple[tuple[int, re.Pattern[str]], ...] = tuple(
+    (stufe, re.compile(muster, re.IGNORECASE)) for stufe, muster in (
+        (2, r"\b(?:halt|halts)\s+(?:die\s+klappe|den\s+mund)\b|\bshut\s+up\b"),
+        (3, r"\bfick\s+dich\b|\bfuck\s+(?:you|u|off)\b|\bhalt\s+(?:die\s+fresse|dein\s+maul|"
+            r"'?s\s+maul)\b|\bhalts\s+maul\b|\bverpiss\s+dich\b|\bgo\s+to\s+hell\b"),
+        (4, r"\bich\s+(?:bring|bringe|werde)\s+dich\s+(?:um|umbringen)\b|\bich\s+t(?:ö|oe)te\s+"
+            r"dich\b|\bi(?:'ll|\s+will)\s+kill\s+you\b"),
+    )
+)
+
+#: Hier geht es UM ein Wort, nicht gegen jemanden.
+_META = re.compile(
+    r"beleidigung|strafbar|stgb|§|bedeut|heißt|heisst|synonym|übersetz|uebersetz|"
+    r"\bwort\b|mean(?:s|ing)|definition|dostojewski|buch|film|roman|song|lied|zitat",
+    re.IGNORECASE,
+)
+_ANREDE = r"(?:du|dich|dir|sie|ihr|you|u|aquaticy|ki|bot)"
+_FUELLWORT = (r"(?:so|echt|voll|total|wirklich|einfach|ein|eine|einer|so\s+ein|so\s+eine|a|an|"
+              r"such\s+a)")
+
+
+def insult_level(text: str) -> int:
+    """Stufe einer gerichteten Beleidigung in *text* -- 0, wenn keine.
+
+    1 = abfaellig ("du bist dumm"), 2 = Schimpfwort ("du Idiot"),
+    3 = grob/vulgaer, 4 = Drohung. Hass wegen Herkunft, Religion usw.
+    erkennt das Modell (Rechtspruefer) -- das steht hier bewusst nicht als Liste.
+    """
+    roh = " ".join(str(text or "").split())
+    if not roh or len(roh) > 600:
+        return 0
+    klein = roh.lower()
+    stufe = 0
+    for wert, muster in _WENDUNGEN:
+        if muster.search(klein):
+            stufe = max(stufe, wert)
+    if _META.search(klein):
+        # Eine Frage ueber ein Wort ist keine Beleidigung -- ausser es kommt
+        # eine feste Wendung oder Drohung dazu (oben).
+        return stufe
+    woerter = re.findall(r"[^\W\d_]+", klein)
+    for wert, wendung in _BELEIDIGUNG_WENDUNGEN:
+        if not re.search(rf"\b{re.escape(wendung)}\b", klein):
+            continue
+        # "du blöde Kuh", "Deine Mutter!", "you piece of shit"
+        if (len(woerter) <= len(wendung.split()) + 2
+                or re.search(rf"\b{_ANREDE}\s+(?:bist\s+|are\s+)?(?:{_FUELLWORT}\s+)*"
+                             rf"{re.escape(wendung)}\b", klein)
+                or wendung.startswith(("ich fick", "fick"))):
+            stufe = max(stufe, wert)
+    for wert, liste in _BELEIDIGUNG_STUFEN:
+        for grund in liste:
+            # Auch gebeugt: "dummer", "blöde", "nutzloses" (Endung e/er/es/en/em/s/n).
+            # Kurze Wurzeln (sau, kek, npc) nur genau -- sonst waere "sauer" eine.
+            treffer = [w for w in woerter if w == grund or (
+                len(grund) > 3 and w.startswith(grund)
+                and w[len(grund):] in ("e", "er", "es", "en", "em", "s", "n"))]
+            if not treffer:
+                continue
+            wort = treffer[0]
+            gerichtet = (
+                # "du Idiot", "du bist (so) dumm", "bist du dumm", "you are a moron"
+                re.search(rf"\b{_ANREDE}\s+(?:bist|are|is|ist|sind)?\s*(?:{_FUELLWORT}\s+)*"
+                          rf"{re.escape(wort)}\b", klein)
+                or re.search(rf"\b(?:bist|are)\s+{_ANREDE}\s+(?:{_FUELLWORT}\s+)*"
+                             rf"{re.escape(wort)}\b", klein)
+                or re.search(rf"\b{re.escape(wort)}\s*[,!]?\s*{_ANREDE}\b", klein)
+                # "dummer Bot", "blöde KI": abwertendes Wort direkt vor der Anrede
+                or re.search(rf"\b{re.escape(wort)}\s+(?:bot|ki|aquaticy)\b", klein)
+                # Ein Schimpfwort als (fast) ganze Nachricht: "Idiot!", "blöder Bot"
+                or (len(woerter) <= 3 and wert >= 2 and grund not in _MEHRDEUTIG)
+            )
+            if gerichtet:
+                stufe = max(stufe, wert)
+    return stufe
+
+
 @dataclass(frozen=True, slots=True)
 class Action:
     """Was Ai-guard mit einem Vorfall tut."""

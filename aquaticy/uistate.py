@@ -65,6 +65,9 @@ def clean_design(value: Any) -> dict[str, str]:
             design[key] = farbe
     return design
 
+#: Sprache der Oberflaeche und der Antworten (seit 9.5.25).
+LANGUAGES = ("de", "en")
+
 #: Hell, dunkel oder das, was das Betriebssystem sagt.
 THEMES = ("light", "dark", "system")
 
@@ -85,6 +88,7 @@ FIELDS: dict[str, tuple[Any, Any]] = {
     "theme": ("system", THEMES),
     "palette": ("", PALETTES),
     "design": (DEFAULT_DESIGN, dict),
+    "lang": ("de", LANGUAGES),
     "mode": ("normal", MODES),
     "effort": ("medium", EFFORTS),
     "structured": (False, bool),

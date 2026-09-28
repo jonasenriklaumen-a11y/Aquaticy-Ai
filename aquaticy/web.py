@@ -1232,6 +1232,12 @@ class ChatSession:
                     from aquaticy.agent import Agent as BuiltinAgent
                     if isinstance(agent, BuiltinAgent):
                         ask_options["visual_sources"] = visual_sources
+                        # Sprache aus dem Design-Fenster (9.5.25).
+                        with contextlib.suppress(Exception):
+                            from aquaticy.uistate import UIState
+
+                            agent.set_answer_language(
+                                str(UIState(self.settings().db_path).read().get("lang", "de")))
                     return agent.ask(message, **ask_options)
                 finally:
                     agent._agent_limit_override = previous_agent_limit
@@ -2594,7 +2600,10 @@ def with_state(html: str, *, nonce: str = "") -> str:
         stil = _design_style(stand.get("design") or {})
         if stil:
             attrs += f' style="{stil}"'
-    html = html.replace('<html lang="de">', f'<html lang="de"{attrs}>', 1)
+    # Sprache (9.5.25): das lang-Attribut stimmt schon beim ersten Anzeigen --
+    # die Uebersetzung der Texte erledigt das Skript sofort beim Laden.
+    sprache = "en" if stand.get("lang") == "en" else "de"
+    html = html.replace('<html lang="de">', f'<html lang="{sprache}"{attrs}>', 1)
 
     # Die Klassen am Koerper stehen sonst erst, wenn das Skript durch ist.
     koerper = ["start"]
@@ -4134,6 +4143,28 @@ p{{margin:0 0 8px;color:#57534a}}</style></head><body><main>
 
                 self._json({"error": CHAT_LOCKED_MESSAGE, "code": "chat_locked"}, 403)
                 return
+            # Beleidigungen erkennt Ai-guard seit 9.5.25 auch ohne Modell -- das
+            # Modell uebersah kurze Beschimpfungen oft. Die Massnahme bleibt
+            # dieselbe (Chatsperre bei leichten, Bann bei schweren).
+            from aquaticy.aiguard import insult_level
+
+            stufe = insult_level(message)
+            if stufe:
+                massnahme = AIGUARD.record_incident(
+                    konto.id, "beleidigung", stufe, chat=aktueller.chat_id(),
+                    detail="Beleidigung (erkannt)",
+                    enforce=not getattr(konto, "ultra", False))
+                if massnahme.kind == "ban":
+                    from aquaticy.aiguard import BANNED_MESSAGE, ban_info
+
+                    self._json({"error": BANNED_MESSAGE, "code": "banned",
+                                "ban": ban_info(AIGUARD.is_banned(user_id=konto.id))}, 403)
+                    return
+                if massnahme.kind == "chat":
+                    from aquaticy.aiguard import CHAT_LOCKED_MESSAGE
+
+                    self._json({"error": CHAT_LOCKED_MESSAGE, "code": "chat_locked"}, 403)
+                    return
 
         # Der Lauf gehoert ab hier dem Server, nicht der Verbindung. Reisst
         # sie ab, laeuft er weiter und kann spaeter zu Ende gesehen werden.

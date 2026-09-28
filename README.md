@@ -1,4 +1,4 @@
-# Aquaticy AI 9.5.24 Spark
+# Aquaticy AI 9.5.25 Spark
 
 **Aquaticy** recherchiert für dich. Du stellst eine Frage, Aquaticy sucht im Web, liest die
 passenden Seiten und fasst das Ergebnis zusammen — mit Quelle an jeder Angabe. Es läuft im
@@ -80,6 +80,7 @@ $ aquaticy
 - Terminal-Chat, Weboberfläche im Browser, Zugriff vom Handy im eigenen Netz.
 - **Design:** Hell, Dunkel oder wie das System; Standard (grün), Schlicht (schwarz-weiß) oder
   ein selbst erstelltes Design mit eigenen Farben für Akzent, Hintergrund und Seitenleiste.
+- **Sprache:** Deutsch oder Englisch — Oberfläche und Antworten wechseln sofort.
 - Slash-Befehle wie `/max` leuchten beim Tippen im Akzentton, damit man sie sofort erkennt.
 - Chats durchsuchen, umbenennen, exportieren (HTML, Markdown, CSV).
 
@@ -111,7 +112,7 @@ $ aquaticy
 git clone --branch Aquaticy-ai --single-branch https://github.com/jonasenriklaumen-a11y/Aquaticy-Ai.git
 cd Aquaticy-Ai
 uv tool install --force --reinstall .
-aquaticy --version            # 9.5.24 Spark
+aquaticy --version            # 9.5.25 Spark
 
 # 2. Einrichten — fragt nach Modell und Schlüssel und testet beide
 aquaticy setup
@@ -325,6 +326,10 @@ Ein vollständig geschriebener Slash-Befehl leuchtet im Akzentton; der Text dahi
   grün ist, z. B. blau, pink oder rot), den **Hintergrund** und die **Seitenleiste** links.
   Die Schrift passt sich automatisch an, damit sie lesbar bleibt. Das Design wird an deinem
   Konto gespeichert und gilt auf jedem Gerät.
+- **Sprache** — Deutsch oder English. Knöpfe, Fenster, Hinweise und Platzhalter wechseln sofort,
+  ohne Neuladen, und Aquaticy antwortet in der gewählten Sprache. Was im Chat steht (deine
+  Fragen, die Antworten, Chat-Titel), bleibt, wie es geschrieben wurde. Auch die Sprache wird
+  am Konto gespeichert.
 
 **Einstellungen** — was du dort speicherst, gilt sofort:
 - **Konto** — Name, E-Mail, Kontotyp, Nutzung, Abmelden.
@@ -524,6 +529,14 @@ Geschichte, Geschichten, Humor oder Kritik sind frei, und ein Nein des schnellen
 zählt erst, wenn auch das Hauptmodell es so sieht. Abschalten lassen sich die Leitplanken nur mit
 einem Ultra-Konto und nie aus dem Chat heraus.
 
+**Einmal abgelehnt bleibt abgelehnt.** Soll Aquaticy selbst etwas tun, das gegen das Grundgesetz
+oder eine wichtige Regel des BGB verstößt (z. B. fremdes Eigentum, Betrug, Persönlichkeitsrechte),
+gilt eine strenge Regel: Ein „bitte“, Drängen, „ich darf das“, „nur dieses eine Mal“ oder
+„ist für die Schule“ ändern an einer Absage nichts — Aquaticy fragt dann nicht einmal mehr das
+Modell, sondern bleibt bei derselben Begründung. Wer es umformuliert, als Rollenspiel oder
+„rein hypothetisch“ versucht, wird mit dem Vermerk der Absage erneut geprüft. Eine neue,
+erlaubte Frage oder ein neuer Chat heben das auf.
+
 **Ai-guard** läuft auf jedem Konto und entscheidet nach **Art und Schwere**, was passiert:
 
 | Art | Was passiert |
@@ -533,6 +546,14 @@ einem Ultra-Konto und nie aus dem Chat heraus.
 | Schadsoftware bauen/installieren (auch in der Werkstatt) | sofort Bann, 4 Tage bis für immer |
 | Angriffshilfe, schwerer GG/BGB-Verstoß (z. B. Diebstahl, Betrug), Versuche, die Schutzregeln auszuhebeln | ab dem **zweiten** Anhaltspunkt Bann, 1 Tag bis für immer |
 | Bagatellen („bei Rot über die Ampel, ist das ok?“), Bildung, Verteidigung | nichts |
+
+**Beleidigungen erkennt Aquaticy sicher**, auch ohne Modell: eine feste Liste gängiger
+Schimpfwörter aus allen Altersgruppen (Kindersprache, Jugendsprache, Erwachsene, ältere
+Ausdrücke, Englisch) mit Schwerestufen von „du bist dumm“ bis zur Drohung. Gezählt wird nur,
+was **gegen jemanden gerichtet** ist („du Idiot“, „dummer Bot“, „halt die Klappe“) — nicht
+Fluchen über eine Sache („scheiß Wetter“), nicht die Frage nach einem Wort („Ist ‚Arschloch‘
+eine Beleidigung?“) und nicht Wörter mit harmloser Bedeutung („Opfer eines Betrugs“). Strenger
+ist nur die Erkennung; welche Folge eine Beleidigung hat, steht unverändert in der Tabelle.
 
 Bei einem Bann bleibt der Chat, in dem es passiert ist, dauerhaft gesperrt. Der **Werkstatt-Wächter**
 prüft, was in der Werkstatt gebaut, installiert oder ausgeführt werden soll, und stoppt

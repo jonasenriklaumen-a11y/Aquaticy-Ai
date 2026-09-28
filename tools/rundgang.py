@@ -1459,6 +1459,50 @@ def rundgang(pg: Any, log: Protokoll, agent: FakeAgent, bilder: Path | None,
         pg.wait_for_timeout(400)
         log.pruefe(not pg.is_visible("#themebox.open"), "Escape schließt")
 
+    if dran("sprache"):
+        log.abschnitt("8b. Sprache: Deutsch oder Englisch")
+        pg.click("#btn-theme")
+        pg.wait_for_selector("#themebox.open", state="visible")
+        log.pruefe(pg.locator("#langs .tmode").count() == 2, "Deutsch und English stehen zur Wahl")
+        log.pruefe("on" in (pg.get_attribute('[data-lang="de"]', "class") or ""),
+                   "Deutsch ist vorgewählt")
+        pg.click('[data-lang="en"]')
+        pg.wait_for_timeout(500)
+        log.pruefe(pg.get_attribute("html", "lang") == "en", "die Seite sagt lang=en")
+        log.pruefe(pg.inner_text("#theme-title") == "Design", "Design bleibt Design")
+        log.pruefe("Language" in (pg.text_content("#themebox") or ""),
+                   "die Überschrift heißt Language")
+        pg.keyboard.press("Escape")
+        pg.wait_for_timeout(300)
+        log.pruefe("New chat" in pg.inner_text("#btn-new"), "Neuer Chat heißt New chat")
+        log.pruefe(pg.get_attribute("#input", "placeholder") == "Ask something …",
+                   "der Platzhalter ist englisch")
+        gemerkt = pg.evaluate("async () => (await (await fetch('/api/prefs')).json())")
+        log.pruefe(gemerkt.get("lang") == "en", "und beim Konto gespeichert")
+        pg.reload(wait_until="networkidle")
+        pg.wait_for_timeout(600)
+        log.pruefe("New chat" in pg.inner_text("#btn-new"), "nach dem Neuladen noch englisch")
+        # Was jemand schreibt, bleibt, wie es geschrieben wurde -- auch wenn es
+        # zufaellig genau wie ein Knopf heisst.
+        pg.fill("#input", "Neuer Chat")
+        pg.click("#send")
+        pg.wait_for_selector(".msg.user .bubble", state="visible")
+        pg.wait_for_timeout(600)
+        log.pruefe(pg.inner_text(".msg.user .bubble >> nth=-1").strip() == "Neuer Chat",
+                   "die eigene Nachricht wird nicht übersetzt")
+        pg.click("#btn-theme")
+        pg.wait_for_selector("#themebox.open", state="visible")
+        pg.click('[data-lang="de"]')
+        pg.wait_for_timeout(500)
+        pg.keyboard.press("Escape")
+        pg.wait_for_timeout(300)
+        log.pruefe(pg.get_attribute("html", "lang") == "de", "zurück auf Deutsch")
+        log.pruefe("Neuer Chat" in pg.inner_text("#btn-new"), "ohne Neuladen wieder deutsch")
+        log.pruefe(pg.get_attribute("#input", "placeholder") == "Frag etwas …",
+                   "auch der Platzhalter")
+        pg.click("#btn-new")
+        pg.wait_for_timeout(500)
+
     if dran("anhang"):
         log.abschnitt("9. Dateien anhängen")
         beispiel = Path(tempfile.gettempdir()) / "rundgang.txt"

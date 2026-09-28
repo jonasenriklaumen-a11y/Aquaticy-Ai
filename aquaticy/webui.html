@@ -1551,6 +1551,13 @@ input:focus,select:focus{border-color:var(--accent)}
         <span>Seitenleiste <span class="why">der Streifen links mit den Chats</span></span>
         <input type="color" id="dz-sidebar" value="#f5f4ee"></label>
     </div>
+    <div class="group">Sprache</div>
+    <div class="tmodes langs" id="langs" role="group" aria-label="Sprache">
+      <button type="button" class="tmode" data-lang="de" lang="de">
+        <span class="glyph">DE</span>Deutsch</button>
+      <button type="button" class="tmode" data-lang="en" lang="en">
+        <span class="glyph">EN</span>English</button>
+    </div>
     <div class="actions">
       <span class="note" id="theme-note">Gilt sofort und wird an deinem Konto gespeichert.</span>
       <button type="button" class="btn" id="theme-reset">Standard</button>
@@ -2030,7 +2037,7 @@ input:focus,select:focus{border-color:var(--accent)}
 const $ = (s) => document.querySelector(s);
 const thread = $("#thread"), main = $("#main"), input = $("#input"), send = $("#send");
 let busy = false;
-const aquaticyVersion = window.__AQUATICY_VERSION__ || "9.5.24 Spark";
+const aquaticyVersion = window.__AQUATICY_VERSION__ || "9.5.25 Spark";
 $("#version").textContent = "v" + aquaticyVersion;
 document.title = `Aquaticy AI ${aquaticyVersion}`;
 
@@ -2695,7 +2702,9 @@ function stagger(nodes, step = 26, cap = 10){
 // Setzt einen Text und laesst ihn kurz aufblitzen -- aber nur, wenn er sich
 // wirklich geaendert hat. Sonst zappelt die Kopfzeile bei jedem Abgleich.
 function flash(node, text){
-  if (node.textContent === text) return;
+  // Auf Englisch steht die Uebersetzung da -- auch das ist "unveraendert".
+  if (node.textContent === text
+      || (sprache === "en" && node.textContent === EN[schluessel(text)])) return;
   node.textContent = text;
   node.classList.remove("flash");
   void node.offsetWidth;
@@ -3625,6 +3634,502 @@ try {
     if (themeMode === "system") { applyAppearance(); paintAppearance(); }
   });
 } catch {}
+
+/* ---------- Sprache (9.5.25) ----------
+   Deutsch ist die Grundsprache der Seite. Auf Englisch tauscht das Skript die
+   festen Texte gegen ihre Uebersetzung -- und merkt sich das Original, damit
+   der Weg zurueck ohne Neuladen klappt. Was im Chat steht (Fragen, Antworten,
+   Chat-Titel, Gemerktes), bleibt unangetastet: das sind Inhalte, keine
+   Bedienelemente. Gespeichert wird die Wahl am Konto, wie das Design. */
+const EN = {
+"Zum Chat springen": "Skip to chat",
+"Bevor es losgeht": "Before we start",
+"Kurz vorab: Damit dein Konto sicher ist und nur dir gehört, speichert Aquaticy ein paar Dinge.": "Quick note first: to keep your account safe and yours alone, Aquaticy stores a few things.",
+"Ein Cookie merkt sich, dass du angemeldet bist — nur dafür.": "A cookie remembers that you are signed in — only for that.",
+"Deine IP-Adresse und ein paar Browserangaben werden unkenntlich gemacht gespeichert. So fällt auf, wenn jemand Fremdes deine Anmeldung benutzt.": "Your IP address and a few browser details are stored in a form that can't be read back. That way it's noticed if a stranger uses your sign-in.",
+"Name, E-Mail, Einstellungen und Chats gehören nur zu deinem Konto. Andere sehen davon nichts.": "Name, email, settings and chats belong to your account only. Nobody else sees any of it.",
+"Keine Werbung, kein Tracking.": "No ads, no tracking.",
+"Wenn du ablehnst, wird nichts gespeichert — dann kannst du Aquaticy hier aber nicht nutzen.": "If you decline, nothing is stored — but then you can't use Aquaticy here.",
+"Rechtliche Informationen": "Legal information",
+"Datenschutz": "Privacy",
+"Nutzungsbedingungen": "Terms of use",
+"Barrierefreiheit": "Accessibility",
+"Ablehnen": "Decline",
+"Zustimmen und weiter": "Agree and continue",
+"Willkommen bei Aquaticy": "Welcome to Aquaticy",
+"Erstelle dein Konto. Danach gehören Chats und Einstellungen nur dir.": "Create your account. After that, your chats and settings belong only to you.",
+"Registrieren": "Sign up",
+"Anmelden": "Sign in",
+"Nutzername": "Username",
+"E-Mail-Adresse": "Email address",
+"Passwort": "Password",
+"mindestens 12 Zeichen": "at least 12 characters",
+"Pro-Code": "Pro code",
+"Ich stimme der": "I agree to the",
+"Datenschutzerklärung": "privacy policy",
+"und den": "and the",
+"zu.": ".",
+"Konto erstellen": "Create account",
+"Alles klar": "Got it",
+"Ohne diese Angaben kann Aquaticy dein Konto nicht sicher führen. Du kannst das Fenster einfach schließen — oder zurückgehen und doch zustimmen.": "Without this information Aquaticy can't run your account safely. You can simply close the window — or go back and agree after all.",
+"Zurück": "Back",
+"Neuer Chat": "New chat",
+"Letzte Chats": "Recent chats",
+"Chats durchsuchen": "Search chats",
+"Suche beenden": "End search",
+"☰ Merkzettel": "☰ Notes",
+"⚙ Einstellungen": "⚙ Settings",
+"Rechtliches": "Legal",
+"Bedingungen": "Terms",
+"Seitenleiste": "Sidebar",
+"Seitenleiste ein- oder ausblenden": "Show or hide the sidebar",
+"Modell wechseln": "Change model",
+"Modell": "Model",
+"Dateien in der Werkstatt": "Files in the workshop",
+"Modell wählen": "Choose model",
+"Denktiefe": "Thinking depth",
+"Wie gründlich Aquaticy nachdenkt, bevor es antwortet. Low ist schnell, High nimmt sich Zeit für knifflige Fragen.": "How carefully Aquaticy thinks before answering. Low is fast, High takes its time for tricky questions.",
+"Agenten": "Agents",
+"Anzahl der Agenten": "Number of agents",
+"Wie viele Helfer gleichzeitig suchen, wenn „Strukturieren“ an ist. Normal: 1 bis 12.": "How many helpers search at the same time when “Structure” is on. Normal: 1 to 12.",
+"Code wirklich ausprobieren": "Actually try the code",
+"Aquaticy bekommt einen eigenen, abgeschotteten Rechner und lässt den Code dort laufen — statt nur zu raten, ob er funktioniert. Dieser Rechner hat": "Aquaticy gets its own isolated computer and runs the code there — instead of just guessing whether it works. This computer has",
+"kein Internet": "no internet",
+"und wird 20 Minuten nach deiner letzten Nachricht gelöscht. Im Web nachschlagen kann Aquaticy trotzdem.": "and is deleted 20 minutes after your last message. Aquaticy can still look things up on the web.",
+"Im Web suchen": "Search the web",
+"Aus: Aquaticy sucht nicht im Internet. Es antwortet nur mit dem, was es schon weiß, was im Chat steht und was du angehängt hast — und sagt dir, wo sein Wissen veraltet sein könnte.": "Off: Aquaticy doesn't search the internet. It only answers with what it already knows, what's in the chat and what you attached — and tells you where its knowledge might be outdated.",
+"Öffentliche Webcams & Satellitenbilder": "Public webcams & satellite images",
+"Schaut sich zusätzlich öffentliche Webcams und Satellitenbilder an — etwa, ob irgendwo Schnee liegt oder wie voll ein Strand ist. Du erfährst immer, woher das Bild ist und von wann. Was darauf zu sehen ist, ist ein Hinweis, keine Garantie.": "Also looks at public webcams and satellite images — for example whether there is snow somewhere or how busy a beach is. You always learn where the image is from and when it was taken. What it shows is a hint, not a guarantee.",
+"Denken": "Thinking",
+"An: Du kannst mitlesen, wie Aquaticy über die Antwort nachdenkt. Aus: Du siehst nur das Ergebnis. Die Antwort wird dadurch weder besser noch langsamer.": "On: you can read along as Aquaticy thinks about the answer. Off: you only see the result. The answer gets neither better nor slower.",
+"Strukturieren": "Structure",
+"An: Aquaticy teilt deine Frage in kleine Teilfragen, schickt für jede einen Helfer los und schreibt dir daraus eine ausführliche Antwort mit Quellen. Aus: ein ganz normales Gespräch — gesucht wird nur, wenn es nötig ist. Das geht schneller.": "On: Aquaticy splits your question into small sub-questions, sends a helper off for each and writes you a detailed answer with sources. Off: a completely normal conversation — it only searches when needed. That's faster.",
+"Gegenprüfen": "Double-check",
+"Aquaticy prüft die Antwort danach noch einmal auf ganz anderen Seiten nach. So fallen Zahlen auf, die nur eine einzige Quelle behauptet. Dauert etwa doppelt so lang.": "Afterwards Aquaticy checks the answer once more on completely different pages. That way numbers stand out that only a single source claims. Takes about twice as long.",
+"Vier Prüfer": "Four checkers",
+"lesen jedes Ergebnis auf anderen Seiten gegen, während die übrigen Helfer noch suchen. Das kostet kaum extra Zeit. Aus: Aquaticy entscheidet allein, ob etwas nachgeprüft werden muss.": "cross-check every result on other pages while the other helpers are still searching. That costs hardly any extra time. Off: Aquaticy decides on its own whether something needs checking.",
+"Anderes Modell oder eigener Schlüssel? Das geht in den": "Different model or your own key? That's done in the",
+"Einstellungen": "Settings",
+"Guten Tag": "Hello",
+"Ich suche selbst im Web, lese die Seiten und nenne zu jeder Angabe die Quelle.": "I search the web myself, read the pages and give the source for every detail.",
+"Nutzung ansehen": "View usage",
+"Frag etwas …": "Ask something …",
+"Bild oder PDF anhängen": "Attach an image or PDF",
+"Anhängen": "Attach",
+"Anfrage abbrechen": "Cancel request",
+"Abbrechen": "Cancel",
+"Arbeitsweise": "Mode",
+"Ganz normal fragen — gesucht wird, wenn es nötig ist": "Just ask — it searches when needed",
+"Für große Fragen: das stärkste Modell und bis zu 50 Helfer": "For big questions: the strongest model and up to 50 helpers",
+"Zum Programmieren: Aquaticy schreibt Code statt langer Texte": "For programming: Aquaticy writes code instead of long texts",
+"Senden (Enter)": "Send (Enter)",
+"Nachricht senden": "Send message",
+"Gute Cafés mit WLAN in meiner Stadt": "Good cafés with Wi-Fi in my town",
+"Welche Geräte hängen in meinem Netz?": "Which devices are on my network?",
+"Laptop bis 1200 € für Bildbearbeitung": "Laptop up to €1200 for photo editing",
+"Schreib mir ein Python-Skript, das Ordner nach Datum sortiert": "Write me a Python script that sorts folders by date",
+"Warum wirft dieser Code einen IndexError?": "Why does this code throw an IndexError?",
+"Baue eine kleine REST-API mit FastAPI": "Build a small REST API with FastAPI",
+"Enter senden · Shift+Enter Zeilenumbruch · /help zeigt die Befehle": "Enter to send · Shift+Enter for a new line · /help shows the commands",
+"Die Texte hier sind KI-generiert und können Fehler enthalten. Prüfe Wichtiges an der genannten Quelle nach.": "The texts here are AI-generated and may contain mistakes. Check important things at the source given.",
+"Aquaticy hat eine Frage": "Aquaticy has a question",
+"Oder selbst schreiben": "Or write your own",
+"Deine Antwort …": "Your answer …",
+"Ohne Antwort mache ich nach ein paar Minuten mit einer naheliegenden Annahme weiter — und sage sie dir dann dazu.": "Without an answer I'll continue after a few minutes with a reasonable assumption — and tell you what it was.",
+"Überspringen": "Skip",
+"Antworten": "Answer",
+"Rechts-Leitplanken": "Legal guardrails",
+"Weiter": "Continue",
+"Dein Konto ist gesperrt": "Your account is suspended",
+"Wie lange": "How long",
+"Warum": "Why",
+"Was du tun kannst": "What you can do",
+"Verstanden": "Understood",
+"Werkstatt": "Workshop",
+"Die Dateien, an denen Aquaticy gerade arbeitet. Was du anhängst, liegt im Ordner „eingang“. Alles, was Aquaticy erstellt, kannst du herunterladen. 20 Minuten nach deiner letzten Nachricht wird alles gelöscht.": "The files Aquaticy is working on right now. What you attach is in the folder “eingang”. You can download everything Aquaticy creates. Everything is deleted 20 minutes after your last message.",
+"So sieht der Desktop der Werkstatt gerade aus (User mode).": "This is what the workshop desktop looks like right now (user mode).",
+"Neu ansehen": "Refresh",
+"Fertig": "Done",
+"Extras für Aquaticy: Dienste, Konten und Programme. Du kannst jedes installieren, an- und ausschalten und wieder entfernen. Anmelden musst du dich selbst — Aquaticy kennt deine Passwörter nie. Aus dem Chat heraus lässt sich hier nichts ändern.": "Extras for Aquaticy: services, accounts and programs. You can install each one, switch it on and off and remove it again. You have to sign in yourself — Aquaticy never knows your passwords. Nothing here can be changed from the chat.",
+"Selbst anmelden": "Sign in yourself",
+"So sieht der Bildschirm gerade aus. Klick auf ein Feld (zweimal klicken = Doppelklick) und tipp unten ein, was hinein soll — etwa dein Passwort. Das landet nur dort: nicht im Verlauf und nicht bei Aquaticy.": "This is what the screen looks like right now. Click a field (click twice = double-click) and type below what should go in — for example your password. It only goes there: not into the history and not to Aquaticy.",
+"https://… — im Werkstatt-Browser öffnen": "https://… — open in the workshop browser",
+"Adresse im Werkstatt-Browser öffnen": "Open address in the workshop browser",
+"Öffnen": "Open",
+"Text für das angeklickte Feld": "Text for the clicked field",
+"Text zum Tippen": "Text to type",
+"Text zeigen oder verbergen": "Show or hide text",
+"Tippen": "Type",
+"Tasten": "Keys",
+"Strg+A": "Ctrl+A",
+"Ich bin angemeldet": "I'm signed in",
+"Schließen": "Close",
+"Was Aquaticy über dich weiß": "What Aquaticy knows about you",
+"Das hat sich Aquaticy über dich gemerkt — von selbst oder weil du es gesagt hast. Nur Text, verschlüsselt gespeichert. Du kannst jede Zeile einzeln löschen.": "This is what Aquaticy has remembered about you — on its own or because you said so. Text only, stored encrypted. You can delete every line separately.",
+"Alles vergessen": "Forget everything",
+"Hell oder dunkel — und in welchem Look. Der Aufbau bleibt derselbe, es wechseln nur die Farben.": "Light or dark — and which look. The layout stays the same, only the colours change.",
+"Helligkeit": "Brightness",
+"Hell": "Light",
+"Dunkel": "Dark",
+"Wie das System": "Like the system",
+"Stell dir dein eigenes Design zusammen. Was du hier änderst, siehst du sofort.": "Put together your own design. You see what you change here right away.",
+"Akzent": "Accent",
+"die Teile, die bei Standard grün sind": "the parts that are green in Standard",
+"Hintergrund": "Background",
+"die große Fläche hinter dem Chat": "the large area behind the chat",
+"der Streifen links mit den Chats": "the strip on the left with the chats",
+"Gilt sofort und wird an deinem Konto gespeichert.": "Applies right away and is saved to your account.",
+"Hier stellst du Aquaticy so ein, wie du es magst. Alles, was du hier speicherst, gilt sofort.": "Set Aquaticy up the way you like it. Everything you save here applies right away.",
+"Abschnitte": "Sections",
+"Konto": "Account",
+"E-Mail": "Email",
+"Kontotyp": "Account type",
+"Nutzung": "Usage",
+"Deine Chats und Einstellungen gehören nur zu diesem Konto.": "Your chats and settings belong to this account only.",
+"Abmelden": "Sign out",
+"Hauptmodell": "Main model",
+"Welche KI dir antwortet. Schreibweise: Anbieter/Name, z. B. mistral/mistral-large-latest": "Which AI answers you. Format: provider/name, e.g. mistral/mistral-large-latest",
+"Vision-Modell": "Vision model",
+"Für Fotos und Bilder. Leer lassen = das Hauptmodell übernimmt, wenn es Bilder versteht": "For photos and images. Leave empty = the main model takes over if it understands images",
+"Helfer-Modell": "Helper model",
+"Für die Helfer, die nebenbei suchen. Leer lassen = ein schnelles, kleines Modell": "For the helpers that search on the side. Leave empty = a fast, small model",
+"Code-Modell": "Code model",
+"Für den Code-Modus. Leer lassen = Aquaticy nimmt das stärkste, das es hat": "For code mode. Leave empty = Aquaticy takes the strongest one it has",
+"Eigene Adresse": "Own address",
+"Nur nötig, wenn das Modell bei dir selbst läuft, z. B. mit Ollama": "Only needed if the model runs on your own machine, e.g. with Ollama",
+"Anbieter": "Provider",
+"— automatisch erkennen —": "— detect automatically —",
+"Trägst du hier ein eigenes Modell mit Schlüssel ein, erscheint es unten unter": "If you enter your own model with a key here, it appears below under",
+"Eigene Modelle": "Own models",
+"Modell speichern": "Save model",
+"Hier stehen nur die Modelle und Schlüssel, die du oben selbst hinzugefügt hast.": "Only the models and keys you added yourself above are listed here.",
+"🔒 „Plus“ gibt es nur mit Ultra. Die Größe „Normal“ kannst du trotzdem nutzen.": "🔒 “Plus” is only available with Ultra. You can still use the “Normal” size.",
+"Größe": "Size",
+"Gilt ab der nächsten Werkstatt — eine laufende bleibt, wie sie ist": "Applies from the next workshop — a running one stays as it is",
+"Normal — 1 Kern, 1 GB Arbeitsspeicher, 4 GB Speicher": "Normal — 1 core, 1 GB RAM, 4 GB storage",
+"Plus — 4 Kerne, 6 GB Arbeitsspeicher, 20 GB Speicher": "Plus — 4 cores, 6 GB RAM, 20 GB storage",
+"Normal reicht für die meisten Programmieraufgaben. Plus lohnt sich für alles, was mehr Rechenleistung braucht — zum Beispiel, wenn Aquaticy im Code-Modus mit Blender ein 3D-Design erstellen oder rendern soll.": "Normal is enough for most programming tasks. Plus is worth it for anything that needs more computing power — for example when Aquaticy is to create or render a 3D design with Blender in code mode.",
+"User mode — Aquaticy bedient die Werkstatt wie ein Mensch": "User mode — Aquaticy uses the workshop like a person",
+"Die Werkstatt wird ein kleiner Desktop mit Internet: Aquaticy sieht den Bildschirm, klickt, tippt und nutzt Programme wie Browser, Office und Bildbearbeitung. Dein Heimnetz bleibt tabu. Absenden, Kaufen und Löschen nur, wenn du Ja sagst. Passwörter, Zahlungsdaten, Captchas und „Alle akzeptieren“ fasst Aquaticy nie an.": "The workshop becomes a small desktop with internet: Aquaticy sees the screen, clicks, types and uses programs like a browser, office and image editing. Your home network stays off limits. Sending, buying and deleting only if you say yes. Aquaticy never touches passwords, payment details, captchas or “Accept all”.",
+"Login-Apps": "Login apps",
+"— hier meldest du dich selbst an: Du siehst den Bildschirm, klickst hinein und tippst Name, Passwort oder Code selbst ein. Aquaticy tippt nie ein Passwort und liest nicht mit.": "— you sign in here yourself: you see the screen, click into it and type your name, password or code yourself. Aquaticy never types a password and doesn't read along.",
+"⌨ Selbst anmelden": "⌨ Sign in yourself",
+"Dafür braucht Aquaticy ein Modell, das Bilder versteht (siehe Modell), und der Desktop muss einmal eingerichtet werden:": "For this Aquaticy needs a model that understands images (see Model), and the desktop has to be set up once:",
+"Für den Browser reicht „Normal“. Browser und Office zusammen laufen mit „Plus“ deutlich flüssiger.": "“Normal” is enough for the browser. Browser and office together run much more smoothly with “Plus”.",
+"Speicher": "Memory",
+"Aquaticy darf sich Dinge merken": "Aquaticy may remember things",
+"Zum Beispiel deinen Wohnort, was du magst oder woran du gerade arbeitest. Nur Text, keine Bilder. Verschlüsselt, höchstens 400 MB.": "For example where you live, what you like or what you're working on. Text only, no images. Encrypted, at most 400 MB.",
+"Nachsehen, was Aquaticy weiß — und Einzelnes löschen.": "See what Aquaticy knows — and delete individual items.",
+"Was weißt du über mich?": "What do you know about me?",
+"Mitlesen": "Read along",
+"Aktionen mitlesen": "Show actions",
+"Zeigt dir genau, wonach Aquaticy gesucht und welche Seiten es geöffnet hat. Gilt sofort, auch für die Antwort, die schon dasteht. Die Gedanken selbst siehst du mit": "Shows you exactly what Aquaticy searched for and which pages it opened. Applies right away, including to the answer that's already there. You see the thoughts themselves with",
+"in der Modellauswahl.": "in the model picker.",
+"Auslastung · Ultra": "Load · Ultra",
+"🔒 Die Auslastungsanzeige gehört zu Ultra.": "🔒 The load display is part of Ultra.",
+"Auslastung des Rechners anzeigen": "Show the computer's load",
+"Wie stark Prozessor, Arbeitsspeicher, Festplatte und Grafikkarte gerade arbeiten — läuft mit, solange dieses Fenster offen ist.": "How hard the processor, memory, disk and graphics card are working right now — runs as long as this window is open.",
+"Wie viel du fragen kannst, zählt in zwei Zeiträumen: einer": "How much you can ask is counted in two periods: a",
+"Sitzung": "session",
+"von fünf Stunden ab deiner ersten Nachricht und einer": "of five hours from your first message and a",
+"Woche": "week",
+", die zur Uhrzeit deiner Kontoerstellung neu beginnt. Pro hat deutlich mehr als Normal. Ultra hat kein Limit.": ", which starts again at the time your account was created. Pro has considerably more than Normal. Ultra has no limit.",
+"Aufträge": "Jobs",
+"Aquaticy bleibt für dich dran: Es recherchiert regelmäßig oder behält eine öffentliche Webcam, eine Satellitenansicht oder einen Preis im Auge. Sobald eintritt, worauf du wartest, bekommst du einen neuen Chat — mit Bild und Uhrzeit.": "Aquaticy keeps at it for you: it researches regularly or keeps an eye on a public webcam, a satellite view or a price. As soon as what you're waiting for happens, you get a new chat — with image and time.",
+"Art": "Type",
+"regelmäßig recherchieren": "research regularly",
+"Kamera, Satellit oder Straße beobachten": "watch a camera, satellite or street",
+"Preis beobachten": "watch a price",
+"Bild hochladen und danach suchen": "upload an image and search for it",
+"Frage oder Bedingung": "Question or condition",
+"z. B. Ein oranges Flugzeug ist sichtbar": "e.g. An orange plane is visible",
+"Rhythmus": "Rhythm",
+"täglich": "daily",
+"stündlich": "hourly",
+"wöchentlich": "weekly",
+"alle 30 Minuten": "every 30 minutes",
+"alle 15 Minuten": "every 15 minutes",
+"alle 5 Minuten": "every 5 minutes",
+"jede Minute": "every minute",
+"die ganze Zeit": "all the time",
+"Je öfter geprüft wird, desto schneller ist dein Limit aufgebraucht.": "The more often it checks, the faster your limit is used up.",
+"Öffentliche Quelladresse": "Public source address",
+"Die genaue Webcam-, Karten-, Satelliten- oder Produktseite. Private Kameras und Anmeldungen werden nicht verwendet.": "The exact webcam, map, satellite or product page. Private cameras and sign-ins are not used.",
+"Bild des gesuchten Gegenstands": "Image of the item you're looking for",
+"Ein Foto oder Produktbild. Aquaticy sieht es sich einmal an und sucht dann so lange nach einem Angebot dafür, bis es eines findet — dann kommt die Adresse als Chat.": "A photo or product image. Aquaticy looks at it once and then searches for an offer until it finds one — then the address arrives as a chat.",
+"Wochentag": "Weekday",
+"Montag": "Monday",
+"Dienstag": "Tuesday",
+"Mittwoch": "Wednesday",
+"Donnerstag": "Thursday",
+"Freitag": "Friday",
+"Samstag": "Saturday",
+"Sonntag": "Sunday",
+"Uhrzeit": "Time",
+"Bei „stündlich\" zählt nur die Minute": "With “hourly” only the minute counts",
+"Richtig recherchieren": "Research properly",
+"Mit Teilfragen, Helfern und Quellen — wie der Schalter „Strukturieren“. Aus: Aquaticy antwortet kurz mit dem, was es weiß.": "With sub-questions, helpers and sources — like the “Structure” switch. Off: Aquaticy answers briefly with what it knows.",
+"Auftrag anlegen": "Create job",
+"Gmail & Kalender": "Gmail & Calendar",
+"Termine und Mails lesen dürfen": "May read appointments and mails",
+"Dann kann Aquaticy Fragen zu deinen Terminen und Mails beantworten. Nur lesen — ändern darf es erst mit dem Schalter darunter.": "Then Aquaticy can answer questions about your appointments and mails. Read only — it may only change things with the switch below.",
+"Ändern erlaubt": "Changes allowed",
+"Dann darf Aquaticy Termine anlegen und ändern und Mail-": "Then Aquaticy may create and change appointments and write mail",
+"Entwürfe": "drafts",
+"schreiben — es fragt vorher jedes Mal.": "— it asks every time beforehand.",
+"Verschickt wird nie eine Mail": "A mail is never sent",
+", gelöscht wird nichts: Diese Rechte holt Aquaticy bei Google gar nicht erst. Nach dem Einschalten einmal neu verbinden.": ", nothing is deleted: Aquaticy doesn't even request these rights from Google. Reconnect once after switching this on.",
+"Client-ID": "Client ID",
+"Client-Secret": "Client secret",
+"leer lassen = unverändert": "leave empty = unchanged",
+"Verbinden": "Connect",
+"Trennen": "Disconnect",
+"Bei Google zustimmen": "Agree at Google",
+"— 2. Danach zeigt dein Browser wahrscheinlich eine Fehlerseite. Das ist normal. Kopiere die ganze Adresse oben aus der Adresszeile (sie beginnt mit": "— 2. After that your browser probably shows an error page. That's normal. Copy the whole address from the address bar at the top (it starts with",
+") und füge sie hier ein:": ") and paste it here:",
+"Wie richte ich das ein?": "How do I set this up?",
+"Auf": "Sign in at",
+"anmelden und oben links ein neues Projekt anlegen (Name egal, z.B. „Aquaticy\").": "and create a new project at the top left (any name, e.g. “Aquaticy”).",
+"APIs und Dienste → Bibliothek": "APIs & Services → Library",
+": nach „Gmail API\" suchen, aktivieren. Dasselbe mit „Google Calendar API\".": ": search for “Gmail API” and enable it. Do the same with “Google Calendar API”.",
+"APIs und Dienste → OAuth-Zustimmungsbildschirm": "APIs & Services → OAuth consent screen",
+": Nutzertyp „Extern\", Name und deine Mailadresse eintragen. Unter": ": user type “External”, enter a name and your email address. Under",
+"Zielgruppe": "Audience",
+"dich selbst als Testnutzer hinzufügen — sonst lehnt Google später ab.": "add yourself as a test user — otherwise Google refuses later.",
+"Anmeldedaten → Anmeldedaten erstellen → OAuth-Client-ID": "Credentials → Create credentials → OAuth client ID",
+", Anwendungstyp": ", application type",
+"Desktop-App": "Desktop app",
+". Als autorisierte Weiterleitungs-URI": ". As authorised redirect URI enter",
+"eintragen.": ".",
+"Client-ID und Client-Secret hier oben einfügen,": "Paste the client ID and client secret up here,",
+"speichern": "save",
+", dann auf": ", then click",
+"Deine Zugangsdaten werden verschlüsselt gespeichert und verlassen den Rechner, auf dem Aquaticy läuft, nie. „Trennen“ löscht sie wieder.": "Your credentials are stored encrypted and never leave the computer Aquaticy runs on. “Disconnect” deletes them again.",
+"Zuhause & Netz": "Home & network",
+"🔒 Diese Funktionen gehören zu Ultra: Geräte im Heimnetz finden, Home Assistant und die Lagerverwaltung.": "🔒 These features are part of Ultra: finding devices in your home network, Home Assistant and the storage manager.",
+"Suchen": "Search",
+"Zugangsschlüssel (Token)": "Access key (token)",
+"Testen": "Test",
+"Aquaticy darf auch schalten": "Aquaticy may also switch things",
+"Aus: Aquaticy schaut nur nach. An: Es darf Licht und Co. schalten — bei Schlössern, Alarm, Toren und Heizung fragt es trotzdem jedes Mal.": "Off: Aquaticy only looks. On: it may switch lights and the like — for locks, alarms, gates and heating it still asks every time.",
+"Ins eigene Netz sehen dürfen": "May look into my own network",
+"Für Fragen wie „Welche Geräte sind in meinem WLAN?“ oder „Ist mein Drucker an?“. Aquaticy schaut nur, ob ein Gerät antwortet — und nur in deinem eigenen Netz.": "For questions like “Which devices are on my Wi-Fi?” or “Is my printer on?”. Aquaticy only checks whether a device answers — and only in your own network.",
+"Dein Netz (leer lassen = automatisch)": "Your network (leave empty = automatic)",
+"Lagerverwaltung": "Storage manager",
+"Adresse": "Address",
+"Räume → Möbel → Artikel, mit Artikelnummern. Aquaticy kann dann sagen, wo etwas liegt und wie viel noch da ist.": "Rooms → furniture → items, with item numbers. Aquaticy can then say where something is and how much is left.",
+"Was Aquaticy dort darf": "What Aquaticy may do there",
+"Nichts — abgeschaltet": "Nothing — switched off",
+"Nur lesen — suchen und nachsehen": "Read only — search and look",
+"Lesen und schreiben — auch anlegen und ändern": "Read and write — also create and change",
+"Löschen darf Aquaticy nie — ein gelöschter Raum nähme alles darin mit, das entscheidest nur du. Gut zu wissen: Die Lagerverwaltung selbst hat kein Passwort. „Nur lesen“ bremst nur Aquaticy; wer in deinem Netz ist, kann dort weiterhin alles ändern.": "Aquaticy may never delete — a deleted room would take everything in it along, only you decide that. Good to know: the storage manager itself has no password. “Read only” only slows down Aquaticy; anyone in your network can still change everything there.",
+"Suche": "Search",
+"Suchmaschine": "Search engine",
+"Offene Suche (kostenlos, ohne Schlüssel)": "Open search (free, no key)",
+"SearXNG (dein eigener Suchserver)": "SearXNG (your own search server)",
+"Brave Search (braucht Schlüssel)": "Brave Search (needs a key)",
+"Tavily (braucht Schlüssel)": "Tavily (needs a key)",
+"Suchdienste": "Search services",
+"Leer lassen nutzt alle": "Leave empty to use all",
+"SearXNG-Adresse": "SearXNG address",
+"Schlüssel der Suchmaschine": "Search engine key",
+"nur bei Brave und Tavily nötig": "only needed for Brave and Tavily",
+"— den trägst du oben beim Modell ein, dann steht er unter": "— you enter it above with the model, then it's listed under",
+"Formulierungen je Suche": "Phrasings per search",
+"Aquaticy stellt dieselbe Frage auf verschiedene Arten — das findet mehr. 2 bis 3 ist gut, 1 schaltet es ab.": "Aquaticy asks the same question in different ways — that finds more. 2 to 3 is good, 1 switches it off.",
+"Verbindung testen": "Test connection",
+"Ort & Sprache": "Place & language",
+"Standard-Ort": "Default place",
+"Sprache / Land": "Language / country",
+"Helfer & Grenzen": "Helpers & limits",
+"Fragen automatisch aufteilen": "Split questions automatically",
+"Große Fragen teilt Aquaticy in kleine auf und lässt sie gleichzeitig suchen. Das geht schneller, verbraucht aber mehr von deinem Limit.": "Aquaticy splits big questions into small ones and lets them search at the same time. That's faster but uses more of your limit.",
+"Suchen je Helfer": "Searches per helper",
+"Wie oft ein Helfer suchen oder eine Seite lesen darf": "How often a helper may search or read a page",
+"Suchen je Anfrage": "Searches per request",
+"Obergrenze für Suchen und Seitenaufrufe zusammen": "Upper limit for searches and page views together",
+"Gedächtnis im Gespräch": "Memory in the conversation",
+"Wie viel vom Gespräch das Modell überblickt. Gilt nur für lokale Modelle": "How much of the conversation the model keeps in view. Only applies to local models",
+"Zeit fürs Planen": "Time for planning",
+"Sekunden, die das Zerlegen einer Frage dauern darf": "Seconds that splitting a question may take",
+"Gleichzeitig": "At the same time",
+"Wie viele Helfer gleichzeitig arbeiten. 0 = Aquaticy entscheidet": "How many helpers work at the same time. 0 = Aquaticy decides",
+"Anfragen pro Minute": "Requests per minute",
+"Wie viele Anfragen dein KI-Anbieter pro Minute erlaubt. Leer lassen = kostenloser Tarif (NVIDIA 40, Mistral 240). Gilt für deine eigenen Schlüssel": "How many requests your AI provider allows per minute. Leave empty = free tier (NVIDIA 40, Mistral 240). Applies to your own keys",
+"leer lassen = kostenloser Tarif": "leave empty = free tier",
+"Gleichzeitige Anfragen": "Simultaneous requests",
+"Mehr gleichzeitig heißt: Jede einzelne Antwort wird langsamer. Leer lassen = NVIDIA 4, Mistral 8": "More at the same time means each single answer gets slower. Leave empty = NVIDIA 4, Mistral 8",
+"Seiten mit echtem Browser laden": "Load pages with a real browser",
+"Für Seiten, die ihren Inhalt erst später nachladen. Dafür muss einmal": "For pages that only load their content later. For this, run once",
+"ausgeführt werden.": ".",
+"Rechts-Leitplanken nach Grundgesetz und BGB": "Legal guardrails under the German Basic Law and Civil Code",
+"Bevor Aquaticy etwas tut, prüft es, ob das mit Grundgesetz und BGB vereinbar ist — bei jeder Frage, jeder Personensuche, jedem Kamerabild und jedem Mail-Entwurf. Aus dem Chat heraus lässt sich das nie abschalten.": "Before Aquaticy does anything, it checks whether it's compatible with the Basic Law (GG) and the Civil Code (BGB) — for every question, every person search, every camera image and every mail draft. This can never be switched off from the chat.",
+"Modell automatisch wählen": "Choose model automatically",
+"Du schreibst einfach — Aquaticy sucht für jede Nachricht selbst das passende Hauptmodell aus: fürs Programmieren das Code-Modell, für „erstelle mir ein Bild“ eines, das Bilder malen kann, für ein „Hallo“ das schnelle. Die Helfer bleiben dieselben. Die Wahl geht blitzschnell und kostet nichts extra; im Verlauf siehst du, welches Modell dran war.": "You just write — Aquaticy picks the right main model for each message itself: the code model for programming, one that can paint for “create an image for me”, the fast one for a “Hello”. The helpers stay the same. The choice is instant and costs nothing extra; in the history you see which model was used.",
+"Welche Regeln gelten?": "Which rules apply?",
+"Dieser Schalter betrifft nur die Rechts-Leitplanken. Manche Grenzen gelten immer: Aquaticy umgeht keine Bezahlschranken, Logins oder Captchas, lässt Seiten in Ruhe, die nicht gelesen werden wollen (robots.txt), schaut nur in dein eigenes Netz, schaltet im Haus nur nach Rückfrage und verschickt oder löscht bei Google nie etwas.": "This switch only affects the legal guardrails. Some limits always apply: Aquaticy doesn't bypass paywalls, logins or captchas, leaves pages alone that don't want to be read (robots.txt), only looks into your own network, only switches things at home after asking and never sends or deletes anything at Google.",
+"Speichern": "Save",
+"Zum Schutz vor Missbrauch liest Ai-guard mit; die Daten werden nur dafür genutzt. Mehr in den": "To protect against misuse, Ai-guard reads along; the data is used only for that. More in the",
+"Frag etwas Größeres …": "Ask something bigger …",
+"Was soll ich bauen?": "What should I build?",
+"Schlicht": "Plain",
+"grünes Papier": "green paper",
+"schwarz-weiß": "black and white",
+"Design selber erstellen": "Create your own design",
+"deine Farben": "your colours",
+"Sprache": "Language",
+"Angelegt.": "Created.",
+"Anlegen ging nicht.": "Couldn't create it.",
+"Aquaticy ist gerade nicht erreichbar. Versuch es gleich noch einmal.": "Aquaticy can't be reached right now. Try again in a moment.",
+"Bitte gib eine vollständige öffentliche http(s)-Quelladresse an.": "Please enter a complete public http(s) source address.",
+"Bitte wähle das Bild aus, nach dem gesucht werden soll.": "Please choose the image to search for.",
+"Das ging gerade nicht. Versuch es gleich noch einmal.": "That didn't work just now. Try again in a moment.",
+"Der Speicher ist ausgeschaltet.": "Memory is switched off.",
+"Der Speicher ließ sich nicht laden.": "Memory couldn't be loaded.",
+"Der Zählerstand ließ sich nicht laden.": "The usage couldn't be loaded.",
+"Die Add-ons ließen sich nicht laden.": "The add-ons couldn't be loaded.",
+"Die Adresse muss vollständig sein — oder leer bleiben.": "The address must be complete — or stay empty.",
+"Die Aufträge ließen sich nicht laden.": "The jobs couldn't be loaded.",
+"Die Datei kam nicht durch.": "The file didn't get through.",
+"Die Schlüssel ließen sich nicht laden.": "The keys couldn't be loaded.",
+"Die Werkstatt antwortet nicht.": "The workshop isn't answering.",
+"Die Werkstatt läuft, es liegt aber noch nichts darin.": "The workshop is running, but there's nothing in it yet.",
+"Die Werkstatt öffnet die Seite …": "The workshop is opening the page …",
+"Einen Moment …": "One moment …",
+"Fenster bei Google geöffnet — danach die Adresse hier einfügen.": "Window opened at Google — then paste the address here.",
+"Ging nicht.": "Didn't work.",
+"Herunterladen": "Download",
+"Keine Verbindung zu Aquaticy. Versuch es gleich noch einmal.": "No connection to Aquaticy. Try again in a moment.",
+"Kopieren": "Copy",
+"Kopiert": "Copied",
+"Läuft — die Antwort steht gleich in der Leiste.": "Running — the answer will appear in the sidebar shortly.",
+"Löse den Code ein …": "Redeeming the code …",
+"Moment …": "One moment …",
+"Noch kein Auftrag. Unten steht, wie einer entsteht.": "No job yet. Below you can see how to create one.",
+"Nutzungslimits": "Usage limits",
+"Kein Limit": "No limit",
+"Ohne Frage gibt es nichts zu tun.": "Without a question there's nothing to do.",
+"Sehe nach …": "Checking …",
+"Speichere …": "Saving …",
+"Teste Modell und Suche …": "Testing model and search …",
+"Verbunden": "Connected",
+"Vorschlag": "Suggestion",
+"nicht verfügbar": "not available",
+"Die Antwort kam nicht an. Versuch es gleich noch einmal.": "The answer didn't arrive. Try again in a moment.",
+"Kopieren ging nicht — der Browser lässt es hier nicht zu.": "Copying didn't work — the browser doesn't allow it here.",
+"Neuer Chat ging gerade nicht. Versuch es gleich noch einmal.": "Couldn't start a new chat just now. Try again in a moment.",
+"Gespeichert.": "Saved.",
+"Der Export ist nicht durchgekommen.": "The export didn't get through.",
+"Der Chat ließ sich gerade nicht öffnen. Versuch es gleich noch einmal.": "The chat couldn't be opened just now. Try again in a moment.",
+"In diesem Chat steht noch nichts.": "There's nothing in this chat yet.",
+"Das hat nicht geklappt.": "That didn't work.",
+"Heute": "Today",
+"Gestern": "Yesterday",
+"Älter": "Older",
+"Umbenennen": "Rename",
+"Löschen": "Delete",
+"Exportieren": "Export",
+"Anhalten": "Pause",
+"Fortsetzen": "Resume",
+"Entfernen": "Remove",
+"Installieren": "Install",
+"Deinstallieren": "Uninstall",
+"Installiert": "Installed",
+"An": "On",
+"Aus": "Off",
+"Unbegrenzt": "Unlimited"
+};
+const SPRACHEN = ["de", "en"];
+const ATTRIBUTE = ["placeholder", "title", "aria-label"];
+const ORIGINAL = new WeakMap();
+const NICHT_UEBERSETZEN = ".bubble, .recent, .recents-leer, .merk, code, pre, textarea, script, style, #account-username, #account-email";
+let sprache = SPRACHEN.includes(START.lang) ? START.lang : "de";
+const schluessel = text => text.replace(/\s+/g, " ").trim();
+function tauscheText(node){
+  const eltern = node.parentElement;
+  if (!eltern || eltern.closest(NICHT_UEBERSETZEN)) return;
+  const roh = node.nodeValue;
+  if (sprache === "en"){
+    const en = EN[schluessel(roh)];
+    if (!en) return;
+    ORIGINAL.set(node, roh);
+    const vorne = roh.match(/^\s*/)[0], hinten = roh.match(/\s*$/)[0];
+    node.nodeValue = vorne + en + hinten;
+  } else if (ORIGINAL.has(node)){
+    const alt = ORIGINAL.get(node);
+    ORIGINAL.delete(node);
+    // Nur zurueck, wenn niemand den Text inzwischen neu gesetzt hat.
+    if (EN[schluessel(alt)] === schluessel(roh)) node.nodeValue = alt;
+  }
+}
+function tauscheAttribute(el){
+  // Ein Eingabefeld selbst darf einen englischen Platzhalter bekommen --
+  // nur was darin steht, bleibt unberuehrt.
+  if (el.closest(".bubble, .recent, .merk")) return;
+  for (const name of ATTRIBUTE){
+    const wert = el.getAttribute(name);
+    if (!wert) continue;
+    const merk = "data-de-" + name;
+    if (sprache === "en"){
+      const en = EN[schluessel(wert)];
+      if (en){ el.setAttribute(merk, wert); el.setAttribute(name, en); }
+    } else if (el.hasAttribute(merk)){
+      if (EN[schluessel(el.getAttribute(merk))] === wert) el.setAttribute(name, el.getAttribute(merk));
+      el.removeAttribute(merk);
+    }
+  }
+}
+function uebersetze(wurzel){
+  if (!wurzel) return;
+  if (wurzel.nodeType === Node.TEXT_NODE){ tauscheText(wurzel); return; }
+  if (wurzel.nodeType !== Node.ELEMENT_NODE) return;
+  tauscheAttribute(wurzel);
+  const gang = document.createTreeWalker(wurzel, NodeFilter.SHOW_TEXT | NodeFilter.SHOW_ELEMENT);
+  for (let n = gang.nextNode(); n; n = gang.nextNode()){
+    if (n.nodeType === Node.TEXT_NODE) tauscheText(n); else tauscheAttribute(n);
+  }
+}
+// Was das Skript spaeter einsetzt (Meldungen, Listen, Platzhalter), kommt
+// durch diesen Beobachter ebenfalls in der gewaehlten Sprache an.
+const sprachWache = new MutationObserver(eintraege => {
+  if (sprache !== "en") return;
+  for (const e of eintraege){
+    if (e.type === "childList") e.addedNodes.forEach(uebersetze);
+    else if (e.type === "characterData") tauscheText(e.target);
+    else if (e.type === "attributes") tauscheAttribute(e.target);
+  }
+});
+sprachWache.observe(document.body, {
+  childList: true, subtree: true, characterData: true,
+  attributes: true, attributeFilter: ATTRIBUTE,
+});
+function paintSprache(){
+  document.querySelectorAll("#langs .tmode").forEach(button => {
+    const an = button.dataset.lang === sprache;
+    button.classList.toggle("on", an);
+    button.setAttribute("aria-pressed", an ? "true" : "false");
+  });
+}
+function setSprache(wanted, { merken = true } = {}){
+  const neu = SPRACHEN.includes(wanted) ? wanted : "de";
+  const wechsel = neu !== sprache;
+  sprache = neu;
+  document.documentElement.lang = sprache;
+  if (merken) merkeZustand({ lang: sprache });
+  // Der Beobachter wuerde auf die eigenen Aenderungen reagieren -- kurz still.
+  sprachWache.disconnect();
+  uebersetze(document.body);
+  sprachWache.observe(document.body, {
+    childList: true, subtree: true, characterData: true,
+    attributes: true, attributeFilter: ATTRIBUTE,
+  });
+  paintSprache();
+  if (wechsel && document.body.classList.contains("start")) greet();
+}
+document.querySelectorAll("#langs .tmode").forEach(button =>
+  button.addEventListener("click", () => setSprache(button.dataset.lang)));
+// Beim Laden gleich in der gespeicherten Sprache -- noch bevor jemand hinsieht.
+if (sprache === "en") setSprache("en", { merken: false }); else paintSprache();
 
 let currentChat = "";
 
@@ -5690,13 +6195,34 @@ form.addEventListener("submit", async (e) => {
 });
 
 /* ---------- Start ---------- */
+// Auf Englisch (9.5.25) stehen Gruss und Vorschlaege hier -- die deutschen
+// Saetze kommen vom Server und werden nicht Wort fuer Wort uebersetzt.
+const GRUSS_EN = {
+  normal: ["what would you like to find out?", "what should I look up for you?",
+           "what are you curious about today?", "how can I help?"],
+  code: ["what should we build?", "which code should I look at?",
+         "what are you working on?"],
+};
+const VORSCHLAEGE_EN = {
+  normal: ["Good cafés with Wi-Fi in my town", "Laptop up to €1200 for photo editing",
+           "Which devices are on my network?", "What's the weather like this weekend?",
+           "Cheap flights to Lisbon in May", "Explain how a heat pump works"],
+  code: ["Write me a Python script that sorts folders by date",
+         "Why does this code throw an IndexError?", "Build a small REST API with FastAPI",
+         "Write unit tests for my function"],
+};
 function greet(){
   const hour = new Date().getHours();
-  const when = hour < 5 ? "Noch wach" : hour < 11 ? "Guten Morgen"
-             : hour < 14 ? "Hallo" : hour < 18 ? "Guten Nachmittag"
-             : hour < 23 ? "Guten Abend" : "Gute Nacht";
+  const englisch = sprache === "en";
+  const when = englisch
+    ? (hour < 5 ? "Still up" : hour < 12 ? "Good morning" : hour < 18 ? "Good afternoon"
+       : hour < 23 ? "Good evening" : "Good night")
+    : (hour < 5 ? "Noch wach" : hour < 11 ? "Guten Morgen"
+       : hour < 14 ? "Hallo" : hour < 18 ? "Guten Nachmittag"
+       : hour < 23 ? "Guten Abend" : "Gute Nacht");
   // Die Tageszeit kennt nur das Geraet des Nutzers -- die Saetze kommen vom Server.
-  const phrases = (mode === "code" ? TEXTE.greetings.code : TEXTE.greetings.normal)
+  const phrases = englisch ? GRUSS_EN[mode === "code" ? "code" : "normal"]
+    : (mode === "code" ? TEXTE.greetings.code : TEXTE.greetings.normal)
     || ["was möchtest du herausfinden?"];
   const turn = Math.floor(Date.now() / 60000) + document.querySelectorAll(".msg.user").length;
   const name = currentUsername ? ` ${currentUsername}` : "";
@@ -5705,7 +6231,8 @@ function greet(){
 }
 
 function rotateSuggestions(seed = Date.now()){
-  const list = (mode === "code" ? TEXTE.suggestions.code : TEXTE.suggestions.normal) || [];
+  const list = sprache === "en" ? VORSCHLAEGE_EN[mode === "code" ? "code" : "normal"]
+    : (mode === "code" ? TEXTE.suggestions.code : TEXTE.suggestions.normal) || [];
   if (!list.length) return;
   const target = mode === "code" ? $("#chips-code") : $("#chips");
   const start = Math.abs(Number(seed) || 0) % list.length;

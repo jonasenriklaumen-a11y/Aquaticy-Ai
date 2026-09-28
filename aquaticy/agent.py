@@ -14,7 +14,7 @@ import threading
 import time
 from collections.abc import Callable
 from concurrent.futures import ThreadPoolExecutor
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from pathlib import Path
 from typing import Any
 
@@ -468,6 +468,14 @@ auch Teilergebnisse und Nebenbefunde. Vergleiche, was sich vergleichen laesst, u
 schliesse mit einer Empfehlung, soweit die Datenlage sie traegt. Liste danach unter \
 "Nicht gefunden:" jeden offenen Punkt einzeln auf und weise darauf hin, dass die \
 Recherche am Limit abgebrochen wurde."""
+
+#: Die Oberflaeche steht auf Englisch (9.5.25): dann antwortet Aquaticy auch so.
+ENGLISH_PROMPT = """
+
+Language: The user chose English. Always answer in English -- including refusals, \
+questions back and short replies -- no matter which language the sources are in. \
+Search queries may stay in the language that fits the topic best.
+"""
 
 IMAGE_PROMPT = """\
 Beschreibe, was auf diesem Bild zu sehen ist -- mit Blick darauf, wonach man im Web \
@@ -1151,6 +1159,9 @@ class Agent:
         self.guard: Guard | None = getattr(self.toolbox, "guard", None)
         if self.guard is None and settings.legal_guard:
             self.guard = Guard(settings)
+        #: Die letzte Absage nach dem Rechtsrahmen in diesem Chat (9.5.25):
+        #: (Frage, Urteil). Ein "bitte" oder Draengen danach bleibt abgelehnt.
+        self._absage: tuple[str, Any] | None = None
         # Erst der Werkzeugkasten, dann der Text: ob Rueckfragen moeglich sind,
         # steht am Werkzeugkasten und gehoert in den Systemtext.
         self.messages: list[dict[str, Any]] = [
@@ -1691,6 +1702,7 @@ class Agent:
         """
         self.messages = [{"role": "system", "content": self._compose_system()}]
         self.last_result = None
+        self._absage = None
         # Ein neuer Chat beginnt ohne fremden Text (seit 9.5.16 -- vorher
         # blieb der Vermerk fuer immer stehen).
         self.toolbox.untrusted_seen = False
@@ -1999,7 +2011,16 @@ class Agent:
             text += VISUAL_SOURCES_PROMPT
         if self.settings.legal_guard:
             text += rules_prompt()
+        if getattr(self, "answer_language", "de") == "en":
+            text += ENGLISH_PROMPT
         return text + self._person_prompt()
+
+    def set_answer_language(self, language: str) -> None:
+        """Sprache der Antworten (9.5.25): "de" oder "en" -- aus dem Design-Fenster."""
+        sprache = "en" if str(language or "").lower() == "en" else "de"
+        if sprache != getattr(self, "answer_language", "de"):
+            self.answer_language = sprache
+            self._refresh_system()
 
     def _person_prompt(self) -> str:
         """Was ueber den Nutzer bekannt ist -- gleich zu Beginn, ungefragt.
@@ -2645,11 +2666,22 @@ class Agent:
             return None
         # Der Pruefer spricht als Erster mit dem Modell. Muss es erst geladen
         # werden, faellt die Wartezeit hier an -- dann soll das auch dastehen.
-        self._tell_if_loading()
-        verdict = self.guard.check_request(
-            question, self._recent_context(include_last=True)
-        )
-        self._model_ready()
+        from aquaticy.guardrails import pleads_again, refused_note
+
+        absage = getattr(self, "_absage", None)
+        if absage is not None and pleads_again(question):
+            # Nach einer Absage nur "bitte", Draengen oder "ich darf das" (9.5.25):
+            # bleibt abgelehnt, mit derselben Regel -- ohne Modell, damit es
+            # nicht doch noch nachgibt.
+            verdict = replace(absage[1], source="gemerkt", abuse=False, abuse_kind="",
+                              abuse_severity=0)
+        else:
+            self._tell_if_loading()
+            kontext = self._recent_context(include_last=True)
+            if absage is not None:
+                kontext += refused_note(absage[0], absage[1])
+            verdict = self.guard.check_request(question, kontext)
+            self._model_ready()
         if verdict.abuse:
             # Fehlverhalten mit Art und Schwere (seit 9.5.24 auch bei einer
             # Ablehnung): Ai-guard entscheidet daraus Chatsperre oder Bann
@@ -2658,8 +2690,13 @@ class Agent:
             self._emit("abuse", art=verdict.abuse_kind or "Missbrauch",
                        schwere=int(verdict.abuse_severity or 0))
         if verdict.allowed:
+            # Etwas anderes, Erlaubtes -- die alte Absage haelt nicht mehr fest.
+            self._absage = None
             return None
-        antwort = refusal_text(verdict)
+        if verdict.source not in ("ausfall", "unklar") and (absage is None
+                                                          or not pleads_again(question)):
+            self._absage = (question, verdict)
+        antwort = refusal_text(verdict, getattr(self, "answer_language", "de"))
         self._emit("guard", **event_payload(verdict, "anfrage"))
         self.messages.append({"role": "user", "content": question})
         self.messages.append({"role": "assistant", "content": antwort})
