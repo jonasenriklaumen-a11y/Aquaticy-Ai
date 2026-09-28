@@ -89,10 +89,14 @@ def test_remove_terminal_command(tmp_path: Path, monkeypatch: pytest.MonkeyPatch
         store = AuthStore(tmp_path, "PRO123456")
         account = store.register("command@example.org", PASSWORD, "normal",
                                  username="DeleteMe", **TERMS)
-        result = CliRunner().invoke(cli.app, ["remove", "DeleteMe"])
+        # Ohne Bestaetigung (9.5.22) bleibt das Konto stehen.
+        result = CliRunner().invoke(cli.app, ["remove", "DeleteMe"], input="n\n")
+        assert result.exit_code == 1 and "command@example.org" in result.output
+        assert store.account(account.id) is not None
+        result = CliRunner().invoke(cli.app, ["remove", "DeleteMe"], input="y\n")
         assert result.exit_code == 0, result.output
         assert store.account(account.id) is None
-        assert CliRunner().invoke(cli.app, ["remove", "DeleteMe"]).exit_code == 1
+        assert CliRunner().invoke(cli.app, ["remove", "DeleteMe", "--yes"]).exit_code == 1
     finally:
         config.reset_settings_cache()
 

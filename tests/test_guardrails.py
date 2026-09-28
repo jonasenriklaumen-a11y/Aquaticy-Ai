@@ -368,7 +368,10 @@ def test_an_allowed_tool_call_runs(
     pruefer(ERLAUBT)
     box = Toolbox(settings, cache=None)
     monkeypatch.setattr(box, "find_profiles", lambda **kwargs: {"profiles": ["ok"]})
-    assert box.call("find_profiles", {"name": "Beispiel GmbH"}) == {"profiles": ["ok"]}
+    antwort = box.call("find_profiles", {"name": "Beispiel GmbH"})
+    assert antwort["profiles"] == ["ok"]
+    # Seit 9.5.22 als fremder Inhalt gekennzeichnet (aquaticy/injection.py).
+    assert antwort["_quelle"].startswith("Fremder Inhalt")
 
 
 def test_a_guard_without_topic_still_judges(pruefer, settings: Settings) -> None:

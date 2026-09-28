@@ -516,6 +516,7 @@ def list_users_command() -> None:
 @app.command("remove")
 def remove_command(
     account: str = typer.Argument(..., help="Nutzername oder E-Mail-Adresse des Kontos."),
+    yes: bool = typer.Option(False, "--yes", "-y", help="Ohne Rückfrage löschen."),
 ) -> None:
     """Löscht ein Konto mit Sitzungen, Verbrauch und privaten Daten."""
     from aquaticy.auth import AuthStore, pro_code_for
@@ -526,6 +527,14 @@ def remove_command(
         konto = store.account_by_name(account)
         if konto is None:
             raise ValueError("Kein Konto mit diesem Nutzernamen oder dieser E-Mail-Adresse.")
+        # Unwiderruflich -- also erst zeigen, WELCHES Konto es trifft (9.5.22).
+        # Ein Tippfehler im Namen soll nicht still ein fremdes Konto loeschen.
+        if not yes and not typer.confirm(
+            f"Konto „{konto.username}“ ({konto.email}, {konto.plan_label}) samt Chats, "
+            "Speicher und Dateien endgültig löschen?", default=False
+        ):
+            console.print("[yellow]Nichts gelöscht.[/yellow]")
+            raise typer.Exit(code=1)
         store.remove_account(konto)
     except (ValueError, OSError) as exc:
         console.print(f"[red]{exc}[/red]")

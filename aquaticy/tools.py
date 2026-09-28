@@ -11,6 +11,7 @@ Ausschnitt.
 
 from __future__ import annotations
 
+import contextlib
 import subprocess
 import time
 from collections.abc import Callable
@@ -1021,6 +1022,10 @@ CONFIRM_AFTER_UNTRUSTED: dict[str, str] = {
     "storage_edit": "etwas in der Lagerverwaltung ändern",
     "remember": "sich etwas dauerhaft merken",
     "save_memory": "etwas im Speicher ablegen",
+    # Seit 9.5.22: eine Seite soll nicht unbemerkt das Heimnetz auskundschaften
+    # lassen -- das Ergebnis koennte sie sich danach abholen wollen.
+    "lan_scan": "das Heimnetz durchsuchen",
+    "lan_check": "ein Gerät im Heimnetz abfragen",
 }
 
 VM_SCHEMAS: tuple[dict[str, Any], ...] = (
@@ -1563,6 +1568,10 @@ class Toolbox:
         #: Steht fremder Text im Gespraech (Web, Mails, Bildschirm)? Dann
         #: laufen Werkzeuge mit Wirkung nur noch mit Bestaetigung (9.5.15).
         self.untrusted_seen = False
+        #: Was der Nutzer in diesem Chat selbst geschrieben hat (setzt der
+        #: Agent). Ein Wort, das er selbst nennt, ist fuer den Abfluss-Schutz
+        #: kein Geheimnis (aquaticy/injection.py, seit 9.5.22).
+        self.user_said = ""
         #: Wird beim ersten Zugriff geoeffnet, nicht beim Start -- wer den
         #: Speicher nie benutzt, soll auch keine Datei dafuer anlegen.
         self._memory_store: Any = None
@@ -2636,7 +2645,7 @@ class Toolbox:
         laeuft (aquaticy/metering.py, seit 9.5.14 Seashell). Ist nichts mehr
         uebrig, lehnt das Werkzeug ab -- das Modell antwortet dann ohne.
         """
-        nein = self._untrusted_gate(name, arguments)
+        nein = self._untrusted_gate(name, arguments) or self._leak_gate(name, arguments)
         if nein:
             return nein
         art = WORK_TOOLS.get(name)
@@ -2665,10 +2674,79 @@ class Toolbox:
         return self._after_untrusted(name, payload)
 
     def _after_untrusted(self, name: str, payload: Any) -> Any:
-        """Merkt sich, dass fremder Text im Gespraech ist."""
-        if name in UNTRUSTED_SOURCES and isinstance(payload, dict) and not payload.get("error"):
-            self.untrusted_seen = True
-        return payload
+        """Merkt sich, dass fremder Text im Gespraech ist -- und kennzeichnet ihn.
+
+        Seit 9.5.22 wird jedes Ergebnis aus fremder Quelle gesaeubert
+        (unsichtbare Zeichen, nachgemachte Chat-Steuerzeichen) und traegt den
+        Hinweis, dass es nur Daten sind; stehen darin Anweisungen an eine KI,
+        kommt eine Warnung dazu (aquaticy/injection.py).
+        """
+        if name not in UNTRUSTED_SOURCES or not isinstance(payload, dict):
+            return payload
+        from aquaticy import injection
+
+        if payload.get("error"):
+            # Auch eine Fehlermeldung kann fremden Text tragen (Grund einer Seite).
+            return injection.clean(payload)
+        self.untrusted_seen = True
+        markiert, arten = injection.mark(name, payload)
+        if arten:
+            self._emit("injection", tool=name, kinds=arten)
+        return markiert
+
+    def _private_terms(self) -> tuple[set[str], set[str]]:
+        """Private Angaben dieses Kontos: Merkzettel, Speicher, Ort, E-Mail."""
+        from aquaticy import injection
+
+        texte: list[str] = [str(getattr(self.settings, "location", "") or "")]
+        if self.cache is not None:
+            with contextlib.suppress(Exception):
+                texte += [n.text for n in self.cache.list_notes(limit=50)]
+        with contextlib.suppress(Exception):
+            store = self._memory()
+            if store is not None:
+                texte += [e.text for e in store.all_entries(limit=200)]
+        hart = [str(getattr(self.settings, "account_email", "") or "")]
+        return injection.private_terms(texte, hart)
+
+    def _leak_gate(self, name: str, arguments: dict[str, Any]) -> dict[str, Any] | None:
+        """Nach fremdem Text: keine privaten Angaben nach aussen ohne Zustimmung.
+
+        Eine gelesene Seite kann das Modell bitten, "https://ihre-seite/?d=..."
+        mit dem Merkzettel abzurufen oder etwas in einen Messenger zu tippen.
+        Traegt der Aufruf dann eine private Angabe hinaus, fragt Aquaticy den
+        Menschen -- oder laesst es, wenn niemand da ist (seit 9.5.22).
+        """
+        from aquaticy import injection
+
+        if not getattr(self, "untrusted_seen", False):
+            return None
+        if name not in injection.OUTBOUND and name not in injection.SEARCHES:
+            return None
+        weich, streng = self._private_terms()
+        begriff = injection.leaks(name, arguments, weich, streng,
+                                  said=getattr(self, "user_said", ""))
+        if not begriff:
+            return None
+        ziel = str(arguments.get("url") or arguments.get("query") or arguments.get("text")
+                   or arguments.get("command") or "")[:80]
+        self._emit("injection", tool=name, kinds=["private Angabe nach aussen"])
+        frage = (f"Aquaticy will '{name}' aufrufen und dabei eine private Angabe "
+                 f"(„{begriff}“) mitschicken: {ziel}. Vorher stand fremder Inhalt im "
+                 "Gespräch. Erlauben?")
+        if self.ask_handler is None:
+            return {"error": (
+                "Das würde eine private Angabe des Nutzers nach außen tragen, nachdem "
+                "fremder Inhalt gelesen wurde -- ohne Bestätigung nicht. Mach ohne weiter "
+                "oder frag den Nutzer."
+            ), "bestaetigung": False, "skipped_reason": "private_data"}
+        self._emit("ask", question=frage, options=["ja", "nein"])
+        antwort = (self.ask_handler(frage, ["ja", "nein"]) or "").strip().lower()
+        self._emit("ask_done", question=frage, answer=antwort)
+        if antwort in YES_WORDS:
+            return None
+        return {"error": f"Vom Nutzer nicht erlaubt (Antwort: {antwort!r}). Lass es.",
+                "bestaetigung": False, "skipped_reason": "private_data"}
 
     def _untrusted_gate(self, name: str, arguments: dict[str, Any]) -> dict[str, Any] | None:
         """Nach fremdem Text: Wirkung nach aussen nur, wenn der Mensch zustimmt."""

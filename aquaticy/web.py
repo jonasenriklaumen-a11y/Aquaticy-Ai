@@ -450,6 +450,11 @@ AUTH: AuthStore | None = None
 #: Ai-guard: erkennt Missbrauch über mehrere Chats und sperrt (9.5.16 Lion).
 AIGUARD: Any = None
 AUTH_LIMIT = RateLimiter(attempts=8, window_seconds=60)
+#: Fehlversuche je Konto (seit 9.5.22). AUTH_LIMIT zaehlt je Adresse -- wer
+#: von vielen Adressen aus EIN Konto durchprobiert, faellt erst hier auf.
+LOGIN_FAILS = RateLimiter(attempts=10, window_seconds=15 * 60)
+#: So gross darf eine Anmeldung, Registrierung oder Zustimmung hoechstens sein.
+AUTH_BODY_BYTES = 16_384
 REQUEST_LIMIT = RateLimiter(attempts=240, window_seconds=60)
 #: Schluessel testen, je Konto: genug, um einen neuen Schluessel ein paarmal zu
 #: probieren -- zu wenig, um den Server als Pruefstelle fuer fremde Schluessel
@@ -903,6 +908,7 @@ def _profile_settings(profile: Path, plan: str, account: Account | None = None) 
         settings.github_token = ""
     # Den Such-Schluessel des Betreibers teilt ein normales Konto nur bei der
     # Suchmaschine, die der Betreiber selbst gewaehlt hat (seit 9.5.16).
+    settings.account_email = str(getattr(account, "email", "") or "")
     settings.operator_search_backends = (
         None if plan == "ultra" else frozenset({(base.search_backend or "").lower()}))
     # Eine Modell-Adresse, die das Konto selbst eingetragen hat (nur Ultra, s.u.).
@@ -1204,6 +1210,12 @@ class ChatSession:
                                 agent, mode, sandbox
                             )
                         )
+                        # Abgegrenzt und gesaeubert (9.5.22): ein Anhang spricht
+                        # nicht mit der Stimme des Nutzers.
+                        if context:
+                            from aquaticy.injection import wrap_attachment
+
+                            context = wrap_attachment(context)
                         message = f"{context}\n\n{message}" if context else message
                         # Ein Anhang ist fremder Text wie eine Webseite (seit
                         # 9.5.16): ein PDF aus dem Netz kann Anweisungen tragen.
@@ -2665,6 +2677,9 @@ class Handler(BaseHTTPRequestHandler):
         self.send_header("Referrer-Policy", "no-referrer")
         self.send_header("Permissions-Policy", "camera=(), microphone=(), geolocation=()")
         self.send_header("Cross-Origin-Opener-Policy", "same-origin")
+        if self._https():
+            # Einmal verschluesselt, immer verschluesselt (9.5.22).
+            self.send_header("Strict-Transport-Security", "max-age=31536000")
         self.send_header("Cross-Origin-Resource-Policy", "same-origin")
         self.send_header(
             "Content-Security-Policy",
@@ -2795,6 +2810,12 @@ class Handler(BaseHTTPRequestHandler):
                                     self._client_ip())
 
     def _origin_ok(self) -> bool:
+        # Moderne Browser sagen selbst, woher eine Anfrage kommt (seit 9.5.22
+        # ausgewertet): von einer fremden Seite -- auch einer Nachbar-Subdomain
+        # -- kommt kein schreibender Aufruf durch.
+        herkunft = (self.headers.get("Sec-Fetch-Site") or "").strip().lower()
+        if herkunft in {"cross-site", "same-site"}:
+            return False
         origin = (self.headers.get("Origin") or "").strip()
         if not origin:
             return True
@@ -2803,8 +2824,26 @@ class Handler(BaseHTTPRequestHandler):
             self.headers.get("Host") or ""
         )
 
+    def _https(self) -> bool:
+        """Laeuft die Verbindung verschluesselt -- direkt oder hinter einem
+        eingetragenen Proxy, der "X-Forwarded-Proto: https" meldet (9.5.22)?"""
+        if isinstance(self.connection, __import__("ssl").SSLSocket):
+            return True
+        import ipaddress
+
+        direkt = str(self.client_address[0] if self.client_address else "")
+        try:
+            quelle = ipaddress.ip_address(direkt.split("%", 1)[0])
+        except ValueError:
+            return False
+        if not any(quelle in netz for netz in trusted_proxies()):
+            return False
+        return (self.headers.get("X-Forwarded-Proto") or "").strip().lower() == "https"
+
     def _set_cookie(self, name: str, value: str, max_age: int) -> None:
-        secure = "; Secure" if isinstance(self.connection, __import__("ssl").SSLSocket) else ""
+        # "Secure" auch hinter einem HTTPS-Proxy (9.5.22) -- bis dahin nur bei
+        # direktem TLS, und hinter nginx/Caddy ging das Anmelde-Cookie ohne raus.
+        secure = "; Secure" if self._https() else ""
         self.send_header(
             "Set-Cookie",
             f"{name}={value}; Path=/; Max-Age={max_age}; HttpOnly; SameSite=Strict{secure}",
@@ -2835,7 +2874,8 @@ class Handler(BaseHTTPRequestHandler):
         self.end_headers()
         self.wfile.write(body)
 
-    def _read_json(self) -> dict[str, Any]:
+    def _read_json(self, limit: int = 0) -> dict[str, Any]:
+        """Liest den JSON-Koerper. *limit*: kleinere Obergrenze fuer diese Route."""
         roh = (self.headers.get("Content-Length") or "0").strip()
         # Nur eine nicht-negative Zahl. "-1" hiesse fuer read(): lies, bis die
         # Verbindung zu ist -- also so viel, wie jemand schickt.
@@ -2844,6 +2884,10 @@ class Handler(BaseHTTPRequestHandler):
         length = int(roh)
         if not length:
             return {}
+        if limit and length > limit:
+            # Anmelden und Registrieren brauchen ein paar hundert Bytes -- nicht
+            # die Groesse eines Uploads (seit 9.5.22).
+            raise TooLarge("Anfrage zu gross.")
         if length > MAX_BODY_BYTES:
             # Nicht lesen, nur verwerfen -- sonst zieht ein einziger Aufruf
             # den Arbeitsspeicher leer.
@@ -3387,7 +3431,7 @@ class Handler(BaseHTTPRequestHandler):
             self._json({"error": "Die Herkunft der Anfrage stimmt nicht."}, 403)
             return
         if route == "/api/consent":
-            accepted = bool(self._read_json().get("accepted"))
+            accepted = bool(self._read_json(limit=AUTH_BODY_BYTES).get("accepted"))
             if not accepted:
                 self._json_cookie(
                     {"ok": False, "leave": True}, CONSENT_COOKIE, "", 0, status=403
@@ -3404,7 +3448,7 @@ class Handler(BaseHTTPRequestHandler):
             if not AUTH_LIMIT.allow(self._client_ip()):
                 self._json({"error": "Zu viele Anmeldeversuche. Bitte warte eine Minute."}, 429)
                 return
-            payload = self._read_json()
+            payload = self._read_json(limit=AUTH_BODY_BYTES)
             if route.endswith("register"):
                 if not str(payload.get("username", "")).strip():
                     self._json({"ok": False, "error": "Bitte wähle einen Nutzernamen."}, 400)
@@ -3421,6 +3465,15 @@ class Handler(BaseHTTPRequestHandler):
                         400,
                     )
                     return
+                # Eine gesperrte Adresse legt gar nicht erst ein Konto an (9.5.22) --
+                # bis dahin entstand es und kam nur nicht herein.
+                if AIGUARD is not None:
+                    from aquaticy.aiguard import BANNED_MESSAGE
+
+                    if AIGUARD.is_banned(ip=self._client_ip()) is not None:
+                        self._json({"ok": False, "error": BANNED_MESSAGE, "code": "banned"},
+                                   403)
+                        return
                 try:
                     account = AUTH.register(
                         str(payload.get("email", "")),
@@ -3436,10 +3489,17 @@ class Handler(BaseHTTPRequestHandler):
                     self._json({"ok": False, "error": str(exc)}, 400)
                     return
             else:
+                konto_schluessel = "login:" + str(payload.get("email", "")).strip().lower()
+                if LOGIN_FAILS.full(konto_schluessel):
+                    self._json({"ok": False, "error": (
+                        "Zu viele falsche Passwörter für dieses Konto. Bitte warte "
+                        "eine Viertelstunde.")}, 429)
+                    return
                 account = AUTH.authenticate(
                     str(payload.get("email", "")), str(payload.get("password", ""))
                 )
                 if account is None:
+                    LOGIN_FAILS.allow(konto_schluessel)
                     self._json({"ok": False, "error": "E-Mail oder Passwort stimmt nicht."}, 401)
                     return
             # Ein gesperrtes Konto (oder eine gesperrte Adresse) kommt nicht

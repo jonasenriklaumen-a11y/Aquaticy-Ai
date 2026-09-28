@@ -1998,7 +1998,7 @@ input:focus,select:focus{border-color:var(--accent)}
 const $ = (s) => document.querySelector(s);
 const thread = $("#thread"), main = $("#main"), input = $("#input"), send = $("#send");
 let busy = false;
-const aquaticyVersion = window.__AQUATICY_VERSION__ || "9.5.21 Spark";
+const aquaticyVersion = window.__AQUATICY_VERSION__ || "9.5.22 Spark";
 $("#version").textContent = "v" + aquaticyVersion;
 document.title = `Aquaticy AI ${aquaticyVersion}`;
 
@@ -3085,6 +3085,14 @@ async function verfolge(hole, steps, bubble, text){
           `${ev.stage === "werkzeug" ? "Schritt" : "Anfrage"} abgelehnt — `
           + `${ev.title || "Rechtsrahmen"}${ev.basis ? " (" + ev.basis + ")" : ""}`,
           "warn");
+        break;
+      case "injection":
+        // Schutz vor Prompt-Injection (9.5.22): eine Quelle wollte die KI steuern
+        // oder eine private Angabe sollte nach draussen -- nichts davon passiert.
+        step(steps, "[Schutz]",
+          (Array.isArray(ev.kinds) && ev.kinds.includes("private Angabe nach aussen"))
+            ? "Eine private Angabe sollte nach außen — Aquaticy fragt erst dich."
+            : "Eine Quelle enthielt Anweisungen an die KI — ignoriert.", "warn");
         break;
       case "checkers":
         step(steps, "[Prüfer]",

@@ -1,4 +1,4 @@
-# Aquaticy 9.5.21 Spark -- feste Abhaengigkeiten fuer reproduzierbare Builds.
+# Aquaticy 9.5.22 Spark -- feste Abhaengigkeiten fuer reproduzierbare Builds.
 #
 # Reproduzierbar installieren:
 #   pip install -c constraints.txt -e ".[browser,dev]"

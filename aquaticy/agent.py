@@ -29,6 +29,7 @@ from aquaticy.guardrails import (
     refusal_text,
     rules_prompt,
 )
+from aquaticy.injection import wrap_block
 from aquaticy.models import Product
 from aquaticy.pace import key_of as pace_key_of
 from aquaticy.pace import paced
@@ -1501,7 +1502,10 @@ class Agent:
                     "hat, gar nichts dabei ist, suchst du gezielt danach nach. Etwas "
                     "noch einmal nachzuschlagen, das unten schon steht, kostet nur "
                     "Wartezeit.\n\n"
-                    + findings[: max(4000, self.settings.max_tool_chars * 2)]
+                    # Fremder Text -- als Material abgegrenzt (9.5.22), sonst
+                    # spraeche eine gelesene Seite hier mit der Stimme des Nutzers.
+                    + wrap_block(findings[: max(4000, self.settings.max_tool_chars * 2)],
+                                 "Quellenlage der Helfer")
                 ),
             }
         )
@@ -2098,8 +2102,10 @@ class Agent:
             answer = ANSWER_PROMPT
         else:
             answer = CHAT_PROMPT
+        from aquaticy.injection import RULES as INJECTION_RULES
+
         prompt = (
-            f"{SYSTEM_PROMPT}{answer}{extras}\n"
+            f"{SYSTEM_PROMPT}{answer}{extras}{INJECTION_RULES}\n"
             f"Heute ist {weekdays[today.weekday()]}, der {today.strftime('%d.%m.%Y')}. "
             f"Richte Suchanfragen nach Aktualitaet daran aus, nicht an deinem "
             f"Wissensstand."
@@ -2379,6 +2385,15 @@ class Agent:
         # diesen einen Turn. Ausserhalb des Pro-Modus wird es abgetrennt und
         # ignoriert -- ohne Master gibt es nichts zu erzwingen.
         question, gewuenscht_max = strip_max(question)
+        # Was der Nutzer selbst geschrieben hat -- fuer den Abfluss-Schutz
+        # (aquaticy/injection.py): was er selbst nennt, ist kein Geheimnis.
+        with contextlib.suppress(Exception):
+            from aquaticy.injection import user_words
+
+            self.toolbox.user_said = user_words(
+                [str(m.get("content") or "") for m in self.messages
+                 if m.get("role") == "user" and isinstance(m.get("content"), str)]
+                + [question])
         standard = standard_chat_reply(question, frage_offen=self._last_reply_asks())
         if standard:
             self.max_run = False
@@ -2680,7 +2695,8 @@ class Agent:
         fresh = self._fresh_hits(question)
         if fresh:
             used += 1
-            self.messages.append({"role": "user", "content": RECHECK_FRESH % fresh})
+            self.messages.append({"role": "user", "content": RECHECK_FRESH % wrap_block(
+                fresh, "frische Treffer")})
         self.messages.append({"role": "user", "content": RECHECK_PROMPT})
 
         try:

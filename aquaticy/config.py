@@ -389,6 +389,10 @@ class Settings:
     #: zeile, Pro, ohne Konten). Bis 9.5.15 konnte ein Konto "brave" waehlen
     #: und suchte dann still mit dem bezahlten Schluessel des Betreibers.
     operator_search_backends: frozenset[str] | None = None
+    #: Die E-Mail-Adresse des angemeldeten Kontos -- nur fuer den Abfluss-
+    #: Schutz (aquaticy/injection.py): sie geht nach fremdem Inhalt nicht
+    #: unbemerkt in eine Adresse oder Eingabe (seit 9.5.22).
+    account_email: str = ""
     #: Der Schluesselbund des Kontos fuer interne Geheimnisse (GitHub-Token,
     #: seit 9.5.16). ``None`` = ohne Konten: dann die .env des Betreibers.
     secret_vault: Any = None

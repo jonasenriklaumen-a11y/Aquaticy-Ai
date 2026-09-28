@@ -310,6 +310,17 @@ class RateLimiter:
             events.append(now)
             return True
 
+    def full(self, key: str) -> bool:
+        """Ist die Grenze fuer *key* gerade erreicht? Zaehlt selbst nichts mit."""
+        now = time.monotonic()
+        with self._lock:
+            events = self._events.get(key)
+            if not events:
+                return False
+            while events and now - events[0] >= self.window:
+                events.popleft()
+            return len(events) >= self.attempts
+
     def _sweep(self, now: float) -> None:
         """Wirft alle Eintraege weg, deren letzte Anfrage aus dem Fenster ist."""
         for key in [k for k, ev in self._events.items() if not ev or now - ev[-1] >= self.window]:
@@ -617,6 +628,11 @@ class AuthStore:
         try:
             email = normalize_email(email)
         except ValueError:
+            return None
+        if not isinstance(password, str) or len(password) > 128:
+            # Laenger darf kein Passwort sein (validate_password) -- so rechnet
+            # niemand dem Server einen Megabyte-Hash auf (seit 9.5.22).
+            _password_hash("", b"\0" * 16)
             return None
         with self._connect() as conn:
             row = conn.execute("SELECT * FROM users WHERE email = ?", (email,)).fetchone()

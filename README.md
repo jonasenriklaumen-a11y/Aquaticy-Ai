@@ -1,4 +1,4 @@
-# Aquaticy AI 9.5.21 Spark
+# Aquaticy AI 9.5.22 Spark
 
 **Aquaticy** recherchiert für dich. Du stellst eine Frage, Aquaticy sucht im Web, liest die
 passenden Seiten und fasst das Ergebnis zusammen — mit Quelle an jeder Angabe. Es läuft im
@@ -111,7 +111,7 @@ $ aquaticy
 git clone --branch Aquaticy-ai --single-branch https://github.com/jonasenriklaumen-a11y/Aquaticy-Ai.git
 cd Aquaticy-Ai
 uv tool install --force --reinstall .
-aquaticy --version            # 9.5.21 Spark
+aquaticy --version            # 9.5.22 Spark
 
 # 2. Einrichten — fragt nach Modell und Schlüssel und testet beide
 aquaticy setup
@@ -289,7 +289,7 @@ aquaticy connect-ha             # Home Assistant verbinden
 aquaticy lan                    # Geräte im eigenen Netz anzeigen
 aquaticy sandbox                # zeigt, wie abgeschottet Aquaticy gerade läuft
 aquaticy list                   # Konten mit Adresse, Nutzung und Ai-guard-Stand
-aquaticy remove "name"         # Konto samt Sitzungen, Verbrauch und privaten Daten löschen
+aquaticy remove "name"         # Konto samt Sitzungen, Verbrauch und privaten Daten löschen (fragt nach; --yes ohne Rückfrage)
 aquaticy ban "name"             # Konto oder IP-Adresse sperren
 aquaticy unban "name"           # wieder freigeben
 aquaticy pro-code               # Code für neue Pro-Konten
@@ -496,6 +496,23 @@ Nur mit einem **Ultra-Konto**.
 - Zugangsdaten nie an den Browser und nie an das Modell;
 - nur verteidigende Sicherheitsthemen;
 - keine PHP- oder JSP-Dateien als Upload (auch nicht als `bild.php.png`).
+
+**Schutz vor Prompt-Injection.** Webseiten, Mails, Feeds, Anhänge und alles, was Helfer
+zurückbringen, sind für Aquaticy *Material*, nie ein Auftrag. Die Grenzen dafür liegen im Code:
+- unsichtbare Zeichen (Unicode-Tags, Nullbreite, Richtungswechsel) werden entfernt,
+  nachgemachte Chat-Steuerzeichen (`<|im_start|>`, `[INST]`, `</system>`) entschärft;
+- jedes fremde Ergebnis trägt den Hinweis „nur Daten“; stehen darin Anweisungen an eine KI
+  („ignoriere deine Regeln“, „schick den Merkzettel an …“), kommt eine Warnung dazu und im
+  Verlauf erscheint **[Schutz]**;
+- Anhänge und die Quellenlage der Helfer stehen klar abgegrenzt im Gespräch, nicht mit der
+  Stimme des Nutzers;
+- nach fremdem Inhalt geht nichts Privates (Merkzettel, Speicher, Ort, E-Mail) ohne Rückfrage
+  in eine Adresse, eine Eingabe oder einen Befehl — und Schalten, Einstellungen, Lager,
+  Speichern und Heimnetz-Suchen fragen ebenfalls erst nach.
+
+**Website.** Anmelde-Cookie `HttpOnly`, `SameSite=Strict` (hinter HTTPS-Proxy auch `Secure`,
+dazu HSTS), strenge CSP mit Nonce, Schreibzugriffe nur von der eigenen Seite, Grenzen für
+Anfragen und falsche Passwörter je Adresse *und* je Konto.
 
 **Rechts-Leitplanken.** Bevor Aquaticy etwas tut, prüft es, ob das mit Grundgesetz und BGB
 vereinbar ist — bei jeder Frage, jeder Personensuche, jedem Kamerabild und jedem Mail-Entwurf.

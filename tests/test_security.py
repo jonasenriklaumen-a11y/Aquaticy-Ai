@@ -414,3 +414,105 @@ def test_normal_accounts_cannot_blow_up_the_local_model(tmp_path: Path) -> None:
     assert web._profile_settings(profil, "pro").context_tokens <= max(
         web.get_settings().context_tokens, web.NORMAL_CONTEXT_CAP)
     assert web._profile_settings(profil, "ultra").context_tokens == 2_000_000
+
+
+# -- 9.5.22: Website-Pruefung ------------------------------------------------------
+def _mit_kopf(port: int, method: str, path: str, body: Any = None,
+         headers: dict[str, str] | None = None) -> tuple[int, dict[str, str], dict[str, Any]]:
+    conn = HTTPConnection("127.0.0.1", port, timeout=10)
+    kopf = {"Content-Type": "application/json", "User-Agent": "Sicherheitstest",
+            **(headers or {})}
+    conn.request(method, path, body=None if body is None else json.dumps(body), headers=kopf)
+    antwort = conn.getresponse()
+    roh = antwort.read()
+    ergebnis = antwort.status, dict(antwort.getheaders()), (json.loads(roh) if roh else {})
+    conn.close()
+    return ergebnis
+
+
+@pytest.mark.parametrize("herkunft", ["cross-site", "same-site"])
+def test_writes_from_other_sites_are_refused(server: int, herkunft: str) -> None:
+    cookie = _konto(server)
+    status, _, daten = _mit_kopf(server, "POST", "/api/clear", {},
+                            {"Cookie": cookie, "Sec-Fetch-Site": herkunft})
+    assert status == 403 and "Herkunft" in daten["error"]
+    status, _, _ = _mit_kopf(server, "POST", "/api/clear", {},
+                        {"Cookie": cookie, "Sec-Fetch-Site": "same-origin"})
+    assert status == 200
+
+
+def test_one_account_cannot_be_brute_forced_from_many_addresses(
+    server: int, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(web, "LOGIN_FAILS", web.RateLimiter(attempts=3, window_seconds=900))
+    _konto(server)  # legt die Zustimmung an; das Konto selbst ist egal
+    _, kopf, _ = _anfrage(server, "POST", "/api/consent", {"accepted": True})
+    zustimmung = kopf["Set-Cookie"].split(";", 1)[0]
+    _anfrage(server, "POST", "/api/auth/register", {
+        "email": "ziel@example.org", "username": "Ziel", "password": "ein langes Passwort",
+        "plan": "normal", "terms_accepted": True}, zustimmung)
+    for _ in range(3):
+        status, _, _ = _anfrage(server, "POST", "/api/auth/login",
+                                {"email": "ziel@example.org", "password": "falsch"}, zustimmung)
+        assert status == 401
+    status, _, daten = _anfrage(server, "POST", "/api/auth/login",
+                                {"email": "ZIEL@example.org ", "password": "ein langes Passwort"},
+                                zustimmung)
+    assert status == 429 and "Viertelstunde" in daten["error"]
+
+
+def test_a_banned_address_creates_no_account(
+    server: int, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from aquaticy.aiguard import AiGuard
+
+    waechter = AiGuard(tmp_path / "guard.sqlite3")
+    waechter.ban_ip("127.0.0.1", reason="Test")
+    monkeypatch.setattr(web, "AIGUARD", waechter)
+    _, kopf, _ = _anfrage(server, "POST", "/api/consent", {"accepted": True})
+    zustimmung = kopf["Set-Cookie"].split(";", 1)[0]
+    status, _, daten = _anfrage(server, "POST", "/api/auth/register", {
+        "email": "neu@example.org", "username": "Neu", "password": "ein langes Passwort",
+        "plan": "normal", "terms_accepted": True}, zustimmung)
+    assert status == 403 and daten.get("code") == "banned"
+    assert web.AUTH.authenticate("neu@example.org", "ein langes Passwort") is None
+
+
+def test_the_login_cookie_is_secure_behind_a_trusted_https_proxy(
+    server: int, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    import ipaddress
+
+    _, kopf, _ = _mit_kopf(server, "POST", "/api/consent", {"accepted": True},
+                      {"X-Forwarded-Proto": "https"})
+    assert "Secure" not in kopf["Set-Cookie"], "ohne eingetragenen Proxy zaehlt die Kopfzeile nicht"
+    assert "Strict-Transport-Security" not in kopf
+    monkeypatch.setattr(web, "trusted_proxies",
+                        lambda: [ipaddress.ip_network("127.0.0.1/32")])
+    _, kopf, _ = _mit_kopf(server, "POST", "/api/consent", {"accepted": True},
+                      {"X-Forwarded-Proto": "https"})
+    assert "Secure" in kopf["Set-Cookie"] and "HttpOnly" in kopf["Set-Cookie"]
+    assert kopf.get("Strict-Transport-Security", "").startswith("max-age=")
+
+
+def test_a_huge_login_is_refused_before_it_is_read(server: int) -> None:
+    _, kopf, _ = _anfrage(server, "POST", "/api/consent", {"accepted": True})
+    zustimmung = kopf["Set-Cookie"].split(";", 1)[0]
+    status, _, daten = _anfrage(server, "POST", "/api/auth/login",
+                                {"email": "a@example.org", "password": "x" * 40_000},
+                                zustimmung)
+    assert status == 413 and "zu gross" in daten["error"]
+
+
+def test_an_overlong_password_is_never_hashed(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from aquaticy import auth
+
+    store = auth.AuthStore(tmp_path, "PRO234567")
+    gesehen: list[int] = []
+    echt = auth._password_hash
+    monkeypatch.setattr(auth, "_password_hash",
+                        lambda pw, salt: gesehen.append(len(pw)) or echt(pw, salt))
+    assert store.authenticate("a@example.org", "y" * 5000) is None
+    assert gesehen and max(gesehen) <= 128
