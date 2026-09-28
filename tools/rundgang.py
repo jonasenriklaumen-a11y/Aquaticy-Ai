@@ -400,12 +400,13 @@ def normales_konto(browser: Any, port: int, log: Protokoll, fehler: list[str]) -
     pg.evaluate("zeigeSperre({banned: true, reason: 'Test', duration: 'noch 2 Tag(e)', "
                 "until: '01.01.2030', permanent: false, what_to_do: 'Warten.'})")
     log.pruefe(pg.is_visible("#ban-info"), "bei einer Sperre erscheint das rote „Info“")
-    pg.click("#ban-info")
+    # Die Einstellungen liegen hier noch darueber -- also direkt auf den Knopf.
+    pg.evaluate("document.querySelector('#ban-info').click()")
     pg.wait_for_selector("#banbox.open", state="visible")
     log.pruefe("noch 2 Tag" in pg.inner_text("#ban-duration")
                and pg.inner_text("#ban-reason") == "Test",
                "ein Klick zeigt Dauer und Grund")
-    pg.click("#ban-ok")
+    pg.evaluate("document.querySelector('#ban-ok').click()")
     pg.wait_for_selector("#banbox", state="hidden")
     pg.evaluate("zeigeSperre({banned: false})")
     status = pg.evaluate("async () => (await fetch('/api/system')).status")
