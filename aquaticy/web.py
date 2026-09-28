@@ -923,7 +923,7 @@ def _profile_settings(profile: Path, plan: str, account: Account | None = None) 
     if plan != "ultra":
         # Netz-Features (Heimnetz, Home Assistant, Lager, Werkstatt-Desktop)
         # gehören seit 9.5.17 nur noch zu Ultra -- Normal UND Pro sind hier
-        # gleich beschränkt. Der Unterschied ist das Kontingent (Pro doppelt).
+        # gleich beschränkt. Der Unterschied ist das Kontingent (Pro hat mehr).
         settings.lan_enabled = False
         settings.ha_url = ""
         settings.ha_token = ""
@@ -940,7 +940,7 @@ def _profile_settings(profile: Path, plan: str, account: Account | None = None) 
         settings.legal_guard = True
         settings.vm_user_mode = False
         # 5-Stunden-Sitzung und Woche, am Konto gespeichert (aquaticy/quota.py).
-        # Pro bekommt über AUTH.quota() den doppelten Faktor.
+        # Pro bekommt über AUTH.quota() seine eigenen, höheren Grenzen.
         settings.quota = account_quota(profile, account)
         # Wohin der Server Anfragen schickt, bestimmt der Betreiber -- eine
         # eigene Modell- oder SearXNG-Adresse gibt es nur mit Ultra.
@@ -3378,7 +3378,7 @@ class Handler(BaseHTTPRequestHandler):
 
             settings = SESSION.settings()
             # Normale Konten sehen ihr Kontingent in Prozent; die Statistik in
-            # Token gibt es nur ohne Kontingent (Pro, lokal). Aufbereitet wird
+            # Token gibt es nur ohne Kontingent (Ultra, lokal). Aufbereitet wird
             # hier -- der Browser zeigt nur noch an.
             self._json({
                 "limits": usage_view(settings),

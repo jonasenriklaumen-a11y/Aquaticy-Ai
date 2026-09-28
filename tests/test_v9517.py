@@ -61,14 +61,15 @@ def test_ultra_needs_the_full_secret(store: AuthStore) -> None:
                        **TERMS)
 
 
-def test_pro_gets_double_the_normal_quota(store: AuthStore) -> None:
-    from aquaticy.quota import SESSION_TOKENS, WEEK_TOKENS
+def test_pro_gets_more_than_the_normal_quota(store: AuthStore) -> None:
+    """Seit 9.5.23 eigene Grenzen je Tarif (Pro: 533.333 / 4 Mio.)."""
+    from aquaticy.quota import PRO_SESSION_TOKENS, PRO_WEEK_TOKENS, SESSION_TOKENS
 
     n = store.register("n@e.de", "ein langes Passwort", "normal", username="nn", **TERMS)
     p = store.register("p@e.de", "ein langes Passwort", "pro", "PROCODE12", username="pp", **TERMS)
     assert store.quota(n).session_tokens == SESSION_TOKENS
-    assert store.quota(p).session_tokens == SESSION_TOKENS * 2
-    assert store.quota(p).week_tokens == WEEK_TOKENS * 2
+    assert store.quota(p).session_tokens == PRO_SESSION_TOKENS > SESSION_TOKENS
+    assert store.quota(p).week_tokens == PRO_WEEK_TOKENS
 
 
 # -- Ein Konto pro Adresse ---------------------------------------------------

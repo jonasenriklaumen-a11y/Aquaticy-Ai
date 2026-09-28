@@ -44,9 +44,9 @@ def konto(tmp_path: Path) -> Quota:
 
 
 def test_the_limits_are_the_agreed_ones() -> None:
-    assert SESSION_TOKENS == 200_000
+    assert SESSION_TOKENS == 300_000  # seit 9.5.23 (vorher 200.000)
     assert SESSION_SECONDS == 5 * 3600
-    assert WEEK_TOKENS == 1_500_000
+    assert WEEK_TOKENS == 2_000_000  # seit 9.5.23 (vorher 1,5 Mio.)
 
 
 # -- Die Woche beginnt zur Uhrzeit der Kontoerstellung ------------------------------
@@ -105,7 +105,7 @@ def test_the_session_starts_with_the_first_message_and_ends_five_hours_later(
     start = _ts(2026, 9, 24, 10, 0)
     assert konto.begin(now=start) == start
     assert konto.begin(now=start + 3600) == start, "eine laufende Sitzung bleibt"
-    konto.record(50_000, "m", now=start + 60)
+    konto.record(75_000, "m", now=start + 60)
     stand = konto.status(now=start + 120)
     assert stand["session"]["percent"] == 25
     assert stand["session"]["resets_at"] == start + SESSION_SECONDS
@@ -130,8 +130,8 @@ def test_a_full_session_stops_and_says_when_it_resets(konto: Quota) -> None:
 def test_tokens_after_the_session_start_a_new_one(konto: Quota) -> None:
     start = _ts(2026, 9, 24, 10, 0)
     konto.begin(now=start)
-    konto.record(190_000, "m", now=start + 10)
-    konto.record(10_000, "m", now=start + SESSION_SECONDS + 5)  # Lauf ueber das Ende hinaus
+    konto.record(285_000, "m", now=start + 10)
+    konto.record(15_000, "m", now=start + SESSION_SECONDS + 5)  # Lauf ueber das Ende hinaus
     stand = konto.status(now=start + SESSION_SECONDS + 10)
     assert stand["session"]["active"] and stand["session"]["started_at"] == (
         start + SESSION_SECONDS + 5)
@@ -167,7 +167,7 @@ def test_usage_belongs_to_the_account(tmp_path: Path) -> None:
     eins = Quota(datenbank, "eins", _ts(*ERSTELLT))
     zwei = Quota(datenbank, "zwei", _ts(*ERSTELLT))
     jetzt = _ts(2026, 9, 24, 10, 0)
-    eins.record(100_000, "m", now=jetzt)
+    eins.record(150_000, "m", now=jetzt)
     assert eins.status(now=jetzt)["session"]["percent"] == 50
     assert zwei.status(now=jetzt)["session"]["percent"] == 0
     # Ein neues Objekt fuer dasselbe Konto sieht denselben Stand.
@@ -202,13 +202,13 @@ def test_metering_records_into_statistics_and_quota(tmp_path: Path,
     kontingent = Quota(tmp_path / "accounts.sqlite3", "k", time.time() - 3600)
     settings = SimpleNamespace(db_path=tmp_path / "profil.sqlite3", quota=kontingent)
     antwort = SimpleNamespace(choices=[SimpleNamespace(message=SimpleNamespace(content="x"))],
-                              usage=SimpleNamespace(prompt_tokens=40_000, completion_tokens=0))
+                              usage=SimpleNamespace(prompt_tokens=60_000, completion_tokens=0))
     monkeypatch.setattr("litellm.completion", lambda **kw: antwort)
     metering.completion(settings, model="m", messages=[])
-    assert UsageLog(settings.db_path).total_tokens() == 40_000
+    assert UsageLog(settings.db_path).total_tokens() == 60_000
     assert kontingent.status()["session"]["percent"] == 20
     metering.charge_image(settings, "bild")
-    assert kontingent.status()["session"]["percent"] == 23  # 45.000 von 200.000
+    assert kontingent.status()["session"]["percent"] == 22  # 65.000 von 300.000
 
 
 def test_without_a_quota_nothing_is_limited(tmp_path: Path) -> None:
@@ -218,7 +218,7 @@ def test_without_a_quota_nothing_is_limited(tmp_path: Path) -> None:
 
 
 def test_the_image_share_is_said_in_percent() -> None:
-    assert metering.share_of_session(metering.IMAGE_TOKENS) == "2,5 %"
+    assert metering.share_of_session(metering.IMAGE_TOKENS) == "1,7 %"  # 5.000 von 300.000
 
 
 def test_timezone_is_restored() -> None:

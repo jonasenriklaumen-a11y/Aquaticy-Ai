@@ -52,10 +52,23 @@ def test_registration_keeps_the_chosen_username_and_needs_twelve_characters(
 
 
 def test_free_accounts_get_a_session_and_a_weekly_budget() -> None:
-    """Seit 9.5.14: 200.000 je 5-Stunden-Sitzung, 1,5 Mio. je Woche (aquaticy/quota.py)."""
+    """Seit 9.5.23: 300.000 je 5-Stunden-Sitzung, 2 Mio. je Woche (aquaticy/quota.py)."""
     from aquaticy.quota import SESSION_TOKENS, WEEK_TOKENS
 
-    assert (SESSION_TOKENS, WEEK_TOKENS) == (200_000, 1_500_000)
+    assert (SESSION_TOKENS, WEEK_TOKENS) == (300_000, 2_000_000)
+
+
+def test_each_plan_has_its_own_budget(tmp_path) -> None:
+    """Pro: je ein Drittel mehr als vorher -- 533.333 und 4 Mio. (9.5.23)."""
+    from aquaticy.auth import AuthStore
+
+    store = AuthStore(tmp_path, "PRO123456")
+    normal = store.register("n@example.org", "eine sehr lange Passphrase", "normal", **TERMS)
+    pro = store.register("p@example.org", "eine sehr lange Passphrase", "pro", "PRO123456",
+                         **TERMS)
+    q_normal, q_pro = store.quota(normal), store.quota(pro)
+    assert (q_normal.session_tokens, q_normal.week_tokens) == (300_000, 2_000_000)
+    assert (q_pro.session_tokens, q_pro.week_tokens) == (533_333, 4_000_000)
 
 
 def test_registration_requires_and_records_explicit_terms(store: AuthStore) -> None:

@@ -231,10 +231,22 @@ OUTBOUND: dict[str, dict[str, str]] = {
     "inspect_public_visual": {"url": "url"},
     "desktop_type": {"text": "text"},
     "desktop_open": {"target": "text", "url": "url", "app": "text"},
-    "vm_run": {"command": "text", "code": "text", "script": "text"},
-    "blender_run": {"script": "text", "code": "text"},
-    "github": {"path": "text", "query": "text", "body": "text", "title": "text"},
+    "vm_run": {"command": "code", "code": "code", "script": "code"},
+    # Auch das Ablegen in der Werkstatt (9.5.23): sonst ginge es ueber einen
+    # Umweg -- erst in eine Datei schreiben, dann "curl --data @datei".
+    "vm_write": {"text": "code", "path": "text"},
+    "blender_run": {"script": "code", "code": "code", "filename": "text"},
+    "github": {"repo": "text", "path": "text", "ref": "text", "query": "text",
+               "body": "text", "title": "text"},
 }
+
+#: Code ist voller Woerter -- darin zaehlen weiche Begriffe nur, wenn der Code
+#: auch ins Netz geht (9.5.23). Sonst fragte jede Datei nach, sobald im
+#: Speicher "programmiert gern Python" steht.
+_NETZ = re.compile(
+    r"https?://|\b(?:curl|wget|nc|ncat|netcat|scp|rsync|ftp|telnet|ssh)\b|requests\.|"
+    r"urllib|http\.client|socket\.|fetch\(|xmlhttprequest|invoke-webrequest",
+    re.IGNORECASE)
 
 #: Suchen gehen an eine Suchmaschine, nicht an den Absender der Seite -- dort
 #: zaehlen nur die harten Angaben (E-Mail, lange Zahlen), nicht jedes Wort.
@@ -305,6 +317,8 @@ def _payload_of(value: Any, kind: str) -> tuple[str, str]:
             # eine normale Adresse, "?d=bremen" eine angehaengte Angabe.
             return norm(f"{pfad} {anhang}"), norm(anhang)
     norm_text = unicodedata.normalize("NFKC", text).lower()
+    if kind == "code" and not _NETZ.search(norm_text):
+        return norm_text, ""
     return norm_text, norm_text
 
 

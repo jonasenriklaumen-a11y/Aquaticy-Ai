@@ -16,7 +16,7 @@ Gezaehlt wird, was tatsaechlich ueber die Leitung geht:
 Abgelegt wird tageweise je Modell in derselben Datenbank wie der Cache --
 das ist die Statistik. Das Kontingent normaler Konten (5-Stunden-Sitzung und
 Woche) steht getrennt davon am Konto in der Kontendatenbank
-(aquaticy/quota.py); Pro hat das doppelte, Ultra bleibt unbegrenzt.
+(aquaticy/quota.py); Pro hat mehr, Ultra bleibt unbegrenzt.
 """
 
 from __future__ import annotations

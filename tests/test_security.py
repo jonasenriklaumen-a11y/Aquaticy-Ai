@@ -158,7 +158,7 @@ def test_an_image_counts_and_needs_room(knapp: Settings, monkeypatch: pytest.Mon
     assert box.create_image("ein Hund")["erstellt"] is True
     assert UsageLog(knapp.db_path).total_tokens() >= metering.IMAGE_TOKENS
     fehler = box.create_image("noch ein Hund")["error"]
-    assert "Kontingent" in fehler and "2,5 %" in fehler, "in Prozent, nicht in Token"
+    assert "Kontingent" in fehler and "1,7 %" in fehler, "in Prozent, nicht in Token"
 
 
 # -- Konto-Einstellungen: normale Konten -----------------------------------------------

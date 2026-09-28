@@ -3,21 +3,23 @@
 Bis 9.5.13 hatte ein normales Konto 150.000 Token -- fuer immer. Seit 9.5.14
 gilt, wie bei Claude:
 
-* **Sitzung (5 Stunden): 200.000 Token.** Die Sitzung beginnt mit der ersten
-  Nachricht und endet fuenf Stunden spaeter. Danach ist sie weg; die naechste
-  Nachricht beginnt eine neue, wieder mit vollem Budget.
-* **Woche: 1.500.000 Token.** Die Woche beginnt zur Uhrzeit der
-  Kontoerstellung: wer sein Konto an einem Dienstag um 14:32 angelegt hat,
-  bekommt jeden Dienstag um 14:32 eine frische Woche -- in der Ortszeit des
-  Servers, also auch ueber die Zeitumstellung hinweg um 14:32.
+* **Sitzung (5 Stunden): 300.000 Token** (seit 9.5.23; vorher 200.000). Die
+  Sitzung beginnt mit der ersten Nachricht und endet fuenf Stunden spaeter.
+  Danach ist sie weg; die naechste Nachricht beginnt eine neue, wieder mit
+  vollem Budget.
+* **Woche: 2.000.000 Token** (seit 9.5.23, ein Drittel mehr; vorher 1.500.000).
+  Die Woche beginnt zur Uhrzeit der Kontoerstellung: wer sein Konto an einem
+  Dienstag um 14:32 angelegt hat, bekommt jeden Dienstag um 14:32 eine frische
+  Woche -- in der Ortszeit des Servers, also auch ueber die Zeitumstellung
+  hinweg um 14:32.
 
 Wo es liegt: in der Kontendatenbank (``accounts.sqlite3``), an der Kennung des
 Kontos -- nicht im Profilordner, nicht im Browser. Wer Verlauf, Speicher oder
 Chats loescht, loescht damit nicht seinen Verbrauch. Gerechnet wird nur hier
 auf dem Server; der Browser bekommt Prozent und Uhrzeiten, keine Tokenzahlen.
 
-Pro-Konten haben das doppelte Kontingent; Ultra-Konten und der lokale Betrieb
-ohne Konten haben keins.
+Pro-Konten haben eigene Grenzen (:data:`PRO_SESSION_TOKENS`, :data:`PRO_WEEK_TOKENS`);
+Ultra-Konten und der lokale Betrieb ohne Konten haben keins.
 """
 
 from __future__ import annotations
@@ -31,12 +33,17 @@ from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Any
 
-#: Budget eines 5-Stunden-Fensters.
-SESSION_TOKENS = 200_000
+#: Budget eines 5-Stunden-Fensters bei Normal (seit 9.5.23 300.000; vorher 200.000).
+SESSION_TOKENS = 300_000
 #: So lange dauert eine Sitzung.
 SESSION_SECONDS = 5 * 3600
-#: Budget einer Woche.
-WEEK_TOKENS = 1_500_000
+#: Budget einer Woche bei Normal (seit 9.5.23 ein Drittel mehr; vorher 1,5 Mio.).
+WEEK_TOKENS = 2_000_000
+#: Pro (seit 9.5.23 je ein Drittel mehr als vorher: 400.000 -> 533.333 und
+#: 3 Mio. -> 4 Mio.). Kein fester Faktor mehr zu Normal: dessen 5-Stunden-
+#: Grenze ist staerker gestiegen.
+PRO_SESSION_TOKENS = 533_333
+PRO_WEEK_TOKENS = 4_000_000
 #: Wie lange Einzelposten aufgehoben werden. Laenger als eine Woche braucht
 #: sie niemand; aelteres wird beim Eintragen weggeraeumt.
 KEEP_SECONDS = 8 * 86400
@@ -127,23 +134,28 @@ class Quota:
     """Das Kontingent eines Kontos -- gespeichert in der Kontendatenbank."""
 
     def __init__(self, db_path: Path | str, account_id: str, created_at: float,
-                 factor: float = 1.0) -> None:
+                 factor: float = 1.0, plan: str = "normal") -> None:
         self.db_path = Path(db_path)
         self.account_id = str(account_id)
         self.created_at = float(created_at or 0.0)
-        # Der Tarif skaliert das Kontingent (seit 9.5.17): Normal = 1, Pro = 2.
-        # Ultra hat gar keins (dort wird kein Quota-Objekt angelegt).
+        # Der Tarif bestimmt die Grenzen (seit 9.5.23 je Tarif fest: Normal
+        # 300.000/2 Mio., Pro 533.333/4 Mio.). Ultra hat gar keins (dort wird
+        # kein Quota-Objekt angelegt). *factor* skaliert zusaetzlich -- nur
+        # noch fuer Tests und Sonderfaelle.
+        self.plan = "pro" if str(plan or "").lower() == "pro" else "normal"
         self.factor = max(1.0, float(factor or 1.0))
         self._lock = _lock_for(self.db_path)
         self._setup()
 
     @property
     def session_tokens(self) -> int:
-        return int(SESSION_TOKENS * self.factor)
+        basis = PRO_SESSION_TOKENS if self.plan == "pro" else SESSION_TOKENS
+        return int(basis * self.factor)
 
     @property
     def week_tokens(self) -> int:
-        return int(WEEK_TOKENS * self.factor)
+        basis = PRO_WEEK_TOKENS if self.plan == "pro" else WEEK_TOKENS
+        return int(basis * self.factor)
 
     @contextmanager
     def _connect(self) -> Iterator[sqlite3.Connection]:
@@ -409,9 +421,9 @@ class Quota:
     def _mehr(self) -> str:
         """Der Hinweis auf mehr Kontingent -- passend zum Tarif (seit 9.5.17 hat
         auch Pro ein Limit; bis 9.5.18 stand hier "Mit Pro kein Limit")."""
-        if self.factor > 1:
+        if self.plan == "pro" or self.factor > 1:
             return "Mit einem Ultra-Konto gibt es kein Limit."
-        return "Ein Pro-Konto hat doppelt so viel, ein Ultra-Konto gar kein Limit."
+        return "Ein Pro-Konto hat mehr, ein Ultra-Konto gar kein Limit."
 
 
 def when_phrase(text: str) -> str:

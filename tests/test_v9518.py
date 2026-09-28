@@ -306,7 +306,7 @@ def test_the_quota_message_fits_the_plan(tmp_path: Any) -> None:
     """Seit 9.5.17 hat auch Pro ein Limit -- die Meldung darf nichts anderes sagen."""
     from aquaticy.quota import Quota, QuotaExceeded
 
-    for faktor, erwartet in ((1.0, "Ein Pro-Konto hat doppelt so viel"),
+    for faktor, erwartet in ((1.0, "Ein Pro-Konto hat mehr"),
                              (2.0, "Mit einem Ultra-Konto gibt es kein Limit")):
         quota = Quota(tmp_path / f"q{faktor}.sqlite3", "konto", 0.0, factor=faktor)
         with pytest.raises(QuotaExceeded) as fehler:

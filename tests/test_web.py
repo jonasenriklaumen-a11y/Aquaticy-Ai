@@ -3113,13 +3113,13 @@ def test_a_normal_account_sees_percent_not_tokens(
     from aquaticy.quota import Quota
 
     session._settings.quota = Quota(tmp_path / "konten.sqlite3", "k", time.time() - 60)
-    session._settings.quota.record(50_000, "m")
+    session._settings.quota.record(75_000, "m")
     zahlen = json.loads(client("GET", "/api/usage")[1])
     assert zahlen["stats"] is None
     assert zahlen["limits"]["session"]["percent"] == 25
     assert zahlen["limits"]["week"]["percent"] == 4
-    assert "_used" not in zahlen["limits"] and "50000" not in json.dumps(zahlen)
-    session._settings.quota.record(120_000, "m")
+    assert "_used" not in zahlen["limits"] and "75000" not in json.dumps(zahlen)
+    session._settings.quota.record(180_000, "m")
     zahlen = json.loads(client("GET", "/api/usage")[1])
     assert zahlen["limits"]["warning"].startswith("Du hast 85 % dieser Sitzung genutzt")
 

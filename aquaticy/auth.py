@@ -24,7 +24,7 @@ from aquaticy.memory import secure_file
 SESSION_DAYS = 30
 
 #: Das Kontingent eines normalen Kontos steht seit 9.5.14 in aquaticy/quota.py
-#: (5-Stunden-Sitzung und Woche). Pro hat das doppelte, Ultra keines.
+#: (5-Stunden-Sitzung und Woche). Pro hat eigene, höhere Grenzen; Ultra keine.
 EMAIL_RE = re.compile(r"^[^\s@]{1,64}@[^\s@]{1,190}\.[^\s@]{2,63}$")
 USERNAME_RE = re.compile(r"^[^\x00-\x1f\x7f]{2,40}$")
 PRO_CODE_RE = re.compile(r"^[A-Z0-9]{9}$")
@@ -716,10 +716,10 @@ class AuthStore:
         """
         from aquaticy.quota import Quota
 
-        # Pro bekommt das doppelte Kontingent (seit 9.5.17); Ultra hat gar
-        # keins (dort ruft niemand diese Methode).
-        faktor = 2.0 if account.plan == "pro" else 1.0
-        return Quota(self.db_path, account.id, float(account.created_at or 0.0), factor=faktor)
+        # Normal und Pro haben je eigene Grenzen (aquaticy/quota.py, seit
+        # 9.5.23); Ultra hat gar keins (dort ruft niemand diese Methode).
+        return Quota(self.db_path, account.id, float(account.created_at or 0.0),
+                     plan=account.plan)
 
     def vault(self, account: Account) -> Any:
         """Der Schluesselbund eines Kontos (aquaticy/keyvault.py) -- in dieser Datenbank.
