@@ -301,7 +301,10 @@ def test_the_image_tool_saves_a_labelled_ai_image(settings: Settings,
     assert bild["kind"] == "erstellt" and "KI-Bild" in bild["title"]
     assert bild["caption"] == "a lighthouse"
     datei = snapshot_path(settings.data_dir, bild["media_id"])
-    assert datei is not None and datei.read_bytes() == PNG
+    # Seit 9.5.32 verschluesselt auf der Platte -- lesbar ueber read_private.
+    from aquaticy.privacy import read_private
+
+    assert datei is not None and datei.read_bytes() != PNG and read_private(datei) == PNG
     # Seit 9.5.15 ein KI-Bild: es gehoert zu seinem Chat und geht mit ihm --
     # nicht mehr "fest" fuer immer.
     assert bild["media_id"].endswith("-ki.png"), "als KI-Bild abgelegt"

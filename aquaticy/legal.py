@@ -5,7 +5,7 @@ Die Seiten beschreiben nur Verhalten, das im Code nachpruefbar ist.
 
 from __future__ import annotations
 
-LEGAL_VERSION = "2026-09-29"
+LEGAL_VERSION = "2026-09-29.2"
 LEGAL_ROUTES = ("/privacy", "/cookies", "/terms", "/accessibility")
 
 
@@ -21,8 +21,8 @@ Installation entscheidet, wo sie läuft und welche optionalen Dienste eingeschal
     mit scrypt, einem eigenen Salz und einem geheimen Serverwert gehasht; Klartextpasswörter
     werden nicht gespeichert.</li>
   <li><strong>Sitzung:</strong> zufällige Sitzungsschlüssel sowie Hashes aus IP-Adresse und
-    Browserangaben. Diese Werte schützen die Anmeldung und werden nicht für Werbung oder
-    Geräteprofile verwendet.</li>
+    Browserangaben. Diese Werte schützen die Anmeldung und werden nicht für Werbung
+    verwendet.</li>
   <li><strong>Eigene Inhalte:</strong> Chats, Einstellungen, Aufträge, Uploads und – falls
     eingeschaltet – gespeicherte Erinnerungen. Jeder Account hat einen getrennten Ordner.</li>
   <li><strong>Nutzung:</strong> verbrauchte Token und belegter Speicher, damit Limits und die
@@ -34,15 +34,28 @@ Installation entscheidet, wo sie läuft und welche optionalen Dienste eingeschal
     wurde, eine zufällige Geräte-Kennung (im Cookie <code>aquaticy_device</code>, gespeichert
     nur als Hash) sowie Angaben zu Gerät und Browser: Betriebssystem, Zahl der Prozessorkerne,
     Arbeitsspeicher, Bildschirmgröße, Grafikkarte, Zeitzone, Sprache sowie Browser und Version.
-    Diese Angaben werden lesbar gespeichert, damit der Betreiber verdächtige Mehrfachkonten
-    beurteilen kann (höchstens 20 Geräte je Konto). Ein neues Konto wird nur abgelehnt, wenn
+    Diese Angaben liegen verschlüsselt; zum Vergleichen nutzt nur der Server einen
+    Schlüssel-Hash. Der Betreiber sieht sie nicht — in seiner Kontenliste steht die Adresse
+    nur als Kürzel („#1a2b3c4d“) und die Zahl der Geräte. Du selbst siehst deine Geräte und
+    deine letzte Adresse unter Einstellungen → Konto → Sicherheit (höchstens 20 Geräte je
+    Konto). Meldest du dich von einem unbekannten Gerät an, bekommst du dort einen Hinweis.
+    Ein neues Konto wird nur abgelehnt, wenn
     mehrere oder gewichtige Anhaltspunkte zusammenkommen — etwa dasselbe Gerät; dieselbe
     IP-Adresse allein genügt nicht. Die Angaben dienen nur diesem Zweck und dem
     Missbrauchsschutz, nicht der Werbung oder Profilbildung, und werden mit dem Konto gelöscht.
     </li>
-  <li><strong>Design:</strong> die Farben eines selbst erstellten Designs, damit es auf jedem
-    deiner Geräte gleich aussieht.</li>
+  <li><strong>Design:</strong> die Farben eines selbst erstellten Designs und die gewählte
+    Schriftgröße, damit es auf jedem deiner Geräte gleich aussieht.</li>
 </ul>
+<h2>Verschlüsselung</h2>
+<p>Chats (Fragen, Antworten, Chatnamen, Notizen), hochgeladene Dateien und Fotos, Bilder,
+IP-Adressen, Geräte- und Browserangaben sowie die E-Mail-Adresse liegen verschlüsselt
+(AES-256-GCM). Jedes Konto hat einen eigenen Schlüssel; was jemand in ein anderes Konto
+kopiert, lässt sich dort nicht öffnen. Passwörter werden mit Argon2id, einem eigenen Salz und
+einem geheimen Serverwert gehasht. Ehrlich dazu: Damit Aquaticy mit deinen Chats arbeiten
+kann, liegt der Schlüssel auf dem Server. Die Verschlüsselung schützt gegen gestohlene
+Datenbanken und Sicherungen, gegen andere Konten und gegen das Hineinsehen in Dateien — wer
+den Server selbst kontrolliert, könnte sie mit dem Schlüssel öffnen.</p>
 <h2>Externe Dienste</h2>
 <p>Eine Frage kann an den ausgewählten Modellanbieter gehen. Suchbegriffe können an das
 gewählte Suchsystem gehen; Ortsanfragen nutzen OpenStreetMap-Dienste. Google, Home Assistant,
@@ -57,8 +70,12 @@ eigene Datenschutzhinweise.</p>
 <p>Sitzungen laufen nach 30 Tagen ab. Alte Werkstätten werden nach ihrer Leerlaufzeit entfernt.
 Chats, Uploads, Erinnerungen und Aufträge bleiben bis zum Löschen durch den Nutzer oder
 Betreiber erhalten. In der Web-App kannst du Chats einzeln entfernen, Uploads leeren und
-Erinnerungen einsehen oder löschen. Für Auskunft oder die vollständige Löschung des Kontos
-wende dich an den Betreiber der Installation.</p>
+Erinnerungen einsehen oder löschen. Unter Einstellungen → Konto kannst du selbst <strong>alle
+Daten löschen</strong> (das Konto bleibt) oder <strong>dein Konto löschen</strong> — beides mit
+deinem Passwort. Was dabei bleibt: der Nutzungszähler, solange das Konto besteht, und
+Ai-guard-Vermerke zum Missbrauchsschutz. Löscht ein gesperrtes Konto sich selbst, bleibt für
+die Dauer der Sperre nur der Hash seiner Geräte-Kennung, damit die Sperre nicht durch
+Löschen umgangen wird. Für eine Auskunft wende dich an den Betreiber der Installation.</p>
 """
 
 

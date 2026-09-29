@@ -24,7 +24,11 @@ def test_snapshot_path_only_returns_real_files(tmp_path: Path) -> None:
 
     media_id = save_snapshot(tmp_path, b"frame", "image/png")
     pfad = snapshot_path(tmp_path, media_id)
-    assert pfad is not None and pfad.read_bytes() == b"frame"
+    # Auf der Platte verschluesselt (9.5.32), lesbar nur ueber read_private.
+    from aquaticy.privacy import read_private
+
+    assert pfad is not None and pfad.read_bytes() != b"frame"
+    assert b"frame" not in pfad.read_bytes() and read_private(pfad) == b"frame"
     assert snapshot_path(tmp_path, "../../etc/passwd") is None
     assert snapshot_path(tmp_path, "0000000000000-0000000000000000.png") is None
 

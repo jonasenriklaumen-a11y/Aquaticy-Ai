@@ -56,7 +56,9 @@ def test_unban_clears_the_indicators(guard: AiGuard) -> None:
 
 
 def test_ip_bans_are_normalised(guard: AiGuard) -> None:
-    assert guard.ban_ip("203.0.113.7") == "203.0.113.7"
+    # Seit 9.5.32 nur das Kuerzel des Schluessel-Hashs -- nie die Adresse.
+    kuerzel = guard.ban_ip("203.0.113.7")
+    assert kuerzel.startswith("#") and len(kuerzel) == 9 and "203" not in kuerzel
     assert guard.is_banned(ip="203.0.113.7") is not None
     assert guard.is_banned(ip="::ffff:203.0.113.7") is not None
     assert guard.ban_ip("kein-ip") == ""

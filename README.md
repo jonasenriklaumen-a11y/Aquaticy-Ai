@@ -1,4 +1,4 @@
-# Aquaticy AI 9.5.31 Spark
+# Aquaticy AI 9.5.32 Spark
 
 **Aquaticy** recherchiert für dich. Du stellst eine Frage, Aquaticy sucht im Web, liest die
 passenden Seiten und fasst das Ergebnis zusammen — mit Quelle an jeder Angabe. Es läuft im
@@ -112,7 +112,7 @@ $ aquaticy
 git clone --branch Aquaticy-ai --single-branch https://github.com/jonasenriklaumen-a11y/Aquaticy-Ai.git
 cd Aquaticy-Ai
 uv tool install --force --reinstall .
-aquaticy --version            # 9.5.31 Spark
+aquaticy --version            # 9.5.32 Spark
 
 # 2. Einrichten — fragt nach Modell und Schlüssel und testet beide
 aquaticy setup
@@ -289,9 +289,9 @@ aquaticy google                 # Gmail und Kalender verbinden (--aendern: auch 
 aquaticy connect-ha             # Home Assistant verbinden
 aquaticy lan                    # Geräte im eigenen Netz anzeigen
 aquaticy sandbox                # zeigt, wie abgeschottet Aquaticy gerade läuft
-aquaticy list                   # Konten mit Adresse, Nutzung und Ai-guard-Stand
+aquaticy list                   # Konten mit Adress-Kürzel (#…), Geräteanzahl, Nutzung und Ai-guard-Stand
 aquaticy remove "name"         # Konto samt Sitzungen, Verbrauch und privaten Daten löschen (fragt nach; --yes ohne Rückfrage)
-aquaticy ban "name"             # Konto oder IP-Adresse sperren
+aquaticy ban "name"             # Konto, IP-Adresse oder Adress-Kürzel ("#1a2b3c4d") sperren
 aquaticy unban "name"           # wieder freigeben
 aquaticy aiguard "Satz"         # zeigt, wie Ai-guard einen Satz einstuft (sperrt niemanden)
 aquaticy pro-code               # Code für neue Pro-Konten
@@ -327,13 +327,21 @@ Ein vollständig geschriebener Slash-Befehl leuchtet im Akzentton; der Text dahi
   grün ist, z. B. blau, pink oder rot), den **Hintergrund** und die **Seitenleiste** links.
   Die Schrift passt sich automatisch an, damit sie lesbar bleibt. Das Design wird an deinem
   Konto gespeichert und gilt auf jedem Gerät.
+- **Schriftgröße** — Klein, Normal oder Groß; gilt sofort für die ganze Oberfläche und wird am
+  Konto gespeichert.
 - **Sprache** — Deutsch oder English. Knöpfe, Fenster, Hinweise und Platzhalter wechseln sofort,
   ohne Neuladen, und Aquaticy antwortet in der gewählten Sprache. Was im Chat steht (deine
   Fragen, die Antworten, Chat-Titel), bleibt, wie es geschrieben wurde. Auch die Sprache wird
   am Konto gespeichert.
 
-**Einstellungen** — was du dort speicherst, gilt sofort:
-- **Konto** — Name, E-Mail, Kontotyp, Nutzung, Abmelden.
+**Einstellungen** — Schalter gelten sofort (mit kurzer Bestätigung „Gespeichert“), Textfelder nach
+„Speichern“. Funktionen nur für Ultra sind mit 🔒 gekennzeichnet; ein Klick erklärt, warum.
+- **Konto** — Name, E-Mail, Kontotyp, Nutzung, Abmelden. Darunter **Sicherheit**: deine Geräte
+  und deine letzte Adresse (nur du siehst sie), **Passwort ändern**, **Überall sonst abmelden**.
+  Und **Daten und Konto löschen**: „Alle Daten löschen“ (Chats, Bilder, Uploads, Erinnerungen,
+  Aufträge, Einstellungen, eigene Schlüssel, Google, Geräte — das Konto bleibt) oder „Konto
+  löschen“ (alles samt Konto; mit Passwort und dem Wort LÖSCHEN). Meldet sich jemand von einem
+  unbekannten Gerät an, steht beim nächsten Besuch ein Hinweis oben im Chat.
 - **Modell** — Hauptmodell, Bild-Modell, Helfer-Modell, Code-Modell, eigene Adresse.
 - **Eigene Modelle** — erscheint erst, wenn du oben ein eigenes Modell oder einen eigenen
   Schlüssel einträgst, und zeigt genau diese. Schlüssel werden verschlüsselt gespeichert und
@@ -344,6 +352,13 @@ Ein vollständig geschriebener Slash-Befehl leuchtet im Akzentton; der Text dahi
   **Helfer & Grenzen**, **Dev settings**.
 
 **Merkzettel** — was sich Aquaticy über dich gemerkt hat; jede Zeile einzeln löschbar.
+
+**Bedienung.** Rückfragen und Hinweise erscheinen in Aquaticys eigenem Fenster statt in
+Browser-Dialogen. Nach einem Fehler holt „↻ Erneut versuchen“ dieselbe Frage noch einmal. Vor
+der ersten Nachricht steht, was Aquaticy kann und was nicht. Schalter zeigen ihren Zustand
+nicht nur über die Farbe („I“/„O“), der Tastatur-Fokus ist überall sichtbar, und am Handy sind
+Senden und Stopp mindestens 44 px groß. Im Dunkelmodus nutzt auch „Schlicht“ fast-schwarz
+(#121212) statt reinem Schwarz.
 
 ---
 
@@ -369,9 +384,22 @@ Hinweis im Terminal.
 Beispiele: selbe Adresse + selber Browser = 1,5 → geht durch. Zwei gleiche Handys im selben WLAN
 = 2,5 → geht durch. Dasselbe Handy (Kennung) = 3 → gesperrt. Selbe Adresse + ähnliche E-Mail +
 gleiche Hardware = 3 → gesperrt. Der eigene Rechner (Loopback) zählt nicht als gleiche Adresse.
-Gespeichert werden je Konto höchstens 20 Geräte: die Kennung nur als Hash, dazu eine kurze
-lesbare Zusammenfassung („Windows · 16 Kerne · 8 GB · 2560x1440 · NVIDIA …“, „Chrome 126,
-de-DE“). Kein Canvas- oder Audio-Fingerabdruck. Mit dem Konto werden auch die Geräte gelöscht.
+Gespeichert werden je Konto höchstens 20 Geräte: die Kennung nur als Hash, Hardware und Browser
+(„Windows · 16 Kerne · 8 GB · 2560x1440 · NVIDIA …“, „Chrome 126, de-DE“) **verschlüsselt**,
+verglichen wird über Schlüssel-Hashes. Der Betreiber sieht davon nichts — nur die Anzahl der
+Geräte und die Adresse als Kürzel („#1a2b3c4d“). Kein Canvas- oder Audio-Fingerabdruck. Mit
+dem Konto werden auch die Geräte gelöscht.
+
+**Verschlüsselung (seit 9.5.32).** Chats (Fragen, Antworten, Chatnamen, Notizen), Uploads,
+Fotos und Bilder, IP-Adressen, Geräte und E-Mail-Adressen liegen mit AES-256-GCM verschlüsselt,
+jedes Konto mit eigenem Schlüssel (abgeleitet aus `data.key` neben der Kontendatenbank).
+Passwörter: Argon2id (64 MiB, 3 Durchläufe) mit Salz und geheimem Serverwert (`auth.key`);
+alte Hashes werden bei der nächsten Anmeldung umgeschrieben. Bestehende Daten werden beim
+ersten Start automatisch verschlüsselt. Wichtig für Betreiber: `data.key` und `auth.key` nie
+zusammen mit den Daten sichern — und ohne sie sind die Daten nicht mehr lesbar. Ehrlich dazu:
+Der Server braucht den Schlüssel, um mit Chats zu arbeiten; wer den Server selbst kontrolliert,
+könnte entschlüsseln. Geschützt ist gegen gestohlene Datenbanken und Sicherungen, gegen andere
+Konten und gegen das Hineinsehen in Dateien.
 
 | | Normal | Pro | Ultra |
 |---|---|---|---|
@@ -611,6 +639,15 @@ Jugendsprache und zu Abkürzungen wie „stfu“ oder „kys“) und mehr StGB-D
 Erpressung, Nötigung, Körperverletzung, Sachbeschädigung, Nachstellen u. a.). Die Schwere richtet
 sich nach der Absicht: beiläufig, ernst gemeint, konkret mit Ziel, besonders gefährlich.
 
+**Getarnte Beleidigungen (9.5.32).** Vor der Erkennung macht Ai-guard Tarnungen rückgängig:
+unsichtbare Zeichen, fremde Buchstaben, die gleich aussehen, Leetspeak („1d10t“), Buchstaben mit
+Leerzeichen, Punkten oder Emojis dazwischen („d🙂u🙂m🙂m“), Akzente („dúmm“), gedehnte und
+verdoppelte Buchstaben („duuu biiist“, „verpiiiss dich“), Sternchen („Kn*llkopf“, „A****loch“)
+und zusammengeklebte Anrede („du_1d10t“). Gemessen an 1.816 getarnten Varianten der
+Korpus-Beleidigungen: **99,8 % erkannt**, bei **0 Fehlalarmen** in 421 harmlosen Sätzen —
+darunter solche, die wie Tarnung aussehen (Emojis, „z.B.“, „2*3“, Namen mit Akzent). Ein ganz
+ausgesterntes Wort („d****r“) ist ohne Zusammenhang mehrdeutig; das beurteilt das Modell.
+
 **Sicherheit im Code-Modus (9.5.30).** Fragt ein **Normal- oder Pro-Konto** im Code-Modus mit
 laufender virtual machine nach etwas in Richtung **Cybersecurity, Hacking oder Schadsoftware**,
 schaltet Aquaticy automatisch zurück in den **Normal-Modus** — die virtual machine ist damit aus —
@@ -632,7 +669,7 @@ aquaticy ban "name"            # Konto dauerhaft sperren
 aquaticy ban "name" --tage 7   # Konto für 7 Tage sperren
 aquaticy ban 203.0.113.7       # IP-Adresse sperren
 aquaticy unban "name"          # wieder freigeben (auch Chatsperren)
-aquaticy list                  # Konten mit IP-Adresse, Gerät, Browser und Ai-guard-Stand
+aquaticy list                  # Konten mit Adress-Kürzel, Geräteanzahl und Ai-guard-Stand
 aquaticy aiguard "du Idiot"    # Stufe und Folge eines Satzes testen -- ohne Vermerk
 aquaticy aiguard --konto "name"  # die letzten Vorfälle eines Kontos
 ```
@@ -781,7 +818,7 @@ unter `users/`), die Einstellungen unter `~/.config/aquaticy/.env`.
 ## Konten verwalten (Betreiber)
 
 ```bash
-aquaticy list                  # alle Konten: Typ, IP, Gerät, Browser, Nutzung, Speicher, Ai-guard
+aquaticy list                  # alle Konten: Typ, Adress-Kürzel (#…), Geräte, Nutzung, Speicher, Ai-guard
 aquaticy pro-code              # Code für neue Pro-Konten anzeigen
 aquaticy ultra-code            # Code für neue Ultra-Konten anzeigen
 aquaticy ban "name"            # Konto sperren (auch per IP-Adresse)

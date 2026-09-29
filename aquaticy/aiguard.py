@@ -392,6 +392,23 @@ _WENDUNGEN: tuple[tuple[int, re.Pattern[str]], ...] = tuple(
     )
 )
 
+#: Dieselben Wendungen fuer gestauchten Text (9.5.32): aus jedem doppelten
+#: Buchstaben wird "einer oder mehr" -- "verpis dich" passt dann auf
+#: "verpiss dich". Nur fuer den zweiten Durchgang von insult_level.
+_WENDUNGEN_GESTAUCHT: tuple[tuple[int, re.Pattern[str]], ...] = tuple(
+    (stufe, re.compile(re.sub(r"(?<!\\)([a-zäöüß])\1", r"\1+", muster.pattern), re.IGNORECASE))
+    for stufe, muster in _WENDUNGEN
+)
+
+#: Die Woerter aus den Wendungen ("halts", "maul", "verpiss", "screw") --
+#: fuer Sternchen mitten darin ("ha*ts Maul", 9.5.32).
+_PHRASEN_WOERTER: frozenset[str] = frozenset(
+    wort for _, muster in _WENDUNGEN
+    for wort in re.findall(r"[a-zäöüß]{4,}", re.sub(r"\\[a-zA-Z]", " ", muster.pattern))
+) | frozenset(w for _, wendung in _BELEIDIGUNG_WENDUNGEN for w in wendung.split() if len(w) >= 4
+              ) | frozenset({"verpiss", "screw", "halts", "maul", "klappe", "fresse", "schnauze",
+                             "piece", "shit", "shut", "kill", "yourself", "stirb", "verrecke"})
+
 #: Hier geht es UM ein Wort oder um Gesagtes, nicht gegen jemanden. Gilt je
 #: Satzteil -- "Du Arschloch, lies mal ein Buch" zaehlt also trotzdem.
 _META = re.compile(
@@ -465,49 +482,221 @@ def _entleet(token: str) -> str:
     kern = token.rstrip("!?.,;:)")
     rest = token[len(kern):]
     # Nur, wenn wirklich Buchstaben mit im Spiel sind und das Ergebnis ein Wort
-    # ergibt -- "2024" oder "3D" bleiben, wie sie sind.
+    # ergibt -- "2024" oder "3D" bleiben, wie sie sind. Seit 9.5.32 auch mit
+    # Apostroph ("y0u'r3").
     neu = kern.translate(_LEET)
-    if re.fullmatch(r"[^\W\d_]+", neu) and len(re.findall(r"[^\W\d_]", kern)) >= 2:
+    buchstaben = len(re.findall(r"[^\W\d_]", kern))
+    if re.fullmatch(r"(?:[^\W\d_]|[*#])+(?:['’][^\W\d_]+)*", neu) and (
+            buchstaben >= 2 or neu in _FUNKTIONSWOERTER):
         return neu + rest
     return token
 
 
+def _punktiert(token: str) -> str:
+    """ "i.d.1.o.t!" -> "idiot!": einzelne Zeichen mit Trennern UND Leetspeak (9.5.32)."""
+    treffer = re.fullmatch(r"((?:[^\W_]['’]?[.\-_·*]){2,}[^\W_])([!?.,;:]*)", token)
+    if not treffer or not re.search(r"[013457]", treffer.group(1)):
+        return token
+    wort = re.sub(r"[.\-_·*]", "", treffer.group(1)).translate(_LEET)
+    if len(re.findall(r"[^\W\d_]", treffer.group(1))) >= 2 and re.fullmatch(
+            r"[^\W\d_]+(?:['’][^\W\d_]+)*", wort):
+        return wort + treffer.group(2)
+    return token
+
+
+#: Woerter, um die herum beleidigt wird: die Anrede und der Name. Gedehnt oder
+#: verdoppelt ("youu", "biiist", "Aquaticyy") tarnen sie den Satz (9.5.32).
+_FUNKTIONSWOERTER = (
+    "du", "dich", "dir", "dein", "deine", "bist", "ist", "sind", "seid", "ihr", "sie",
+    "you", "your", "you're", "are", "is", "ur", "aquaticy", "ki", "bot", "halt", "so",
+    "voll", "echt", "total", "ein", "eine", "einer", "ey", "hey", "a", "an", "the",
+    "was", "what", "wie", "how", "i'm", "i", "am",
+)
+_FUNKTION_GEDEHNT: dict[str, str] = {}
+for _wort in _FUNKTIONSWOERTER:
+    _FUNKTION_GEDEHNT.setdefault(re.sub(r"(.)\1+", r"\1", _wort), _wort)
+
+
+def _funktionswort(token: str) -> str:
+    """ "youu" -> "you", "biiist" -> "bist" -- nur fuer die Woerter oben."""
+    kern = token.rstrip("!?.,;:")
+    if not kern or not re.search(r"(.)\1", kern):
+        return token
+    gedehnt = re.sub(r"(.)\1+", r"\1", kern)
+    passend = _FUNKTION_GEDEHNT.get(gedehnt)
+    return passend + token[len(kern):] if passend else token
+
+
+#: Gebeugte Formen der Schimpfwoerter ("blöde", "dummer") -- fuer Sternchen
+#: mitten im Wort ("bl*de", "du*mer", 9.5.32). Einmal gebaut.
+_GEBEUGT: frozenset[str] = frozenset(
+    grund + endung
+    for _, liste in _BELEIDIGUNG_STUFEN for grund in liste if len(grund) >= 4
+    for endung in _ENDUNGEN
+)
+
+
+def _ohne_akzente(text: str) -> str:
+    """ "dúmm" -> "dumm", "blödé" -> "blöde": Akzente weg, Umlaute und ß bleiben."""
+    if text.isascii():
+        return text
+    aus = []
+    for zeichen in text:
+        if zeichen in "äöüß" or zeichen.isascii():
+            aus.append(zeichen)
+            continue
+        zerlegt = unicodedata.normalize("NFKD", zeichen)
+        basis = "".join(z for z in zerlegt if not unicodedata.combining(z))
+        aus.append(basis if basis else zeichen)
+    return "".join(aus)
+
+
+def _symbole_raus(text: str) -> str:
+    """Emojis und Bildzeichen zwischen Buchstaben weg: "d🙂u🙂m🙂m" -> "dumm" (9.5.32)."""
+    if text.isascii():
+        return text
+    return re.sub(
+        r"(?<=[^\W\d_]|['’*#])(?:[\U0001F000-\U0001FAFF\u2190-\u2BFF\uFE0F\u200D\u20E3]"
+        r"|[\U0001F3FB-\U0001F3FF])+(?=[^\W\d_]|['’*#])",
+        "", text)
+
+
 def _sternchen(token: str) -> str:
+    """ "A****loch" -> "arschloch" -- Satzzeichen davor und dahinter bleiben (9.5.32)."""
+    if not re.search(r"[*#]", token):
+        return token
+    kern = token.strip("!?.,;:()")
+    if not kern:
+        return token
+    vorne = token[: token.index(kern)]
+    hinten = token[token.index(kern) + len(kern):]
+    neu = _sternchen_kern(token)
+    return neu if neu == token else vorne + neu + hinten
+
+
+def _sternchen_kern(token: str) -> str:
     """ "A****loch" -> "arschloch", wenn genau ein bekanntes Schimpfwort passt."""
     if not re.search(r"[*#]", token):
         return token
     kern = token.strip("!?.,;:()")
-    if len(re.findall(r"[^\W\d_]", kern)) < 2 or not re.fullmatch(r"(?:[^\W\d_]|[*#])+", kern):
+    if len(re.findall(r"[^\W\d_]", kern)) < 2 or not re.fullmatch(
+            r"(?:[^\W\d_]|[*#]|['’])+", kern):
         return token
+    # Sterne als Trenner ("i*d*i*o*t", 9.5.32): ohne sie ein Schimpfwort?
+    ohne = re.sub(r"[*#]", "", kern)
+    if re.fullmatch(r"(?:[^\W\d_][*#]+){2,}[^\W\d_]", kern) and _stufe_von(ohne)[0]:
+        return ohne
     teile = [re.escape(t) for t in re.split(r"[*#]+", kern)]
-    muster = re.compile("^" + r"[^\W\d_]{1,6}".join(teile) + "$")
+    # So viele Buchstaben, wie Sterne da stehen -- einer mehr fuer "oe" statt
+    # "ö" (9.5.32; bis dahin 1 bis 6 beliebige, "bl*de" passte dann auch auf
+    # englische Woerter mit deutscher Endung).
+    luecken = [len(z) for z in re.findall(r"[*#]+", kern)]
+    muster = re.compile("^" + "".join(
+        teil + (rf"[^\W\d_]{{{luecken[i]},{luecken[i] + 1}}}" if i < len(luecken) else "")
+        for i, teil in enumerate(teile)) + "$")
     passend = {grund for _, liste in _BELEIDIGUNG_STUFEN for grund in liste
                if len(grund) >= 4 and muster.match(grund)}
+    if not passend:
+        # Gebeugt ("bl*de" -> "blöde") oder die Anrede ("Aq*aticy", 9.5.32).
+        passend = {wort for wort in _GEBEUGT | set(_FUNKTIONSWOERTER) | _PHRASEN_WOERTER
+                   if len(wort) >= 4 and muster.match(wort)}
     fluch = {w for w in ("fuck", "fick") if muster.match(w)}
+    passend -= {"fuck", "fick"}
     if fluch and not passend:
         # "f*ck" -- ob fuck oder fick, zaehlt gleich (siehe _WENDUNGEN).
         return "fuck" if "fuck" in fluch else "fick"
-    return passend.pop() if len(passend) == 1 else token
+    # "blöde" und "bloede" sind dasselbe Wort.
+    gruppen = {w.replace("ö", "oe").replace("ä", "ae").replace("ü", "ue").replace("ß", "ss")
+               for w in passend}
+    if len(gruppen) == 1 and passend:
+        return max(passend, key=lambda w: sum(z in "äöüß" for z in w))
+    # Mehrdeutig ("d****r": dummer? doofer?) -- sind ALLE Kandidaten
+    # Schimpfwoerter, zaehlt der mildeste (9.5.32). Sonst bleibt es offen.
+    # Ein oder zwei Sterne ("Kn*llkopf", "Fl*chzange", 9.5.32): jeden
+    # Buchstaben einsetzen -- ergibt genau ein Wort ein Schimpfwort (auch
+    # zusammengesetzt), ist es gemeint.
+    sterne = len(re.findall(r"[*#]", kern))
+    if not passend and 1 <= sterne <= 2 and len(kern) >= 5:
+        import itertools
+
+        alphabet = "abcdefghijklmnopqrstuvwxyzäöüß"
+        treffer_woerter = set()
+        stuecke = re.split(r"[*#]", kern.lower())
+        for fuellung in itertools.product(alphabet, repeat=sterne):
+            kandidat = stuecke[0] + "".join(
+                buchstabe + stueck for buchstabe, stueck in zip(fuellung, stuecke[1:],
+                                                                strict=True))
+            if _stufe_von(kandidat)[0] or _zusammensetzung(kandidat):
+                treffer_woerter.add(kandidat)
+        if len(treffer_woerter) == 1:
+            return treffer_woerter.pop()
+    # Mehrdeutig ("d****r": dummer? doofer? oder ein harmloses Wort?) bleibt
+    # offen -- das entscheidet das Modell, nicht die feste Liste (Fehlalarme
+    # waeren schlimmer als ein Fall mehr fuer das Modell).
+    return token
 
 
 def _zusammen(trenner: str, treffer: re.Match[str]) -> str:
-    """Getrennte Buchstaben wieder zu einem Wort."""
-    return re.sub(trenner, "", treffer.group())
+    """Getrennte Buchstaben wieder zu einem Wort.
+
+    Seit 9.5.32 auch mit Apostroph und Leetspeak ("y o u ' r e", "I d 1 o t") --
+    nur, wenn mindestens zwei echte Buchstaben dabei sind (Zahlen bleiben).
+    Ein Artikel davor ("a b i t c h") wird wieder abgetrennt.
+    """
+    roh = treffer.group()
+    if len(re.findall(r"[^\W\d_]", roh)) < 2:
+        return roh
+    wort = re.sub(trenner, "", roh)
+    if re.search(r"[*#]", wort):
+        wort = _sternchen(_entleet(wort))
+        if re.search(r"[*#]", wort):
+            return roh
+    if re.search(r"\d", wort):
+        wort = _entleet(wort)
+        if re.search(r"\d", wort):
+            return roh
+    if len(wort) > 4 and wort[0] in "ai" and not _stufe_von(wort)[0] and _stufe_von(wort[1:])[0]:
+        return wort[0] + " " + wort[1:]
+    return _anrede_abtrennen(wort)
+
+
+def _anrede_abtrennen(wort: str) -> str:
+    """ "duidiot" / "du_1d10t" -> "du idiot": Anrede und Schimpfwort zusammengeklebt."""
+    teile = re.split(r"[_\-.]+", wort)
+    if len(teile) >= 2 and teile[0] in ("du", "you", "u", "ihr"):
+        rest = _entleet("".join(teile[1:]))
+        if _stufe_von(rest)[0]:
+            return teile[0] + " " + rest
+    for anrede in ("du", "you"):
+        if wort.startswith(anrede) and len(wort) > len(anrede) + 3:
+            rest = wort[len(anrede):]
+            if _stufe_von(rest)[0] and not _stufe_von(wort)[0]:
+                return anrede + " " + rest
+    return wort
 
 
 def _vereinheitlicht(text: str) -> str:
     """Macht Tarnungen rueckgaengig, bevor gesucht wird."""
     klein = unicodedata.normalize("NFKC", str(text or "")).lower()
     klein = _UNSICHTBAR.sub("", klein).translate(_DOPPELGAENGER)
+    # Seit 9.5.32: Akzente ("dúmm") und Bildzeichen zwischen Buchstaben
+    # ("d🙂u🙂m🙂m") -- beides aendert fuer einen Menschen nichts am Wort.
+    klein = _symbole_raus(_ohne_akzente(klein))
     # Getrennte Buchstaben wieder zusammen: "i d i o t", "a.r.s.c.h", "f-i-c-k".
     # Erst mit Punkt/Strich getrennt ("f.i.c.k d.i.c.h" -> "fick dich"), dann
     # mit Leerzeichen ("i d i o t" -> "idiot").
-    for trenner in (r"[.\-_*·/\\]+", r" +"):
-        klein = re.sub(rf"(?<![^\W\d_])(?:[^\W\d_]{trenner}){{2,}}[^\W\d_](?![^\W\d_])",
-                       functools.partial(_zusammen, trenner), klein)
+    for trenner in (r"[.\-_·/\\]+", r" +"):
+        klein = re.sub(
+            rf"(?<![^\W_])(?:[^\W_'’*#]{trenner}|['’*#]{trenner}){{2,}}[^\W_'’*#](?![^\W_])",
+            functools.partial(_zusammen, trenner), klein)
+    # Ein Apostroph mit Leerzeichen drumherum ("y o u ' r e") gehoert zum Wort.
+    klein = re.sub(r"(?<=[^\W\d_]) ?['’] ?(?=[^\W\d_](?:\s|$|[^\W\d_]))", "'", klein)
     # Linear: jedes Token genau einmal (ein Muster mit "\\S*...\\S*" war bei
     # 20.000 Zeichen ohne Buchstaben quadratisch -- Fund 9.5.26).
-    klein = _TOKEN.sub(lambda m: _sternchen(_entleet(m.group())), klein)
+    klein = _TOKEN.sub(
+        lambda m: _funktionswort(_sternchen(_entleet(_punktiert(
+            _anrede_abtrennen(m.group()) if re.search(r"[_\-.]", m.group()) else m.group())))),
+        klein)
     klein = re.sub(r"\byou['’]re\b", "you are", klein)
     klein = re.sub(r"\b(?:fck|fuk|fuq|fuc|phuck|fucc|fvck|fk)\b", "fuck", klein)
     klein = re.sub(r"\bu\s+r\b", "you are", klein)
@@ -680,6 +869,25 @@ def _satzteil_stufe(teil: str, ganze_woerter: int, anrede: bool = False) -> int:
 
 
 def insult_level(text: str) -> int:
+    """Stufe einer gerichteten Beleidigung -- auch gedehnt ("shuuut up", 9.5.32).
+
+    Erst der Text, wie er ist. Findet sich nichts und stehen doppelte
+    Buchstaben darin, noch einmal mit gestauchten Buchstaben: die Schimpfwoerter
+    selbst werden ohnehin gestaucht verglichen, nur Wendungen und Anreden
+    ("halt die klaaappe", "waaas bist du") fielen sonst durch. Der zweite
+    Durchgang kann nur finden, nie etwas zuruecknehmen.
+    """
+    stufe = _insult_level(text)
+    roh = str(text or "")
+    if stufe or not re.search(r"([^\W\d_])\1\1|([^\W\d_])\2(?=\W|$)", roh.lower()):
+        return stufe
+    # Drei gleiche Buchstaben -> einer; ein verdoppelter Endbuchstabe -> einer.
+    gestaucht = re.sub(r"([^\W\d_])\1{2,}", r"\1", roh, flags=re.IGNORECASE)
+    gestaucht = re.sub(r"(?<=[^\W\d_]{2})([^\W\d_])\1(?=\W|$)", r"\1", gestaucht)
+    return _insult_level(gestaucht, _WENDUNGEN_GESTAUCHT) if gestaucht != roh else 0
+
+
+def _insult_level(text: str, wendungen: tuple[tuple[int, re.Pattern[str]], ...] = ()) -> int:
     """Stufe einer gerichteten Beleidigung in *text* -- 0, wenn keine.
 
     1 = abfaellig ("du bist dumm"), 2 = Schimpfwort ("du Idiot"),
@@ -688,6 +896,7 @@ def insult_level(text: str) -> int:
     Die ganze Nachricht wird geprueft, egal wie lang (bis 9.5.25 nur bis 600
     Zeichen -- wer auffuellte, kam durch).
     """
+    wendungen = wendungen or _WENDUNGEN
     roh = str(text or "")
     klein = _zusammengesetzt(_REDE.sub(" ", _vereinheitlicht(roh)))
     if not klein:
@@ -717,7 +926,7 @@ def insult_level(text: str) -> int:
             # "Du bist eine Lachnummer, sagt mein Kollege" -- zitierte Rede
             continue
         if not ueber_wendung:
-            for wert, muster in _WENDUNGEN:
+            for wert, muster in wendungen:
                 if muster.search(teil):
                     stufe = max(stufe, wert)
         stufe = max(stufe, _satzteil_stufe(teil, ganze_woerter, anrede))
@@ -1178,7 +1387,22 @@ class AiGuard:
     def __init__(self, db_path: Path | str) -> None:
         self.db_path = Path(db_path)
         self._lock = threading.Lock()
+        from aquaticy.privacy import ServerSecrets
+
+        #: Adressen werden seit 9.5.32 nur als Schluessel-Hash gesperrt.
+        self._secrets = ServerSecrets(self.db_path.parent)
         self._setup()
+
+    def ip_subject(self, ip: str) -> str:
+        """Woran eine Adresssperre haengt: ``ip:#<Schluessel-Hash>`` -- "" fuer keine.
+
+        Nimmt eine lesbare Adresse oder schon einen Hash (aus der Kontendatenbank).
+        """
+        wert = str(ip or "").strip().lstrip("#").lower()
+        if re.fullmatch(r"[0-9a-f]{64}", wert):
+            return "ip:#" + wert
+        adresse = _norm_ip(ip)
+        return "ip:#" + self._secrets.blind("ip", adresse) if adresse else ""
 
     @contextmanager
     def _connect(self) -> Iterator[sqlite3.Connection]:
@@ -1234,6 +1458,16 @@ class AiGuard:
             if "severity" not in spalten_flags:
                 conn.execute("ALTER TABLE aiguard_flags ADD COLUMN severity INTEGER NOT NULL "
                              "DEFAULT 0")
+            # Adresssperren aus der Zeit vor 9.5.32 standen im Klartext -- sie
+            # werden auf den Schluessel-Hash umgeschrieben.
+            for zeile in conn.execute("SELECT subject FROM aiguard_bans "
+                                      "WHERE subject LIKE 'ip:%' AND subject NOT LIKE 'ip:#%'"
+                                      ).fetchall():
+                neu = self.ip_subject(str(zeile[0])[3:])
+                if neu:
+                    conn.execute("UPDATE OR IGNORE aiguard_bans SET subject=? WHERE subject=?",
+                                 (neu, zeile[0]))
+                conn.execute("DELETE FROM aiguard_bans WHERE subject=?", (zeile[0],))
 
     # -- Anhaltspunkte ----------------------------------------------------
     def note(self, user_id: str, kind: str, detail: str = "", chat: str = "",
@@ -1421,11 +1655,27 @@ class AiGuard:
         self._ban(f"user:{user_id!s}", reason or "Von Hand gesperrt", by, until)
 
     def ban_ip(self, ip: str, reason: str = "", by: str = "terminal", until: float = 0.0) -> str:
-        """Sperrt eine Adresse. Returns: die normalisierte Adresse, oder "" wenn ungültig."""
-        adresse = _norm_ip(ip)
-        if adresse:
-            self._ban(f"ip:{adresse}", reason or "Von Hand gesperrt", by, until)
-        return adresse
+        """Sperrt eine Adresse (lesbar oder als Hash).
+
+        Returns: was der Betreiber sieht -- ``#`` und acht Zeichen -- oder "" wenn ungueltig.
+        """
+        from aquaticy.privacy import short_tag
+
+        subjekt = self.ip_subject(ip)
+        if subjekt:
+            self._ban(subjekt, reason or "Von Hand gesperrt", by, until)
+        return short_tag(subjekt[4:]) if subjekt else ""
+
+    def ban_device(self, cookie_hash: str, reason: str = "", by: str = "konto-geloescht",
+                   until: float = 0.0) -> None:
+        """Sperrt eine Geraete-Kennung (nur ihr Hash, seit 9.5.32).
+
+        Wer ein gesperrtes Konto loescht, soll sich nicht sofort vom selben
+        Geraet aus ein neues anlegen -- die Sperre gilt so lange wie die alte.
+        """
+        if re.fullmatch(r"[0-9a-f]{64}", str(cookie_hash or "")):
+            self._ban("geraet:" + str(cookie_hash), reason or "Gesperrtes Konto gelöscht", by,
+                      until)
 
     def _ban(self, subject: str, reason: str, by: str, until: float = 0.0) -> None:
         with self._lock, self._connect() as conn:
@@ -1482,22 +1732,27 @@ class AiGuard:
         return bool(weg)
 
     def unban_ip(self, ip: str) -> bool:
-        adresse = _norm_ip(ip)
-        if not adresse:
+        subjekt = self.ip_subject(ip)
+        if not subjekt:
             return False
         with self._lock, self._connect() as conn:
             weg = conn.execute("DELETE FROM aiguard_bans WHERE subject=?",
-                               (f"ip:{adresse}",)).rowcount
+                               (subjekt,)).rowcount
         return bool(weg)
 
-    def is_banned(self, user_id: str = "", ip: str = "") -> Ban | None:
-        """Ist dieses Konto oder diese Adresse gesperrt? Returns: die Sperre oder None."""
+    def is_banned(self, user_id: str = "", ip: str = "", device: str = "") -> Ban | None:
+        """Ist dieses Konto, diese Adresse oder dieses Geraet gesperrt?
+
+        Returns: die Sperre oder None.
+        """
         subjects = []
+        if re.fullmatch(r"[0-9a-f]{64}", str(device or "")):
+            subjects.append("geraet:" + str(device))
         if user_id:
             subjects.append(f"user:{user_id!s}")
-        adresse = _norm_ip(ip)
+        adresse = self.ip_subject(ip)
         if adresse:
-            subjects.append(f"ip:{adresse}")
+            subjects.append(adresse)
         if not subjects:
             return None
         platz = ",".join("?" for _ in subjects)

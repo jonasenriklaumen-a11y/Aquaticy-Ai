@@ -23,6 +23,7 @@ Beanstandungen -- damit laesst er sich in eine Pruefkette haengen.
 from __future__ import annotations
 
 import argparse
+import contextlib
 import os
 import socket
 import sys
@@ -420,7 +421,12 @@ def normales_konto(browser: Any, port: int, log: Protokoll, fehler: list[str]) -
     pg.click('#secnav button:has-text("Modell")')
     pg.wait_for_timeout(500)
     pg.select_option("#provider", "mistral")
-    pg.wait_for_timeout(600)
+    # Unter Last braucht die Schluesselliste laenger als 600 ms (9.5.32) -- also
+    # warten, bis sie da ist, statt eine feste Zeit.
+    with contextlib.suppress(Exception):
+        pg.wait_for_selector("#sec-schluessel", state="visible", timeout=8_000)
+        pg.wait_for_selector('#keys .key-row[data-name="MISTRAL_API_KEY"]:not([hidden])',
+                             timeout=8_000)
     log.pruefe(pg.is_visible("#sec-schluessel"),
                "nach der Wahl eines Anbieters erscheint „Eigene Modelle“")
     sichtbar = pg.eval_on_selector_all(
@@ -441,9 +447,13 @@ def normales_konto(browser: Any, port: int, log: Protokoll, fehler: list[str]) -
     log.pruefe(status.startswith("Hinterlegt ••••711x"),
                f"nur die letzten vier Zeichen: {status!r}")
     log.pruefe("rundgang-mistral" not in pg.content(), "der Schlüssel steht nirgends auf der Seite")
-    pg.once("dialog", lambda dialog: dialog.accept())
+    # Seit 9.5.32 ein eigenes Fenster statt confirm() des Browsers.
     pg.locator('#keys .key-row[data-name="MISTRAL_API_KEY"] button',
                has_text="Entfernen").click()
+    pg.wait_for_selector("#guardbox.open", state="visible")
+    log.pruefe("bitte bestätigen" in pg.inner_text("#guard-head").lower(),
+               "Entfernen fragt im eigenen Fenster nach")
+    pg.click("#guard-ok")
     satz = warte_auf_text(pg, "#keys-summary", "keinen")
     log.pruefe(satz == "Du hast keinen API-Schlüssel hinzugefügt.", "und wieder entfernt")
     log.pruefe(
@@ -560,6 +570,71 @@ def normales_konto(browser: Any, port: int, log: Protokoll, fehler: list[str]) -
     werte = pg.evaluate("async () => (await (await fetch('/api/config')).json()).values")
     log.pruefe(antwort.get("ok") and werte.get("AQUATICY_AUTO_MODEL") == "true",
                "die automatische Modellwahl geht auch mit dem normalen Konto")
+    kontext.close()
+
+
+def konto_loeschen(browser: Any, port: int, log: Protokoll, fehler: list[str]) -> None:
+    """9.5.32: Ein Wegwerf-Konto sieht seine Sicherheit und loescht sich selbst."""
+    log.abschnitt("20c. Konto: Sicherheit und Löschen")
+    kontext = browser.new_context(viewport={"width": 1340, "height": 900})
+    pg = kontext.new_page()
+    pg.on("pageerror", lambda e: fehler.append(f"Skriptfehler (loeschen): {e}"))
+    pg.goto(f"http://127.0.0.1:{port}/", wait_until="networkidle")
+    pg.wait_for_selector("#consent-card:not([hidden])", timeout=10_000)
+    pg.click("#consent-yes")
+    pg.wait_for_selector("#login-card:not([hidden])", timeout=10_000)
+    pg.click("#tab-register")
+    pg.check('input[name="plan"][value="normal"]')
+    pg.fill("#auth-username", "Wegwerf")
+    pg.fill("#auth-email", "wegwerf@example.org")
+    pg.fill("#auth-password", "wegwerf-geheim")
+    pg.check("#auth-terms")
+    pg.click("#auth-submit")
+    pg.wait_for_selector("#auth-gate", state="hidden", timeout=15_000)
+    pg.wait_for_load_state("networkidle")
+    pg.wait_for_timeout(800)
+    # Nach dem Anlegen laedt die Seite neu -- erst danach ist der Knopf bereit.
+    pg.click("#btn-settings")
+    pg.wait_for_selector("#overlay.open", state="visible", timeout=8_000)
+    ende = time.time() + 8
+    geraete = ""
+    while time.time() < ende:
+        geraete = pg.inner_text("#device-list")
+        if geraete.strip() and "Noch kein" not in geraete:
+            break
+        pg.wait_for_timeout(200)
+    log.pruefe("Kerne" in geraete or "unbekannt" in geraete or "Chrome" in geraete,
+               f"unter Sicherheit steht das eigene Gerät ({geraete[:60]!r})")
+    log.pruefe("angemeldet auf" in pg.inner_text("#security-summary"),
+               "und auf wie vielen Geräten man angemeldet ist")
+    pg.click("#account-delete")
+    pg.wait_for_selector("#guardbox.open", state="visible")
+    log.pruefe(pg.is_visible("#guard-input")
+               and pg.get_attribute("#guard-input", "type") == "password",
+               "Konto löschen fragt zuerst nach dem Passwort")
+    pg.fill("#guard-input", "falsches-passwort")
+    pg.click("#guard-ok")
+    pg.wait_for_timeout(300)
+    pg.fill("#guard-input", "LÖSCHEN")
+    pg.click("#guard-ok")
+    pg.wait_for_timeout(900)
+    log.pruefe("Passwort stimmt nicht" in pg.inner_text("#guard-text"),
+               f"ein falsches Passwort löscht nichts ({pg.inner_text('#guard-text')[:50]!r})")
+    pg.click("#guard-ok")
+    pg.wait_for_timeout(300)
+    pg.click("#account-delete")
+    pg.wait_for_selector("#guardbox.open", state="visible")
+    pg.fill("#guard-input", "wegwerf-geheim")
+    pg.click("#guard-ok")
+    pg.wait_for_timeout(300)
+    pg.fill("#guard-input", "LÖSCHEN")
+    pg.click("#guard-ok")
+    pg.wait_for_timeout(900)
+    log.pruefe("gelöscht" in pg.inner_text("#guard-text"),
+               f"das Konto ist gelöscht ({pg.inner_text('#guard-text')[:50]!r})")
+    pg.click("#guard-ok")
+    pg.wait_for_selector("#login-card:not([hidden])", timeout=15_000)
+    log.pruefe(True, "danach steht wieder die Anmeldung da")
     kontext.close()
 
 
@@ -1068,8 +1143,9 @@ def rundgang(pg: Any, log: Protokoll, agent: FakeAgent, bilder: Path | None,
         log.pruefe("Mein Chat" in pg.inner_text("#recents"), "der neue Name steht da")
         pg.click(".recent >> nth=0 >> .more")
         pg.wait_for_timeout(300)
-        pg.once("dialog", lambda d: d.accept())
         pg.click(".chatmenu button.danger")
+        pg.wait_for_selector("#guardbox.open", state="visible")
+        pg.click("#guard-ok")
         pg.wait_for_timeout(900)
         log.pruefe(pg.locator(".recent").count() == vorher - 1, "und Löschen löscht")
         if pg.locator(".recent").count():
@@ -1415,8 +1491,26 @@ def rundgang(pg: Any, log: Protokoll, agent: FakeAgent, bilder: Path | None,
         pg.wait_for_timeout(400)
         dunkel = pg.eval_on_selector("body", "e => [getComputedStyle(e).backgroundColor,"
                                              " getComputedStyle(e).color]")
-        log.pruefe(dunkel == ["rgb(0, 0, 0)", "rgb(255, 255, 255)"],
+        # Seit 9.5.32 fast schwarz (#121212) statt reinem Schwarz -- weisse
+        # Schrift auf #000 "strahlt" und ermuedet die Augen.
+        log.pruefe(dunkel == ["rgb(18, 18, 18)", "rgb(242, 242, 242)"],
                    f"Schlicht dunkel: genau umgekehrt {dunkel}")
+        # Schriftgroesse (9.5.32): drei Stufen, sofort sichtbar, beim Konto gemerkt.
+        vorher_px = pg.eval_on_selector("body", "e => parseFloat(getComputedStyle(e).fontSize)")
+        pg.click('[data-fsize="large"]')
+        pg.wait_for_timeout(500)
+        gross_px = pg.eval_on_selector("body", "e => parseFloat(getComputedStyle(e).fontSize)")
+        log.pruefe(pg.get_attribute("html", "data-fontsize") == "large"
+                   and gross_px > vorher_px,
+                   f"Schrift groß: {vorher_px}px -> {gross_px}px")
+        pg.click('[data-fsize="small"]')
+        pg.wait_for_timeout(500)
+        klein_px = pg.eval_on_selector("body", "e => parseFloat(getComputedStyle(e).fontSize)")
+        log.pruefe(klein_px < vorher_px, f"Schrift klein: {klein_px}px")
+        gemerkt = pg.evaluate("async () => (await (await fetch('/api/prefs')).json())")
+        log.pruefe(gemerkt.get("fontsize") == "small", "die Schriftgröße steht beim Konto")
+        pg.click('[data-fsize="normal"]')
+        pg.wait_for_timeout(400)
         # Der eigene Designer.
         pg.click('[data-tmode="light"]')
         pg.click('.pal[data-palette="custom"]')
@@ -2161,6 +2255,7 @@ def main() -> int:
 
         if not nur or "normal" in nur:
             normales_konto(browser, port, log, fehler)
+            konto_loeschen(browser, port, log, fehler)
 
         log.abschnitt("21. Die Konsole")
         log.pruefe(not fehler, f"keine Fehler im Browser ({fehler[:3]})")

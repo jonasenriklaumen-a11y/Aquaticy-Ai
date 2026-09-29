@@ -1495,7 +1495,7 @@ def test_every_palette_sets_the_same_variables() -> None:
     # der Schatten und der weisse Knopf im Schalter sind ueberall dieselben --
     # sie in sechzehn Bloecken zu wiederholen wuerde nur die Gelegenheit
     # schaffen, sie an einer Stelle zu vergessen.
-    ) - {"radius", "radius-lg", "serif", "sans", "mono", "shadow", "knob"}
+    ) - {"radius", "radius-lg", "serif", "sans", "mono", "shadow", "knob", "fs"}
     blocks = re.findall(
         r':root\[data-palette="([a-z]+)"\](\[data-theme="dark"\])?\{(.*?)\}', html, re.S
     )
@@ -1723,7 +1723,7 @@ def test_the_load_section_is_hidden_until_ultra() -> None:
     html = web.UI_FILE.read_text(encoding="utf-8")
     assert '<fieldset id="pro-system" hidden>' in html
     assert "system.hidden = !ultra;" in html
-    assert "START.load === true && kontoPro" in html
+    assert "START.load === true && kontoUltra" in html
 
 
 # -- Slash-Befehle fuer den Speicher --------------------------------------
@@ -3380,12 +3380,15 @@ def test_the_switch_looks_like_a_switch_and_moves() -> None:
 
 
 def test_no_plain_checkbox_is_left_over() -> None:
-    """Funktionsschalter bleiben Schalter; nur Zustimmung ist ein Kontrollkästchen."""
+    """Funktionsschalter bleiben Schalter; Kontrollkästchen gibt es nur dort, wo
+    erst ein Knopf die Wahl abschickt: die Zustimmung und (seit 9.5.32) die
+    Option im Auftragsformular -- ein Schalter verspricht sofortige Wirkung."""
     html = web.UI_FILE.read_text(encoding="utf-8")
     roh = html.count('<input type="checkbox"')
     angezogen = html.count('<input type="checkbox" role="switch" class="schalter"')
-    assert roh == angezogen + 1
+    assert roh == angezogen + 2
     assert '<input type="checkbox" id="auth-terms" required>' in html
+    assert '<input type="checkbox" id="job-struktur" checked>' in html
 
 
 # ---------------------------------------------------------------------------

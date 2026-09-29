@@ -13,7 +13,6 @@ from pathlib import Path
 
 import typer
 from rich.console import Console
-from rich.markup import escape
 from rich.panel import Panel
 from rich.table import Table
 
@@ -473,7 +472,9 @@ def list_users_command() -> None:
     store = AuthStore(settings.data_dir, pro_code_for(settings.data_dir))
     guard = guard_for(settings.data_dir)
     accounts = store.accounts()
-    table = Table("Nutzername", "E-Mail", "Konto", "Adresse", "Gerät", "Browser",
+    from aquaticy.privacy import short_tag
+
+    table = Table("Nutzername", "E-Mail", "Konto", "Adresse", "Geräte",
                   "Sitzung (5 Std.)", "Woche", "Eigene Schlüssel", "Speicher", "Ai-guard",
                   box=None, pad_edge=False)
     for account in accounts:
@@ -492,14 +493,15 @@ def list_users_command() -> None:
             eigene = str(store.vault(account).count())
         except Exception:
             eigene = "?"
-        # Zuletzt gesehene Adresse (seit 9.5.16 Lion) -- im Klartext, damit der
-        # Betreiber gezielt sperren kann.
-        adresse = account.last_ip or "—"
-        # Zuletzt gesehenes Geraet (seit 9.5.31, aquaticy/devices.py).
+        # Zuletzt gesehene Adresse -- seit 9.5.32 nur als "#" und acht Zeichen
+        # ihres Schluessel-Hashs. Sperren geht damit trotzdem:
+        # `aquaticy ban "#1a2b3c4d"`. Hardware und Browser sieht der Betreiber
+        # nicht mehr, nur wie viele Geraete das Konto hat.
+        adresse = short_tag(account.last_ip)
         try:
-            hardware, browser = store.last_device(account.id)
+            geraete = str(store.device_count(account.id))
         except Exception:
-            hardware, browser = "", ""
+            geraete = "?"
         gesperrt = guard.is_banned(user_id=account.id, ip=account.last_ip)
         punkte = guard.flag_count(account.id)
         # Seit 9.5.24 mit Dauer: "gesperrt (noch 3 Tag(e))" oder "(dauerhaft)".
@@ -512,8 +514,7 @@ def list_users_command() -> None:
             account.email,
             account.plan_label,
             adresse,
-            escape(hardware) or "—",
-            escape(browser) or "—",
+            geraete,
             sitzung,
             woche,
             eigene,
@@ -567,13 +568,14 @@ def _ist_adresse(wert: str) -> bool:
 
 @app.command("ban")
 def ban_command(
-    wen: str = typer.Argument(..., help="Nutzername, E-Mail oder IP-Adresse."),
+    wen: str = typer.Argument(..., help="Nutzername, E-Mail, IP-Adresse oder #-Kürzel."),
     grund: str = typer.Option("", "--grund", help="Kurzer Vermerk."),
     tage: int = typer.Option(0, "--tage", help="Dauer in Tagen; 0 = für immer."),
 ) -> None:
     """Sperrt ein Konto oder eine IP-Adresse (Ai-guard).
 
     aquaticy ban "anna"  ·  aquaticy ban "anna" --tage 7  ·  aquaticy ban 203.0.113.7
+    ·  aquaticy ban "#1a2b3c4d" (das Adress-Kürzel aus aquaticy list)
     """
     import time as _zeit
 
@@ -591,6 +593,9 @@ def ban_command(
                       else "[red]Das ist keine gültige Adresse.[/red]")
         return
     store = AuthStore(settings.data_dir, pro_code_for(settings.data_dir))
+    if wen.startswith("#"):
+        _ban_tag(store, guard, wen, grund, bis, dauer)
+        return
     try:
         konto = store.account_by_name(wen)
     except ValueError as exc:
@@ -601,6 +606,19 @@ def ban_command(
         raise typer.Exit(code=1)
     guard.ban_user(konto.id, reason=grund, until=bis)
     console.print(f"[green]Konto {konto.username} ({konto.email}){dauer} gesperrt.[/green]")
+
+
+def _ban_tag(store: object, guard: object, kuerzel: str, grund: str, bis: float,
+             dauer: str) -> None:
+    """Sperrt eine Adresse ueber ihr Kuerzel aus `aquaticy list` (9.5.32)."""
+    treffer = store.ip_hashes_with_prefix(kuerzel)  # type: ignore[attr-defined]
+    if len(treffer) != 1:
+        console.print("[red]Kein eindeutiges Adress-Kürzel — nimm die acht Zeichen "
+                      "aus aquaticy list.[/red]")
+        raise typer.Exit(code=1)
+    adresse = guard.ban_ip(  # type: ignore[attr-defined]
+        next(iter(treffer)), reason=grund, until=bis)
+    console.print(f"[green]Adresse {adresse}{dauer} gesperrt.[/green]")
 
 
 @app.command("unban")
@@ -614,6 +632,15 @@ def unban_command(
     settings = get_settings()
     guard = guard_for(settings.data_dir)
     wen = wen.strip()
+    if wen.startswith("#"):
+        # Das Kuerzel einer Sperre (aquaticy list, Ai-guard-Sperrliste).
+        anfang = wen.lstrip("#").lower()
+        treffer = [b.subject for b in guard.bans()
+                   if b.subject.startswith("ip:#" + anfang)] if len(anfang) >= 6 else []
+        frei = len(treffer) == 1 and guard.unban_ip(treffer[0][4:])
+        console.print("[green]Adresse wieder frei.[/green]" if frei
+                      else "[yellow]Keine eindeutige gesperrte Adresse mit diesem Kürzel.[/yellow]")
+        return
     if _ist_adresse(wen):
         frei = guard.unban_ip(wen)
         console.print("[green]Adresse wieder frei.[/green]" if frei

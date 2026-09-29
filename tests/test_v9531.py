@@ -218,7 +218,7 @@ def test_note_device_ignores_nonsense(store: AuthStore) -> None:
 
 
 # -- aquaticy list --------------------------------------------------------------------
-def test_the_list_shows_device_and_browser(tmp_path: Path,
+def test_the_list_shows_only_how_many_devices(tmp_path: Path,
                                            monkeypatch: pytest.MonkeyPatch) -> None:
     from typer.testing import CliRunner
 
@@ -236,12 +236,13 @@ def test_the_list_shows_device_and_browser(tmp_path: Path,
              clean_device({"cores": 2, "gpu": "[red]rot[/red]"}, user_agent=PC_UA))
         _reg(store, "ohne@example.org", "Ohne")
         ausgabe = CliRunner().invoke(cli.app, ["list"], env={"COLUMNS": "400"}).output
-        assert "Gerät" in ausgabe and "Browser" in ausgabe
+        # Seit 9.5.32 sieht der Betreiber Hardware und Browser nicht mehr --
+        # nur wie viele Geraete ein Konto hat (tests/test_v9532.py).
+        assert "Geräte" in ausgabe
+        assert "Windows" not in ausgabe and "RTX 4070" not in ausgabe
+        assert "Chrome" not in ausgabe and "[red]rot" not in ausgabe
         zeile = next(z for z in ausgabe.splitlines() if z.startswith("Liste"))
-        assert "Windows" in zeile and "RTX 4070" in zeile and "Chrome 126" in zeile
-        assert "[red]rot[/red]" in ausgabe
-        zeile = next(z for z in ausgabe.splitlines() if z.startswith("Ohne"))
-        assert "—" in zeile
+        assert " 1 " in zeile
     finally:
         config.reset_settings_cache()
 

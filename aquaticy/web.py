@@ -458,7 +458,17 @@ AIGUARD: Any = None
 POST_WHEN_BANNED = frozenset({
     "/api/auth/logout", "/api/auth/login", "/api/auth/register", "/api/consent",
     "/api/prefs", "/api/stop", "/api/clear", "/api/open", "/api/chat-edit",
+    # Das eigene Konto verwalten geht immer -- auch gesperrt (9.5.32).
+    "/api/account/delete", "/api/account/wipe", "/api/account/password",
+    "/api/account/logout-all", "/api/account/events-seen",
 })
+#: Konto verwalten (9.5.32): Daten loeschen, Konto loeschen, Passwort, Sitzungen.
+ACCOUNT_ROUTES = frozenset({
+    "/api/account/delete", "/api/account/wipe", "/api/account/password",
+    "/api/account/logout-all", "/api/account/events-seen",
+})
+#: Das Wort, das man zum Loeschen des Kontos eintippt.
+DELETE_WORD = "LÖSCHEN"
 AUTH_LIMIT = RateLimiter(attempts=8, window_seconds=60)
 #: Fehlversuche je Konto (seit 9.5.22). AUTH_LIMIT zaehlt je Adresse -- wer
 #: von vielen Adressen aus EIN Konto durchprobiert, faellt erst hier auf.
@@ -1449,7 +1459,10 @@ class ChatSession:
         # Uploads zaehlen zum gemeinsamen 400-MB-Deckel (aquaticy/budget.py).
         ensure_room(self.settings().data_dir, len(data))
         target = folder / f"{int(time.time() * 1000)}-{name}"
-        target.write_bytes(data)
+        # Seit 9.5.32 verschluesselt -- das Vision-Modell liest ueber read_private.
+        from aquaticy.privacy import write_private
+
+        write_private(target, data, self.settings().data_dir)
         forget(self.settings().data_dir)
         _prune_uploads(folder)
         return target
@@ -1765,6 +1778,11 @@ class SessionRegistry:
                 self._sessions[account.id] = session
             return session
 
+    def drop(self, account_id: str) -> ChatSession | None:
+        """Vergisst die Sitzung eines Kontos (Daten oder Konto geloescht, 9.5.32)."""
+        with self._lock:
+            return self._sessions.pop(str(account_id), None)
+
 
 SESSIONS = SessionRegistry()
 USER_SCHEDULERS: dict[str, Any] = {}
@@ -1834,6 +1852,25 @@ def start_user_scheduler(account: Account) -> None:
         )
         scheduler.start()
         USER_SCHEDULERS[account.id] = scheduler
+
+
+def forget_account_runtime(account: Account) -> None:
+    """Haelt alles an, was fuer ein Konto laeuft: Auftraege, virtual machine, Sitzung.
+
+    Vor dem Loeschen der Daten oder des Kontos (9.5.32) -- sonst schriebe ein
+    laufender Auftrag gleich wieder in den frisch geleerten Ordner.
+    """
+    with _SCHEDULER_LOCK:
+        planer = USER_SCHEDULERS.pop(account.id, None)
+    if planer is not None:
+        with contextlib.suppress(Exception):
+            planer.stop()
+    sitzung = SESSIONS.drop(account.id)
+    if sitzung is not None:
+        with contextlib.suppress(Exception):
+            from aquaticy import sandbox as werkstatt
+
+            werkstatt.forget_shared(sitzung.settings())
 
 
 def ui_state() -> Any:
@@ -2648,6 +2685,9 @@ def with_state(html: str, *, nonce: str = "") -> str:
             attrs += f' style="{stil}"'
     # Sprache (9.5.25): das lang-Attribut stimmt schon beim ersten Anzeigen --
     # die Uebersetzung der Texte erledigt das Skript sofort beim Laden.
+    # Schriftgroesse (9.5.32): steht gleich am <html>, damit nichts springt.
+    if stand.get("fontsize") in ("small", "large"):
+        attrs += f' data-fontsize="{stand["fontsize"]}"'
     sprache = "en" if stand.get("lang") == "en" else "de"
     html = html.replace('<html lang="de">', f'<html lang="{sprache}"{attrs}>', 1)
 
@@ -3310,8 +3350,26 @@ class Handler(BaseHTTPRequestHandler):
                     "usage": usage_view(SESSION.settings()),
                     # Sperre (9.5.24): fuer das rote „Info“ unter der Versionsnummer.
                     "ban": self._ban_view(account),
+                    # Neue Anmeldungen von unbekannten Geraeten (9.5.32).
+                    "security_notices": [
+                        e for e in (AUTH.events(account.id, unseen_only=True)
+                                    if AUTH is not None else [])
+                        if e["kind"] == "neues-geraet"],
                 }
             )
+        elif route == "/api/account/security":
+            # Nur das eigene Konto sieht seine Geraete und seine Adresse
+            # (entschluesselt) -- der Betreiber in `aquaticy list` nicht (9.5.32).
+            account = self._account()
+            if account is None or AUTH is None:
+                self._json({"error": "Bitte melde dich an."}, 401)
+                return
+            self._json({
+                "devices": AUTH.devices(account.id),
+                "last_address": AUTH.last_address(account.id),
+                "sessions": AUTH.session_count(account.id),
+                "events": AUTH.events(account.id),
+            })
         elif route == "/google":
             self._google_return()
         elif route == "/api/config":
@@ -3607,7 +3665,10 @@ class Handler(BaseHTTPRequestHandler):
                 if AIGUARD is not None:
                     from aquaticy.aiguard import BANNED_MESSAGE
 
-                    if AIGUARD.is_banned(ip=self._client_ip()) is not None:
+                    # Seit 9.5.32 auch ein gesperrtes Geraet: wer ein gesperrtes
+                    # Konto loescht, legt vom selben Geraet kein neues an.
+                    if AIGUARD.is_banned(ip=self._client_ip(),
+                                         device=geraet.cookie_hash) is not None:
                         self._json({"ok": False, "error": BANNED_MESSAGE, "code": "banned"},
                                    403)
                         return
@@ -3650,6 +3711,15 @@ class Handler(BaseHTTPRequestHandler):
                     self._json({"ok": False, "error": BANNED_MESSAGE, "code": "banned"}, 403)
                     return
             AUTH.note_seen(account.id, self._client_ip())
+            # Anmeldung von einem unbekannten Geraet (9.5.32): ein Hinweis fuer
+            # das Konto selbst -- wer sein Konto nicht selbst benutzt hat,
+            # sieht es beim naechsten Besuch und kann ueberall abmelden.
+            if not route.endswith("register"):
+                with contextlib.suppress(Exception):
+                    if not AUTH.is_known_device(account.id, geraet):
+                        AUTH.add_event(account.id, "neues-geraet",
+                                       f"Anmeldung mit {geraet.browser} auf "
+                                       f"{geraet.hardware.split(' · ')[0]}")
             # Das Geraet vermerken -- bei der Registrierung steht es schon da
             # (dann nur "zuletzt gesehen"), bei einer Anmeldung kommt es dazu.
             with contextlib.suppress(Exception):
@@ -3670,6 +3740,8 @@ class Handler(BaseHTTPRequestHandler):
             if AUTH is not None:
                 AUTH.logout(self._cookie(AUTH_COOKIE))
             self._json_cookie({"ok": True}, AUTH_COOKIE, "", 0)
+        elif route in ACCOUNT_ROUTES:
+            self._account_action(route, self._read_json(limit=AUTH_BODY_BYTES))
         elif route == "/api/chat":
             self._chat()
         elif route == "/api/clear":
@@ -4193,6 +4265,67 @@ p{{margin:0 0 8px;color:#57534a}}</style></head><body><main>
         except (BrokenPipeError, ConnectionResetError, OSError):
             return False
         return True
+
+    def _account_action(self, route: str, payload: dict[str, Any]) -> None:
+        """Das eigene Konto verwalten (9.5.32).
+
+        Daten loeschen, Konto loeschen und das Passwort aendern gehen nur mit
+        dem Passwort -- eine offene Sitzung auf einem fremden Rechner soll
+        dafuer nicht reichen. Fehlversuche zaehlen wie bei der Anmeldung.
+        """
+        konto = self._account()
+        if AUTH is None or konto is None:
+            self._json({"ok": False, "error": "Bitte melde dich an."}, 401)
+            return
+        token = self._cookie(AUTH_COOKIE)
+        if route == "/api/account/events-seen":
+            AUTH.mark_events_seen(konto.id)
+            self._json({"ok": True})
+            return
+        if route == "/api/account/logout-all":
+            self._json({"ok": True, "ended": AUTH.logout_others(konto.id, token)})
+            return
+        schluessel = "konto:" + konto.id
+        if LOGIN_FAILS.full(schluessel):
+            self._json({"ok": False, "error": (
+                "Zu viele falsche Passwörter. Bitte warte eine Viertelstunde.")}, 429)
+            return
+        passwort = str(payload.get("password") or "")
+        if route == "/api/account/password":
+            try:
+                AUTH.change_password(konto, passwort, str(payload.get("new_password") or ""),
+                                     token)
+            except ValueError as exc:
+                if "bisherige" in str(exc):
+                    LOGIN_FAILS.allow(schluessel)
+                self._json({"ok": False, "error": str(exc)}, 400)
+                return
+            self._json({"ok": True})
+            return
+        if not AUTH.verify_password(konto, passwort):
+            LOGIN_FAILS.allow(schluessel)
+            self._json({"ok": False, "error": "Das Passwort stimmt nicht."}, 403)
+            return
+        if route == "/api/account/delete" and (
+                str(payload.get("confirm") or "").strip().upper() != DELETE_WORD):
+            self._json({"ok": False, "error": f"Tippe zur Bestätigung {DELETE_WORD} ein."},
+                       400)
+            return
+        forget_account_runtime(konto)
+        if route == "/api/account/wipe":
+            AUTH.wipe_data(konto)
+            self._json({"ok": True})
+            return
+        # Ein gesperrtes Konto darf sich loeschen (Recht auf Loeschung) -- die
+        # Sperre aber nicht mit: sie haengt danach nur noch am Hash der
+        # Geraete-Kennung, so lange wie vorher.
+        if AIGUARD is not None:
+            sperre = AIGUARD.is_banned(user_id=konto.id)
+            if sperre is not None:
+                for keks in AUTH.device_cookie_hashes(konto.id):
+                    AIGUARD.ban_device(keks, reason=sperre.reason, until=sperre.until)
+        AUTH.remove_account(konto)
+        self._json_cookie({"ok": True, "deleted": True}, AUTH_COOKIE, "", 0)
 
     def _chat(self) -> None:
         """Fuehrt die Anfrage aus und streamt die Ereignisse als SSE."""

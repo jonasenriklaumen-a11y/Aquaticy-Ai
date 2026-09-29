@@ -71,6 +71,9 @@ LANGUAGES = ("de", "en")
 #: Hell, dunkel oder das, was das Betriebssystem sagt.
 THEMES = ("light", "dark", "system")
 
+#: Schriftgroesse (seit 9.5.32): klein, normal, gross.
+FONT_SIZES = ("normal", "small", "large")
+
 #: Die Arbeitsweise. Muss mit `aquaticy.agent.MODES` uebereinstimmen -- ein
 #: Test haelt beide Listen zusammen.
 MODES = ("normal", "code", "pro")
@@ -89,6 +92,7 @@ FIELDS: dict[str, tuple[Any, Any]] = {
     "palette": ("", PALETTES),
     "design": (DEFAULT_DESIGN, dict),
     "lang": ("de", LANGUAGES),
+    "fontsize": ("normal", FONT_SIZES),
     "mode": ("normal", MODES),
     "effort": ("medium", EFFORTS),
     "structured": (False, bool),

@@ -1033,6 +1033,29 @@ def run_calls(
         return list(pool.map(runner, tool_calls))
 
 
+def _in_call_order(suchen: list[str], ab: int, tool_calls: list[dict[str, Any]]) -> None:
+    """Die Suchen einer parallelen Runde in der Reihenfolge der Aufrufe (9.5.32).
+
+    Nebeneinander laufende Suchen trugen sich in der Reihenfolge ein, in der
+    sie ANFINGEN -- unter Last also mal "b, a" statt "a, b". Der Verlauf soll
+    zeigen, was das Modell in welcher Reihenfolge wollte.
+    """
+    neu = list(suchen[ab:])
+    geordnet: list[str] = []
+    for call in tool_calls:
+        if call["function"]["name"] != "web_search":
+            continue
+        try:
+            frage = str(json.loads(call["function"].get("arguments") or "{}").get("query") or "")
+        except (ValueError, AttributeError):
+            continue
+        frage = frage.strip()
+        if frage in neu:
+            neu.remove(frage)
+            geordnet.append(frage)
+    suchen[ab:] = geordnet + neu
+
+
 #: Fehler, die ein zweiter Versuch sicher NICHT behebt -- auch wenn LiteLLM
 #: sie als APIConnectionError etikettiert.
 PERMANENT_MARKERS = ("jsondecodeerror", "extra data", "expecting value", "invalid api key")
@@ -2941,7 +2964,11 @@ class Agent:
         angehaengt: die Schnittstellen erwarten zu jedem Aufruf genau eine
         Antwort, und zwar in der Reihenfolge der Aufrufe.
         """
+        suchen = self.toolbox.stats.searches
+        vorher = len(suchen)
         self.messages.extend(run_calls(tool_calls, self._tool_result))
+        if parallel_ready(tool_calls) and len(suchen) - vorher > 1:
+            _in_call_order(suchen, vorher, tool_calls)
 
     def _tool_result(self, call: dict[str, Any]) -> dict[str, Any]:
         """Fuehrt einen Tool-Call aus und gibt die Antwortnachricht zurueck."""
@@ -3254,7 +3281,10 @@ class Agent:
             raise FileNotFoundError(f"Bild nicht gefunden: {image_path}")
 
         mime = mimetypes.guess_type(image_path.name)[0] or "image/jpeg"
-        encoded = base64.b64encode(image_path.read_bytes()).decode("ascii")
+        # Hochgeladenes und Schnappschuesse liegen seit 9.5.32 verschluesselt.
+        from aquaticy.privacy import read_private
+
+        encoded = base64.b64encode(read_private(image_path)).decode("ascii")
         self._emit("image", path=str(image_path))
 
         kwargs = self.settings.llm_kwargs_for(self.settings.effective_vision_model)

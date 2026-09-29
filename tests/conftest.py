@@ -2,9 +2,15 @@
 
 from __future__ import annotations
 
+import os
 from pathlib import Path
 
 import pytest
+
+# Argon2id mit 64 MiB je Passwort (seit 9.5.32) machte die Suite um Minuten
+# langsamer. In Tests reicht die schnelle Einstellung; die echte prueft
+# tests/test_v9532.py ausdruecklich.
+os.environ.setdefault("AQUATICY_KDF", "schnell")
 
 FIXTURE_DIR = Path(__file__).parent / "fixtures"
 
@@ -107,3 +113,20 @@ def _namensaufloesung_ohne_netz(monkeypatch):
     monkeypatch.setattr(netguard, "resolve", aufloesen)
     yield
     netguard.forget()
+
+
+@pytest.fixture(autouse=True)
+def _frische_anfragegrenze(monkeypatch):
+    """Jeder Test beginnt mit frischen Anfrage- und Fehlversuchsgrenzen.
+
+    Die Grenzen gelten je Adresse und Minute -- und in den Tests kommt alles
+    von 127.0.0.1. Seit die Tests schneller laufen (Argon2id "schnell",
+    9.5.32), trafen spaetere Dateien sonst die Grenze der frueheren.
+    """
+    import sys
+
+    web = sys.modules.get("aquaticy.web")
+    if web is None:
+        return
+    monkeypatch.setattr(web, "REQUEST_LIMIT", web.RateLimiter(attempts=240, window_seconds=60))
+    monkeypatch.setattr(web, "LOGIN_FAILS", web.RateLimiter(attempts=10, window_seconds=15 * 60))

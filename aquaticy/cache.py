@@ -63,7 +63,19 @@ CREATE TABLE IF NOT EXISTS notes (
     created_at REAL NOT NULL,
     text       TEXT NOT NULL
 );
+
+-- Seit 9.5.32 liegen Chats verschluesselt (aquaticy/privacy.py). Steht hier
+-- eine 1, sind auch die alten Zeilen umgeschrieben.
+CREATE TABLE IF NOT EXISTS privacy_state (
+    name  TEXT PRIMARY KEY,
+    value TEXT NOT NULL
+);
 """
+
+#: Welche Spalten verschluesselt liegen (Tabelle, Spalte) -- die Zusatzdaten
+#: (AAD) binden jeden Wert an genau diese Spalte.
+SEALED_COLUMNS = (("history", "question"), ("history", "answer"), ("history", "meta"),
+                  ("chat_titles", "title"), ("notes", "text"))
 
 
 def cache_key(kind: str, *parts: Any) -> str:
@@ -124,9 +136,43 @@ class Cache:
         self.db_path = Path(db_path)
         self.ttl_seconds = max(0, int(ttl_hours)) * 3600
         self.db_path.parent.mkdir(parents=True, exist_ok=True)
+        from aquaticy.privacy import profile_sealer
+
+        #: Der Schluessel dieses Profils (seit 9.5.32): Chats liegen verschluesselt.
+        self._sealer = profile_sealer(self.db_path.parent)
         with self._connect() as conn:
             conn.executescript(SCHEMA)
+            self._seal_old_rows(conn)
         self._maybe_purge()
+
+    # -- Verschluesselung (9.5.32) ------------------------------------------
+    def _seal(self, text: str, spalte: str) -> str:
+        return self._sealer.seal_text(str(text or ""), spalte)
+
+    def _open(self, text: Any, spalte: str) -> str:
+        return self._sealer.open_text(str(text or ""), spalte)
+
+    def _seal_old_rows(self, conn: sqlite3.Connection) -> None:
+        """Verschluesselt einmalig, was noch aus der Zeit vor 9.5.32 im Klartext liegt."""
+        from aquaticy.privacy import TEXT_PREFIX
+
+        fertig = conn.execute(
+            "SELECT value FROM privacy_state WHERE name='chats'").fetchone()
+        if fertig is not None and str(fertig[0]) == "1":
+            return
+        for tabelle, spalte in SEALED_COLUMNS:
+            schluessel = "id" if tabelle != "chat_titles" else "session_id"
+            zeilen = conn.execute(
+                f"SELECT {schluessel}, {spalte} FROM {tabelle} "
+                f"WHERE {spalte} != '' AND substr({spalte}, 1, ?) != ?",
+                (len(TEXT_PREFIX), TEXT_PREFIX),
+            ).fetchall()
+            for zeile in zeilen:
+                conn.execute(
+                    f"UPDATE {tabelle} SET {spalte}=? WHERE {schluessel}=?",
+                    (self._seal(str(zeile[1]), f"{tabelle}.{spalte}"), zeile[0]),
+                )
+        conn.execute("INSERT OR REPLACE INTO privacy_state (name, value) VALUES ('chats', '1')")
 
     def _maybe_purge(self) -> None:
         """Raeumt Abgelaufenes weg -- hoechstens alle zehn Minuten je Datei (9.5.15).
@@ -247,9 +293,9 @@ class Cache:
                 (
                     session_id,
                     time.time(),
-                    question,
-                    answer,
-                    daten,
+                    self._seal(question, "history.question"),
+                    self._seal(answer, "history.answer"),
+                    self._seal(daten, "history.meta"),
                 ),
             )
             return int(cur.lastrowid or 0)
@@ -270,9 +316,9 @@ class Cache:
                 id=row["id"],
                 session_id=row["session_id"],
                 created_at=row["created_at"],
-                question=row["question"],
-                answer=row["answer"],
-                meta=json.loads(row["meta"] or "{}"),
+                question=self._open(row["question"], "history.question"),
+                answer=self._open(row["answer"], "history.answer"),
+                meta=json.loads(self._open(row["meta"], "history.meta") or "{}"),
             )
             for row in reversed(rows)
         ]
@@ -338,11 +384,12 @@ class Cache:
                     "SELECT title FROM chat_titles WHERE session_id = ?",
                     (row["session_id"],),
                 ).fetchone()
-                title = str(own["title"] if own else "").strip()
+                title = self._open(own["title"] if own else "", "chat_titles.title").strip()
+                erste = self._open(first["question"] if first else "", "history.question")
                 chats.append(
                     {
                         "session_id": row["session_id"],
-                        "title": title or str(first["question"] if first else "").strip(),
+                        "title": title or erste.strip(),
                         "renamed": bool(title),
                         "turns": int(row["turns"]),
                         "touched": float(row["touched"] or 0.0),
@@ -365,53 +412,51 @@ class Cache:
         needle = " ".join(str(needle).split())
         if not needle:
             return []
-        # LIKE mit ESCAPE: sonst wuerde ein % in der Suche alles finden.
-        muster = "%" + needle.replace("!", "!!").replace("%", "!%").replace("_", "!_") + "%"
-        query = """
-            SELECT h.session_id AS session_id,
-                   MAX(h.id)    AS last_id,
-                   COUNT(*)     AS turns,
-                   MAX(h.created_at) AS touched
-            FROM history h
-            LEFT JOIN chat_titles t ON t.session_id = h.session_id
-            WHERE h.question LIKE ? ESCAPE '!'
-               OR h.answer   LIKE ? ESCAPE '!'
-               OR t.title    LIKE ? ESCAPE '!'
-            GROUP BY h.session_id
-            ORDER BY last_id DESC
-            LIMIT ?
-        """
+        # Seit 9.5.32 liegen Chats verschluesselt -- die Datenbank kann nicht
+        # mehr selbst suchen (LIKE). Gesucht wird hier, im entschluesselten Text,
+        # ohne Unterschied zwischen Gross- und Kleinschreibung.
+        klein = needle.casefold()
         ungelesen = self.unread_chats()
-        treffer: list[dict[str, Any]] = []
         with self._connect() as conn, closing(conn.cursor()) as cur:
-            rows = cur.execute(query, (muster, muster, muster, limit)).fetchall()
-            for row in rows:
-                erste = cur.execute(
-                    "SELECT question FROM history WHERE session_id = ? ORDER BY id LIMIT 1",
-                    (row["session_id"],),
-                ).fetchone()
-                eigen = cur.execute(
-                    "SELECT title FROM chat_titles WHERE session_id = ?",
-                    (row["session_id"],),
-                ).fetchone()
-                stelle = cur.execute(
-                    "SELECT question, answer FROM history "
-                    "WHERE session_id = ? AND (question LIKE ? ESCAPE '!' "
-                    "OR answer LIKE ? ESCAPE '!') ORDER BY id LIMIT 1",
-                    (row["session_id"], muster, muster),
-                ).fetchone()
-                title = str(eigen["title"] if eigen else "").strip()
-                treffer.append(
-                    {
-                        "session_id": row["session_id"],
-                        "title": title or str(erste["question"] if erste else "").strip(),
-                        "renamed": bool(title),
-                        "turns": int(row["turns"]),
-                        "touched": float(row["touched"] or 0.0),
-                        "unread": row["session_id"] in ungelesen,
-                        "snippet": _snippet(stelle, needle) if stelle else "",
-                    }
-                )
+            zeilen = cur.execute(
+                "SELECT id, session_id, created_at, question, answer FROM history ORDER BY id"
+            ).fetchall()
+            titel = {
+                str(z["session_id"]): self._open(z["title"], "chat_titles.title")
+                for z in cur.execute("SELECT session_id, title FROM chat_titles").fetchall()
+            }
+        chats: dict[str, dict[str, Any]] = {}
+        for zeile in zeilen:
+            sitzung = str(zeile["session_id"])
+            frage = self._open(zeile["question"], "history.question")
+            eintrag = chats.setdefault(sitzung, {
+                "first": frage, "last_id": 0, "turns": 0, "touched": 0.0, "stelle": None,
+            })
+            eintrag["last_id"] = int(zeile["id"])
+            eintrag["turns"] += 1
+            eintrag["touched"] = max(eintrag["touched"], float(zeile["created_at"] or 0.0))
+            if eintrag["stelle"] is None:
+                antwort = self._open(zeile["answer"], "history.answer")
+                if klein in frage.casefold() or klein in antwort.casefold():
+                    eintrag["stelle"] = {"question": frage, "answer": antwort}
+        treffer: list[dict[str, Any]] = []
+        for sitzung, eintrag in sorted(chats.items(), key=lambda kv: -kv[1]["last_id"]):
+            eigen = titel.get(sitzung, "").strip()
+            if eintrag["stelle"] is None and klein not in eigen.casefold():
+                continue
+            treffer.append(
+                {
+                    "session_id": sitzung,
+                    "title": eigen or str(eintrag["first"]).strip(),
+                    "renamed": bool(eigen),
+                    "turns": int(eintrag["turns"]),
+                    "touched": float(eintrag["touched"]),
+                    "unread": sitzung in ungelesen,
+                    "snippet": _snippet(eintrag["stelle"], needle) if eintrag["stelle"] else "",
+                }
+            )
+            if len(treffer) >= limit:
+                break
         return treffer
 
     def rename_chat(self, session_id: str, title: str) -> str:
@@ -425,7 +470,7 @@ class Cache:
                 cur.execute(
                     "INSERT INTO chat_titles (session_id, title) VALUES (?, ?) "
                     "ON CONFLICT(session_id) DO UPDATE SET title = excluded.title",
-                    (session_id, title),
+                    (session_id, self._seal(title, "chat_titles.title")),
                 )
             else:
                 cur.execute("DELETE FROM chat_titles WHERE session_id = ?", (session_id,))
@@ -448,8 +493,9 @@ class Cache:
             cur.execute("SELECT meta FROM history WHERE session_id = ?", (session_id,))
             bilder: set[str] = set()
             for zeile in cur.fetchall():
-                with contextlib.suppress(json.JSONDecodeError, TypeError):
-                    bilder |= media_ids_in(json.loads(zeile["meta"] or "{}"))
+                with contextlib.suppress(json.JSONDecodeError, TypeError, ValueError):
+                    bilder |= media_ids_in(
+                        json.loads(self._open(zeile["meta"], "history.meta") or "{}"))
             cur.execute("DELETE FROM history WHERE session_id = ?", (session_id,))
             removed = cur.rowcount
             cur.execute("DELETE FROM chat_titles WHERE session_id = ?", (session_id,))
@@ -476,7 +522,8 @@ class Cache:
             return 0
         with self._connect() as conn, closing(conn.cursor()) as cur:
             cur.execute(
-                "INSERT INTO notes (created_at, text) VALUES (?, ?)", (time.time(), text)
+                "INSERT INTO notes (created_at, text) VALUES (?, ?)",
+                (time.time(), self._seal(text, "notes.text")),
             )
             return int(cur.lastrowid or 0)
 
@@ -486,7 +533,8 @@ class Cache:
             cur.execute("SELECT * FROM notes ORDER BY id DESC LIMIT ?", (limit,))
             rows = cur.fetchall()
         return [
-            Note(id=row["id"], created_at=row["created_at"], text=row["text"])
+            Note(id=row["id"], created_at=row["created_at"],
+                 text=self._open(row["text"], "notes.text"))
             for row in reversed(rows)
         ]
 

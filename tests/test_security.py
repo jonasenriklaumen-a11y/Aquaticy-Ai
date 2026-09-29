@@ -511,8 +511,9 @@ def test_an_overlong_password_is_never_hashed(
 
     store = auth.AuthStore(tmp_path, "PRO234567")
     gesehen: list[int] = []
-    echt = auth._password_hash
-    monkeypatch.setattr(auth, "_password_hash",
-                        lambda pw, salt: gesehen.append(len(pw)) or echt(pw, salt))
+    echt = auth._argon_hash
+    monkeypatch.setattr(auth, "_argon_hash",
+                        lambda pw, salt, pepper, params=None:
+                        gesehen.append(len(pw)) or echt(pw, salt, pepper, params))
     assert store.authenticate("a@example.org", "y" * 5000) is None
     assert gesehen and max(gesehen) <= 128

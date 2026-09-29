@@ -72,7 +72,11 @@ def save_snapshot(
     media_id = f"{int(time.time() * 1000):013d}-{digest}{marke}{extension}"
     target = directory / media_id
     if not target.exists():
-        target.write_bytes(content)
+        # Seit 9.5.32 verschluesselt (aquaticy/privacy.py) -- lesbar nur ueber
+        # load_snapshot/read_private mit dem Schluessel dieses Profils.
+        from aquaticy.privacy import write_private
+
+        write_private(target, content, data_dir)
     forget(data_dir)
     _rotate(directory, lambda n: KEEP_MARK not in n and AI_MARK not in n, MAX_SNAPSHOTS)
     _rotate(directory, lambda n: AI_MARK in n, MAX_AI_IMAGES)
@@ -150,9 +154,12 @@ def load_snapshot(data_dir: Path | str, media_id: str) -> tuple[bytes, str] | No
     if not MEDIA_ID.fullmatch(wanted):
         return None
     path = Path(data_dir) / "media" / wanted
+    from aquaticy.memory import CipherError
+    from aquaticy.privacy import read_private
+
     try:
-        data = path.read_bytes()
-    except OSError:
+        data = read_private(path, data_dir)
+    except (OSError, CipherError):
         return None
     extension = path.suffix.lower()
     mime = next((kind for kind, ext in MIME_EXTENSIONS.items() if ext == extension), "")
