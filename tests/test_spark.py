@@ -19,7 +19,7 @@ TERMS = {"terms_accepted": True, "terms_version": "test"}
 PASSWORD = "ein sehr langes Testpasswort"
 
 
-@pytest.mark.parametrize("conflict", ["ip", "username"])
+@pytest.mark.parametrize("conflict", ["device", "username"])
 def test_registration_is_atomic_across_store_instances(
     tmp_path: Path, conflict: str
 ) -> None:
@@ -28,12 +28,16 @@ def test_registration_is_atomic_across_store_instances(
     barrier = threading.Barrier(2)
 
     def create(store: AuthStore, number: int) -> str:
+        # Seit 9.5.31 sperrt nicht mehr dieselbe IP-Adresse, sondern etwa
+        # dasselbe Geraet (Anhaltspunkte, aquaticy/devices.py).
+        from aquaticy.devices import clean_device
+
+        geraet = clean_device({}, cookie="D" * 32) if conflict == "device" else None
         barrier.wait()
         try:
             store.register(f"{number}@example.org", PASSWORD, "normal",
                            username="Derselbe" if conflict == "username" else f"Nutzer{number}",
-                           ip="203.0.113.71" if conflict == "ip" else
-                           f"203.0.113.{number}", **TERMS)
+                           ip=f"203.0.113.{number}", device=geraet, **TERMS)
         except ValueError:
             return "blocked"
         return "created"

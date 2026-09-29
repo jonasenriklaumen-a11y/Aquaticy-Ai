@@ -1143,7 +1143,7 @@ input:focus,select:focus{border-color:var(--accent)}
     <p>Kurz vorab: Damit dein Konto sicher ist und nur dir gehört, speichert Aquaticy ein paar Dinge.</p>
     <ul>
       <li>Ein Cookie merkt sich, dass du angemeldet bist — nur dafür.</li>
-      <li>Deine IP-Adresse und ein paar Browserangaben werden unkenntlich gemacht gespeichert. So fällt auf, wenn jemand Fremdes deine Anmeldung benutzt.</li>
+      <li>Deine IP-Adresse, eine Geräte-Kennung und Angaben zu Gerät und Browser (etwa System, Bildschirm, Grafikkarte, Browser) werden gespeichert. So fällt auf, wenn jemand Fremdes deine Anmeldung benutzt oder viele Konten vom selben Gerät entstehen.</li>
       <li>Name, E-Mail, Einstellungen und Chats gehören nur zu deinem Konto. Andere sehen davon nichts.</li>
       <li>Keine Werbung, kein Tracking.</li>
     </ul>
@@ -1654,6 +1654,15 @@ input:focus,select:focus{border-color:var(--accent)}
           <button type="button" class="btn addon-btn" id="btn-addons"
                   title="Add-ons: GitHub, WhatsApp Web, Signal, Blender …">🧩 Add-ons</button>
         </div>
+        <div class="check usermode-row">
+          <input type="checkbox" role="switch" class="schalter" id="vminternet"
+                 name="AQUATICY_VM_INTERNET">
+          <label for="vminternet" style="margin:0">Internet für die virtual machine
+            <span class="pro-tag">Ultra</span>
+            <span class="why">Im Code-Modus darf die virtual machine dann ins Internet —
+              etwa für pip install oder um eine Seite abzurufen. Dein Heimnetz bleibt
+              gesperrt, genau wie im User mode. Ohne diese Sperre startet sie gar nicht.</span></label>
+        </div>
         <div class="login-apps" id="login-apps">
           <div><b>Login-Apps</b> — hier meldest du dich selbst an: Du siehst den Bildschirm,
             klickst hinein und tippst Name, Passwort oder Code selbst ein. Aquaticy tippt nie
@@ -1662,7 +1671,7 @@ input:focus,select:focus{border-color:var(--accent)}
         </div>
         <div class="note" id="usermode-note">Dafür braucht Aquaticy ein Modell, das Bilder
           versteht (siehe Modell), und der Desktop muss einmal eingerichtet werden:
-          <code>docker build -f docker/virtual machine-desktop.Dockerfile -t aquaticy-werkstatt-desktop:local .</code>
+          <code>docker build -f docker/workshop-desktop.Dockerfile -t aquaticy-werkstatt-desktop:local .</code>
           Für den Browser reicht „Normal“. Browser und Office zusammen laufen mit „Plus“
           deutlich flüssiger.</div>
       </fieldset>
@@ -2037,7 +2046,7 @@ input:focus,select:focus{border-color:var(--accent)}
 const $ = (s) => document.querySelector(s);
 const thread = $("#thread"), main = $("#main"), input = $("#input"), send = $("#send");
 let busy = false;
-const aquaticyVersion = window.__AQUATICY_VERSION__ || "9.5.30 Spark";
+const aquaticyVersion = window.__AQUATICY_VERSION__ || "9.5.31 Spark";
 $("#version").textContent = "v" + aquaticyVersion;
 document.title = `Aquaticy AI ${aquaticyVersion}`;
 
@@ -2338,6 +2347,29 @@ $("#consent-no").addEventListener("click", async () => {
   showAuth(leaveCard);
 });
 $("#consent-back").addEventListener("click", () => showAuth(consentCard));
+// Geraeteangaben (9.5.31): helfen Ai-guard, Mehrfachkonten desselben Geraets
+// zu erkennen -- nur Hardware und Browser, kein Canvas-Fingerabdruck. Steht so
+// im Datenschutzhinweis. Scheitert etwas, geht die Anmeldung trotzdem.
+function geraeteInfo(){
+  const info = {};
+  try {
+    const nav = navigator;
+    info.platform = String((nav.userAgentData && nav.userAgentData.platform)
+      || nav.platform || "").slice(0, 40);
+    info.cores = Number(nav.hardwareConcurrency) || 0;
+    info.memory = Number(nav.deviceMemory) || 0;
+    info.touch = Number(nav.maxTouchPoints) || 0;
+    info.screen = `${screen.width}x${screen.height}`;
+    info.dpr = Math.round((window.devicePixelRatio || 1) * 100) / 100;
+    info.tz = Intl.DateTimeFormat().resolvedOptions().timeZone || "";
+    info.lang = (nav.languages || [nav.language]).slice(0, 3).join(",");
+    const gl = document.createElement("canvas").getContext("webgl");
+    const ext = gl && gl.getExtension("WEBGL_debug_renderer_info");
+    if (ext) info.gpu = String(gl.getParameter(ext.UNMASKED_RENDERER_WEBGL) || "").slice(0, 120);
+  } catch {}
+  return info;
+}
+
 $("#auth-form").addEventListener("submit", async (event) => {
   event.preventDefault();
   const error = $("#auth-error"); error.textContent = "";
@@ -2352,6 +2384,7 @@ $("#auth-form").addEventListener("submit", async (event) => {
       ? $("#auth-pro-code").value.trim()
       : $("#auth-pro-code").value.trim().toUpperCase()),
     terms_accepted: authMode === "register" && $("#auth-terms").checked,
+    device: geraeteInfo(),
   };
   try {
     const res = await api(`/api/auth/${authMode}`, {method:"POST",
@@ -3663,7 +3696,7 @@ const EN = {
 "Bevor es losgeht": "Before we start",
 "Kurz vorab: Damit dein Konto sicher ist und nur dir gehört, speichert Aquaticy ein paar Dinge.": "Quick note first: to keep your account safe and yours alone, Aquaticy stores a few things.",
 "Ein Cookie merkt sich, dass du angemeldet bist — nur dafür.": "A cookie remembers that you are signed in — only for that.",
-"Deine IP-Adresse und ein paar Browserangaben werden unkenntlich gemacht gespeichert. So fällt auf, wenn jemand Fremdes deine Anmeldung benutzt.": "Your IP address and a few browser details are stored in a form that can't be read back. That way it's noticed if a stranger uses your sign-in.",
+"Deine IP-Adresse, eine Geräte-Kennung und Angaben zu Gerät und Browser (etwa System, Bildschirm, Grafikkarte, Browser) werden gespeichert. So fällt auf, wenn jemand Fremdes deine Anmeldung benutzt oder viele Konten vom selben Gerät entstehen.": "Your IP address, a device ID and details about your device and browser (such as system, screen, graphics card, browser) are stored. That way it's noticed if a stranger uses your sign-in or many accounts come from the same device.",
 "Name, E-Mail, Einstellungen und Chats gehören nur zu deinem Konto. Andere sehen davon nichts.": "Name, email, settings and chats belong to your account only. Nobody else sees any of it.",
 "Keine Werbung, kein Tracking.": "No ads, no tracking.",
 "Wenn du ablehnst, wird nichts gespeichert — dann kannst du Aquaticy hier aber nicht nutzen.": "If you decline, nothing is stored — but then you can't use Aquaticy here.",
@@ -3763,6 +3796,7 @@ const EN = {
 "Was du tun kannst": "What you can do",
 "Verstanden": "Understood",
 "virtual machine": "Virtual machine",
+"Internet für die virtual machine": "Internet for the virtual machine",
 "Die Dateien, an denen Aquaticy gerade arbeitet. Was du anhängst, liegt im Ordner „eingang“. Alles, was Aquaticy erstellt, kannst du herunterladen. 20 Minuten nach deiner letzten Nachricht wird alles gelöscht.": "The files Aquaticy is working on right now. What you attach is in the folder “eingang”. You can download everything Aquaticy creates. Everything is deleted 20 minutes after your last message.",
 "So sieht der Desktop der virtual machine gerade aus (User mode).": "This is what the virtual machine desktop looks like right now (user mode).",
 "Neu ansehen": "Refresh",
@@ -4851,6 +4885,18 @@ $("#usermode").addEventListener("click", async (e) => {
     text: "Der User mode — die virtual machine als Desktop mit Internet — gehört zu Ultra. "
       + "Die Add-ons ohne virtual machine (GitHub, Wetter, RSS-Feeds, Tagesschau, Wikipedia, "
       + "Währungsrechner, Feiertage) kannst du trotzdem nutzen.",
+    ok: "Verstanden",
+  });
+});
+
+// Internet fuer die virtual machine (9.5.31): ebenfalls nur mit Ultra.
+$("#vminternet").addEventListener("click", async (e) => {
+  if (kontoPro || !e.currentTarget.checked) return;
+  e.preventDefault();
+  await guardDialog({
+    title: "Das gibt es leider nur mit einem Ultra-Konto.",
+    text: "Bei Normal- und Pro-Konten bleibt die virtual machine ohne Internet — "
+      + "Code läuft dort nur mit dem, was schon eingebaut ist.",
     ok: "Verstanden",
   });
 });

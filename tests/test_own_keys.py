@@ -390,7 +390,9 @@ def _req(port: int, method: str, path: str, body: Any = None,
     conn.request(method, path, body=None if body is None else json.dumps(body), headers=headers)
     antwort = conn.getresponse()
     ergebnis = antwort.status, antwort.read()
-    kopf = antwort.getheader("Set-Cookie") or ""
+    # Seit 9.5.31 kann eine Antwort zwei Cookies setzen (Geraete-Kennung und
+    # Sitzung) -- die Sitzung kommt zuletzt.
+    kopf = (antwort.headers.get_all("Set-Cookie") or [""])[-1]
     conn.close()
     if kopf:
         _req.letzter_keks = kopf.split(";", 1)[0]  # type: ignore[attr-defined]

@@ -5,7 +5,7 @@ Die Seiten beschreiben nur Verhalten, das im Code nachpruefbar ist.
 
 from __future__ import annotations
 
-LEGAL_VERSION = "2026-09-26"
+LEGAL_VERSION = "2026-09-29"
 LEGAL_ROUTES = ("/privacy", "/cookies", "/terms", "/accessibility")
 
 
@@ -30,9 +30,16 @@ Installation entscheidet, wo sie läuft und welche optionalen Dienste eingeschal
   <li><strong>Missbrauchsschutz (Ai-guard):</strong> zum Anlass eines Verdachts der Zeitpunkt,
     die Art, der Chat und deine zuletzt genutzte IP-Adresse. Nur für den Missbrauchsschutz,
     nicht für Werbung oder Profile.</li>
-  <li><strong>Ein Konto pro Anschluss:</strong> die IP-Adresse, von der aus ein Konto angelegt
-    wurde, damit von derselben Adresse kein zweites Konto entsteht. Nur dafür und für den
-    Missbrauchsschutz.</li>
+  <li><strong>Schutz vor Mehrfachkonten:</strong> die IP-Adresse, von der aus ein Konto angelegt
+    wurde, eine zufällige Geräte-Kennung (im Cookie <code>aquaticy_device</code>, gespeichert
+    nur als Hash) sowie Angaben zu Gerät und Browser: Betriebssystem, Zahl der Prozessorkerne,
+    Arbeitsspeicher, Bildschirmgröße, Grafikkarte, Zeitzone, Sprache sowie Browser und Version.
+    Diese Angaben werden lesbar gespeichert, damit der Betreiber verdächtige Mehrfachkonten
+    beurteilen kann (höchstens 20 Geräte je Konto). Ein neues Konto wird nur abgelehnt, wenn
+    mehrere oder gewichtige Anhaltspunkte zusammenkommen — etwa dasselbe Gerät; dieselbe
+    IP-Adresse allein genügt nicht. Die Angaben dienen nur diesem Zweck und dem
+    Missbrauchsschutz, nicht der Werbung oder Profilbildung, und werden mit dem Konto gelöscht.
+    </li>
   <li><strong>Design:</strong> die Farben eines selbst erstellten Designs, damit es auf jedem
     deiner Geräte gleich aussieht.</li>
 </ul>
@@ -65,6 +72,9 @@ Cookies. Es gibt keine Werbe- oder Analyse-Cookies.</p>
 und bestätigt wurde.</td><td>1 Jahr</td></tr>
 <tr><td><code>aquaticy_session</code></td><td>Ordnet den Browser nach der Anmeldung sicher
 dem Konto zu.</td><td>30 Tage</td></tr>
+<tr><td><code>aquaticy_device</code></td><td>Zufällige Geräte-Kennung, damit erkannt wird,
+wenn von demselben Gerät weitere Konten angelegt werden (Schutz vor Mehrfachkonten).</td>
+<td>2 Jahre</td></tr>
 <tr><td><code>aquaticy_token</code></td><td>Schützt eine im Netzwerk freigegebene
 Installation mit dem Zugangswort des Servers. Wird nur gesetzt, wenn dieser Schutz aktiv ist.</td>
 <td>30 Tage</td></tr>

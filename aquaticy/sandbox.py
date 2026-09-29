@@ -471,9 +471,15 @@ class Sandbox:
         browser_agent: str = "",
         addon_mounts: dict[str, str] | None = None,
         headless: bool = False,
+        internet: bool = False,
     ) -> None:
         #: Desktop mit Internet statt Maschine ohne Netz (siehe Kopf der Datei).
         self.user_mode = bool(user_mode)
+        #: Internet ohne Desktop -- die virtual machine im Code-Modus fuer Ultra
+        #: (seit 9.5.31). Dieselbe Heimnetz-Sperre wie im User mode, daher das
+        #: Desktop-Abbild (es bringt iptables und das Sperr-Skript mit). Ohne
+        #: eingerichtete Sperre startet die Maschine nicht (fail-closed).
+        self.internet = bool(internet) and not self.user_mode
         #: Womit sich der Browser im User mode bei Webseiten meldet.
         self.browser_agent = browser_agent
         #: Datentraeger der eingeschalteten Add-ons -> wo sie haengen
@@ -488,7 +494,7 @@ class Sandbox:
         self.headless = bool(headless)
         # Ohne ausdrueckliches Abbild entscheidet die Betriebsart: der User mode
         # braucht den Desktop, alles andere kommt mit dem kleinen Abbild aus.
-        self.image = image or (DESKTOP_IMAGE if self.user_mode else DEFAULT_IMAGE)
+        self.image = image or (DESKTOP_IMAGE if self.netz_offen else DEFAULT_IMAGE)
         self.idle_seconds = max(60, int(idle_minutes) * 60)
         self.memory_mb = max(128, int(memory_mb))
         self.disk_gb = max(1, int(disk_gb))
@@ -559,15 +565,16 @@ class Sandbox:
             self._volume = f"aquaticy-werkstatt-{token}"
             self._quota_warned = False
             self._emit(
-                "vm_start", runtime=runtime.label, image=self.image, user_mode=self.user_mode
+                "vm_start", runtime=runtime.label, image=self.image, user_mode=self.user_mode,
+                internet=self.internet,
             )
             try:
                 self._create_volume()
                 self._start_container()
-                if self.user_mode:
+                if self.netz_offen:
                     self._lock_network()
-                    if not self.headless:
-                        self._start_desktop()
+                if self.user_mode and not self.headless:
+                    self._start_desktop()
             except Exception:
                 # Halbe virtual machine ist schlimmer als keine: alles wieder weg.
                 self._destroy_locked("Start fehlgeschlagen")
@@ -584,7 +591,7 @@ class Sandbox:
         diese Pruefung kaeme eine Fehlermeldung von Podman, die niemand
         versteht -- so steht da, was fehlt und wo man es freigibt.
         """
-        if not self.user_mode or os.environ.get("AQUATICY_SANDBOXED") != "1":
+        if not self.netz_offen or os.environ.get("AQUATICY_SANDBOXED") != "1":
             return
         if not Path("/dev/net/tun").exists():
             raise SandboxUnavailable(
@@ -635,13 +642,15 @@ class Sandbox:
         runtime = self.runtime
         assert runtime is not None
         desktop = self.user_mode
-        # Ohne User mode: gar kein Netz. Mit: das uebliche Netz der Laufzeit --
-        # die Sperre fuers Heimnetz setzt _lock_network gleich nach dem Start.
-        netz = [] if desktop else ["--network", "none"]
+        offen = self.netz_offen
+        # Ohne User mode/Internet: gar kein Netz. Mit: das uebliche Netz der
+        # Laufzeit -- die Sperre fuers Heimnetz setzt _lock_network gleich
+        # nach dem Start.
+        netz = [] if offen else ["--network", "none"]
         # NET_ADMIN ist die eine Faehigkeit, die die Sperre braucht. Sie steht
         # nur root zur Verfuegung, und root arbeitet drinnen nie -- ausser fuer
         # genau dieses eine Skript beim Start.
-        faehigkeiten = ["--cap-drop", "ALL", *(("--cap-add", "NET_ADMIN") if desktop else ())]
+        faehigkeiten = ["--cap-drop", "ALL", *(("--cap-add", "NET_ADMIN") if offen else ())]
         prozesse = DESKTOP_PID_LIMIT if desktop else PID_LIMIT
         dateien = DESKTOP_FILE_LIMIT if desktop else FILE_LIMIT
         flags = [
@@ -687,16 +696,24 @@ class Sandbox:
             "--label", "aquaticy-werkstatt=1",
             "--label", instance_label(),
         ]
+        if offen:
+            # iptables-legacy braucht ein beschreibbares /run fuer seine
+            # Sperrdatei -- auch ohne Desktop (Internet im Code-Modus, 9.5.31),
+            # sonst scheitert dort die Heimnetz-Sperre (fail-closed).
+            flags += ["--tmpfs", "/run:rw,nosuid,nodev,size=8m"]
         if desktop:
             flags += [
-                # iptables braucht ein beschreibbares /run fuer seine Sperrdatei,
-                # der Browser ein groesseres /dev/shm als die 64 MB ab Werk.
-                "--tmpfs", "/run:rw,nosuid,nodev,size=8m",
+                # Der Browser braucht ein groesseres /dev/shm als die 64 MB ab Werk.
                 "--shm-size", "256m",
                 "--env", f"DISPLAY={DISPLAY}",
                 "--label", "aquaticy-werkstatt-user=1",
             ]
         return flags
+
+    @property
+    def netz_offen(self) -> bool:
+        """Darf die virtual machine ins Internet (User mode oder Internet, 9.5.31)?"""
+        return self.user_mode or getattr(self, "internet", False)
 
     def _command(self) -> list[str]:
         """Was im Behaelter als erster Prozess laeuft.
@@ -727,9 +744,9 @@ class Sandbox:
             args = [*self._run_flags(), self.image, *self._command()]
             started = _runs(runtime.binary, *args, timeout=300)
         if started.returncode != 0:
-            if self.user_mode:
+            if self.netz_offen:
                 hilfe = (
-                    " (Fuer den User mode braucht es das Desktop-Abbild. Bauen mit: "
+                    " (Fuer User mode und Internet braucht es das Desktop-Abbild. Bauen mit: "
                     f"'{runtime.binary} build -f docker/workshop-desktop.Dockerfile "
                     f"-t {DESKTOP_IMAGE} .')"
                 )
@@ -763,7 +780,7 @@ class Sandbox:
         if gesetzt.returncode != 0 or "gesperrt" not in gesetzt.stdout:
             raise SandboxUnavailable(
                 "Die Netzsperre fuers Heimnetz liess sich nicht einrichten -- ohne sie "
-                "startet der User mode nicht. " + gesetzt.stderr.strip()[:300]
+                "startet die virtual machine mit Internet nicht. " + gesetzt.stderr.strip()[:300]
             )
         regeln = _runs(
             runtime.binary, "exec", "--user", "0:0", "--env", f"PATH={ROOT_PATH}",
@@ -779,7 +796,7 @@ class Sandbox:
             raise SandboxUnavailable(
                 "Die Netzsperre fuers Heimnetz ist unvollstaendig (es fehlt: "
                 + (", ".join(fehlt) or "die Regelliste")
-                + ") -- ohne sie startet der User mode nicht."
+                + ") -- ohne sie startet die virtual machine mit Internet nicht."
             )
         self._emit("vm_net", locked=True, ranges=len(BLOCKED_RANGES))
 
@@ -1015,11 +1032,11 @@ class Sandbox:
         with self._lock:
             with contextlib.suppress(OSError, subprocess.SubprocessError):
                 _runs(runtime.binary, "restart", "--time", "1", self._name, timeout=60)
-            if not self.user_mode or not self._name:
+            if not self.netz_offen or not self._name:
                 return
             try:
                 self._lock_network()
-                if not self.headless:
+                if self.user_mode and not self.headless:
                     self._start_desktop()
             except Exception:
                 self._destroy_locked("Netzsperre nach dem Neustart nicht wiederhergestellt")
@@ -1240,6 +1257,7 @@ class Sandbox:
         return {
             "running": True,
             "user_mode": self.user_mode,
+            "internet": self.internet or self.user_mode,
             "addons": sorted(ziel.rsplit("/", 1)[-1] for ziel in self.addon_mounts.values()),
             "runtime": self.runtime.label if self.runtime else "",
             "image": self.image,
@@ -1327,13 +1345,17 @@ def shared(settings: Any = None, on_event: Any = _KEEP) -> Sandbox:
         box = _shared.get(key)
         if box is None:
             user_mode = bool(getattr(settings, "vm_user_mode", False))
+            # Internet ohne Desktop (9.5.31) -- die Einstellung setzt nur Ultra.
+            internet = bool(getattr(settings, "vm_internet", False)) and not user_mode
             box = Sandbox(
                 image=(
                     getattr(settings, "vm_desktop_image", "") or DESKTOP_IMAGE
-                    if user_mode
+                    if user_mode or internet
                     else getattr(settings, "vm_image", "") or DEFAULT_IMAGE
                 ),
                 user_mode=user_mode,
+                internet=internet,
+                headless=internet,
                 browser_agent=browser_agent(settings) if user_mode else "",
                 addon_mounts=_addon_mounts(settings) if user_mode else None,
                 idle_minutes=int(

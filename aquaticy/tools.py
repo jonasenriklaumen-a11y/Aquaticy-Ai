@@ -849,6 +849,11 @@ VM_NET_OFF = "Es gibt KEIN Netz (kein pip install, kein curl)"
 VM_NET_USER = (
     "Es gibt Internet, aber kein Heimnetz (User mode) -- pip install und curl gehen"
 )
+#: Internet ohne Desktop -- nur Ultra, per Schalter (9.5.31).
+VM_NET_INTERNET = (
+    "Es gibt Internet, aber kein Heimnetz (vom Nutzer freigegeben) -- pip install und "
+    "curl gehen"
+)
 
 VM_RUN_SCHEMA: dict[str, Any] = {
     "type": "function",
@@ -1218,7 +1223,9 @@ def vm_schemas_for(settings: Any) -> tuple[dict[str, Any], ...]:
             }
         if schema["function"]["name"] == "vm_run":
             schema["function"]["description"] = VM_RUN_DESCRIPTION.format(
-                netz=VM_NET_USER if user_mode else VM_NET_OFF,
+                netz=(VM_NET_USER if user_mode
+                      else VM_NET_INTERNET if getattr(settings, "vm_internet", False)
+                      else VM_NET_OFF),
                 memory_mb=memory_mb,
                 cpus=cpus,
                 kern_wort="Prozessorkern" if cpus == 1 else "Prozessorkerne",

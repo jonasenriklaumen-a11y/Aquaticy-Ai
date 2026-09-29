@@ -426,9 +426,25 @@ class AuthStore:
                 conn.execute("ALTER TABLE users ADD COLUMN last_ip TEXT NOT NULL DEFAULT ''")
             if "last_seen" not in columns:
                 conn.execute("ALTER TABLE users ADD COLUMN last_seen REAL NOT NULL DEFAULT 0")
-            # Adresse bei der Registrierung -- ein Konto pro Adresse (seit 9.5.17).
+            # Adresse bei der Registrierung -- ein Anhaltspunkt (seit 9.5.31, bis
+            # 9.5.30 hiess das: ein Konto pro Adresse).
             if "created_ip" not in columns:
                 conn.execute("ALTER TABLE users ADD COLUMN created_ip TEXT NOT NULL DEFAULT ''")
+            # Geraete je Konto (9.5.31, aquaticy/devices.py): Geraete-Kennung
+            # (Hash), Hardware und Browser -- lesbar fuer `aquaticy list`, als
+            # Hash zum Vergleichen bei einer neuen Registrierung.
+            conn.execute(
+                "CREATE TABLE IF NOT EXISTS account_devices ("
+                "user_id TEXT NOT NULL, "
+                "cookie_hash TEXT NOT NULL DEFAULT '', "
+                "hardware_hash TEXT NOT NULL DEFAULT '', "
+                "browser_hash TEXT NOT NULL DEFAULT '', "
+                "hardware TEXT NOT NULL DEFAULT '', "
+                "browser TEXT NOT NULL DEFAULT '', "
+                "first_seen REAL NOT NULL, "
+                "last_seen REAL NOT NULL, "
+                "PRIMARY KEY (user_id, cookie_hash, hardware_hash, browser_hash))"
+            )
         secure_file(self.db_path)
 
     def _migrate_tables(self, conn: sqlite3.Connection) -> None:
@@ -535,6 +551,7 @@ class AuthStore:
         terms_accepted: bool = False,
         terms_version: str = "",
         ip: str = "",
+        device: Any = None,
     ) -> Account:
         email = normalize_email(email)
         fallback_username = email.split("@", 1)[0]
@@ -588,17 +605,22 @@ class AuthStore:
                 if any(str(row[0]).casefold() == username.casefold() for row in
                        conn.execute("SELECT username FROM users")):
                     raise vergeben
-                # Ein Konto pro Adresse (seit 9.5.17): gibt es von dieser
-                # Adresse schon eins, geht kein zweites.
-                # Seit 9.5.24 zaehlt auch die zuletzt genutzte Adresse: Konten aus
-                # der Zeit vor 9.5.17 haben keine Anlege-Adresse, und wer sein
-                # Konto spaeter von hier aus nutzt, belegt diese Adresse ebenso.
-                if pruefe_adresse and conn.execute(
-                        "SELECT 1 FROM users WHERE created_ip = ? OR last_ip = ?",
-                        (pruefe_adresse, pruefe_adresse)).fetchone():
+                # Mehrfachkonten (seit 9.5.31): Anhaltspunkte statt "ein Konto
+                # pro Adresse" -- zwei Menschen im selben Haushalt teilen sich
+                # die Adresse. Erst viele oder gewichtige Anhaltspunkte sperren
+                # (dasselbe Geraet, oder Adresse + aehnliche E-Mail + Hardware).
+                pruefung = self._assess(conn, email, pruefe_adresse, device)
+                if pruefung.suspicious:
+                    print(f"[Konten] Registrierung {username} ({email}): "
+                          f"{pruefung.points:g} Punkte -- {', '.join(pruefung.reasons)}"
+                          f" (ähnelt {pruefung.closest})"
+                          + (" -- abgelehnt" if pruefung.blocked else ""), flush=True)
+                if pruefung.blocked:
                     raise ValueError(
-                        "Von dieser Adresse gibt es schon ein Konto. Pro Anschluss ist ein "
-                        "Konto möglich — melde dich mit dem vorhandenen an."
+                        "Mit diesem Gerät bzw. diesen Angaben gibt es hier schon ein Konto — "
+                        "melde dich mit dem vorhandenen an. Hältst du das für einen Irrtum "
+                        "(zum Beispiel zwei Personen im selben Haushalt), wende dich an den "
+                        "Betreiber dieser Installation."
                     )
                 conn.execute(
                     "INSERT INTO users "
@@ -620,6 +642,7 @@ class AuthStore:
                         now if adresse else 0.0,
                     ),
                 )
+                self._store_device(conn, user_id, device, now)
         except sqlite3.IntegrityError as exc:
             # Ein Satz fuer E-Mail UND Nutzername (seit 9.5.16): vorher sagte die
             # Registrierung genau, welche E-Mail-Adresse hier ein Konto hat.
@@ -627,6 +650,62 @@ class AuthStore:
         folder = self.profile_dir(user_id)
         secure_directory(folder)
         return Account(user_id, email, plan, now, username)
+
+    # -- Geraete und Anhaltspunkte (9.5.31) ---------------------------------
+    def _assess(self, conn: sqlite3.Connection, email: str, ip: str,
+                device: Any) -> Any:
+        """Punkte der neuen Registrierung gegen jedes vorhandene Konto (hoechster zaehlt)."""
+        from aquaticy.devices import Assessment, DeviceInfo, score
+
+        geraet = device if isinstance(device, DeviceInfo) else DeviceInfo()
+        geraete: dict[str, list[tuple[str, str, str]]] = {}
+        for row in conn.execute(
+                "SELECT user_id, cookie_hash, hardware_hash, browser_hash FROM account_devices"):
+            geraete.setdefault(str(row[0]), []).append((str(row[1]), str(row[2]), str(row[3])))
+        bestes = Assessment()
+        for row in conn.execute("SELECT id, email, username, created_ip, last_ip FROM users"):
+            adressen = {str(row[3] or ""), str(row[4] or "")} - {""}
+            punkte, gruende = score(email=email, ip=ip, device=geraet, other_email=str(row[1]),
+                                    other_ips=adressen, other_devices=geraete.get(str(row[0]), []))
+            if punkte > bestes.points:
+                bestes = Assessment(punkte, tuple(gruende), str(row[2] or row[1]))
+        return bestes
+
+    @staticmethod
+    def _store_device(conn: sqlite3.Connection, user_id: str, device: Any,
+                      when: float) -> None:
+        from aquaticy.devices import DeviceInfo
+
+        if not isinstance(device, DeviceInfo) or not (
+                device.cookie_hash or device.hardware_hash or device.browser_hash):
+            return
+        conn.execute(
+            "INSERT INTO account_devices (user_id, cookie_hash, hardware_hash, browser_hash, "
+            "hardware, browser, first_seen, last_seen) VALUES (?, ?, ?, ?, ?, ?, ?, ?) "
+            "ON CONFLICT(user_id, cookie_hash, hardware_hash, browser_hash) DO UPDATE SET "
+            "hardware=excluded.hardware, browser=excluded.browser, last_seen=excluded.last_seen",
+            (str(user_id), device.cookie_hash, device.hardware_hash, device.browser_hash,
+             device.hardware, device.browser, when, when),
+        )
+        # Hoechstens 20 Geraete je Konto -- die aeltesten gehen.
+        conn.execute(
+            "DELETE FROM account_devices WHERE user_id=? AND rowid NOT IN ("
+            "SELECT rowid FROM account_devices WHERE user_id=? ORDER BY last_seen DESC LIMIT 20)",
+            (str(user_id), str(user_id)),
+        )
+
+    def note_device(self, user_id: str, device: Any) -> None:
+        """Vermerkt das Geraet einer Anmeldung (fuer `aquaticy list` und spaetere Vergleiche)."""
+        with suppress(sqlite3.Error), self._lock, self._connect() as conn:
+            self._store_device(conn, user_id, device, time.time())
+
+    def last_device(self, user_id: str) -> tuple[str, str]:
+        """(Hardware, Browser) des zuletzt gesehenen Geraets -- ("", "") wenn keins."""
+        with self._connect() as conn:
+            row = conn.execute(
+                "SELECT hardware, browser FROM account_devices WHERE user_id=? "
+                "ORDER BY last_seen DESC LIMIT 1", (str(user_id),)).fetchone()
+        return (str(row[0]), str(row[1])) if row else ("", "")
 
     def authenticate(self, email: str, password: str) -> Account | None:
         try:
@@ -791,6 +870,10 @@ class AuthStore:
             for table, column in (("token_usage", "account_id"),
                                   ("token_sessions", "account_id"),
                                   ("aiguard_flags", "user_id"),
+                                  # Seit 9.5.31: auch Geraete und Chatsperren gehen mit
+                                  # (die Chatsperren blieben bis dahin liegen).
+                                  ("aiguard_chat_locks", "user_id"),
+                                  ("account_devices", "user_id"),
                                   ("api_keys", "account_id")):
                 if conn.execute("SELECT 1 FROM sqlite_master WHERE type='table' AND name=?",
                                 (table,)).fetchone():

@@ -1994,12 +1994,14 @@ class Agent:
         if self.workshop_on:
             cpus = max(1, int(self.settings.vm_cpus or 1))
             user_mode = bool(getattr(self.settings, "vm_user_mode", False))
+            # Internet ohne Desktop (Ultra, 9.5.31): dasselbe Netz wie im User mode.
+            mit_netz = user_mode or bool(getattr(self.settings, "vm_internet", False))
             text += VM_PROMPT % {
                 "cpus": cpus,
                 "kern_wort": "Prozessorkern" if cpus == 1 else "Prozessorkerne",
                 "memory_mb": max(1, int(self.settings.vm_memory_mb or 1024)),
                 "disk_gb": max(1, int(self.settings.vm_disk_gb or 4)),
-                "netz": VM_NET_USER_PROMPT if user_mode else VM_NET_OFF_PROMPT,
+                "netz": VM_NET_USER_PROMPT if mit_netz else VM_NET_OFF_PROMPT,
             }
             if user_mode:
                 text += USER_MODE_PROMPT

@@ -318,6 +318,9 @@ class Settings:
     #: Aquaticy bedient wie ein Mensch (siehe aquaticy/desktop.py). Aus, bis
     #: es jemand in den Einstellungen einschaltet -- aus dem Chat heraus nie.
     vm_user_mode: bool = False
+    #: Internet fuer die virtual machine im Code-Modus (seit 9.5.31, nur Ultra).
+    #: Das Heimnetz bleibt gesperrt -- dieselbe Sperre wie im User mode.
+    vm_internet: bool = False
     #: Das Abbild dafuer (siehe docker/workshop-desktop.Dockerfile).
     vm_desktop_image: str = "aquaticy-werkstatt-desktop:local"
     #: Werkzeug-Budget je Subagent.
@@ -779,6 +782,7 @@ def get_settings() -> Settings:
         vm_disk_gb=_env_int("AQUATICY_VM_DISK_GB", 0) or vm_preset["disk_gb"],
         vm_cpus=_env_int("AQUATICY_VM_CPUS", 0) or vm_preset["cpus"],
         vm_user_mode=_env_bool("AQUATICY_VM_USER_MODE", False),
+        vm_internet=_env_bool("AQUATICY_VM_INTERNET", False),
         vm_desktop_image=(
             _env_str("AQUATICY_VM_DESKTOP_IMAGE") or "aquaticy-werkstatt-desktop:local"
         ),

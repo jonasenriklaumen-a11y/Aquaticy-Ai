@@ -13,6 +13,7 @@ from pathlib import Path
 
 import typer
 from rich.console import Console
+from rich.markup import escape
 from rich.panel import Panel
 from rich.table import Table
 
@@ -472,8 +473,9 @@ def list_users_command() -> None:
     store = AuthStore(settings.data_dir, pro_code_for(settings.data_dir))
     guard = guard_for(settings.data_dir)
     accounts = store.accounts()
-    table = Table("Nutzername", "E-Mail", "Konto", "Adresse", "Sitzung (5 Std.)", "Woche",
-                  "Eigene Schlüssel", "Speicher", "Ai-guard", box=None, pad_edge=False)
+    table = Table("Nutzername", "E-Mail", "Konto", "Adresse", "Gerät", "Browser",
+                  "Sitzung (5 Std.)", "Woche", "Eigene Schlüssel", "Speicher", "Ai-guard",
+                  box=None, pad_edge=False)
     for account in accounts:
         profile = store.profile_dir(account.id)
         # Nur Ultra ist unbegrenzt (seit 9.5.17); bis 9.5.24 stand hier
@@ -493,6 +495,11 @@ def list_users_command() -> None:
         # Zuletzt gesehene Adresse (seit 9.5.16 Lion) -- im Klartext, damit der
         # Betreiber gezielt sperren kann.
         adresse = account.last_ip or "—"
+        # Zuletzt gesehenes Geraet (seit 9.5.31, aquaticy/devices.py).
+        try:
+            hardware, browser = store.last_device(account.id)
+        except Exception:
+            hardware, browser = "", ""
         gesperrt = guard.is_banned(user_id=account.id, ip=account.last_ip)
         punkte = guard.flag_count(account.id)
         # Seit 9.5.24 mit Dauer: "gesperrt (noch 3 Tag(e))" oder "(dauerhaft)".
@@ -505,6 +512,8 @@ def list_users_command() -> None:
             account.email,
             account.plan_label,
             adresse,
+            escape(hardware) or "—",
+            escape(browser) or "—",
             sitzung,
             woche,
             eigene,

@@ -284,6 +284,7 @@ SETTING_KEYS: tuple[str, ...] = (
     "AQUATICY_MEMORY",
     "AQUATICY_VM_SIZE",
     "AQUATICY_VM_USER_MODE",
+    "AQUATICY_VM_INTERNET",
     "AQUATICY_LEGAL_GUARD",
     "AQUATICY_AUTO_MODEL",
 )
@@ -500,6 +501,7 @@ _BOOL_SETTINGS = {
     "AQUATICY_LAN_ENABLED": "lan_enabled",
     "AQUATICY_MEMORY": "memory_enabled",
     "AQUATICY_VM_USER_MODE": "vm_user_mode",
+    "AQUATICY_VM_INTERNET": "vm_internet",
     "AQUATICY_AUTO_MODEL": "auto_model",
 }
 _INT_SETTINGS = {
@@ -751,7 +753,7 @@ def client_ip(direkt: str, forwarded: str = "", real_ip: str = "") -> str:
 #: neu aufgebaut (siehe ChatSession.reload).
 WORKSHOP_FIELDS: tuple[str, ...] = (
     "vm_size", "vm_image", "vm_idle_minutes", "vm_memory_mb", "vm_disk_gb", "vm_cpus",
-    "vm_user_mode", "vm_desktop_image", "user_agent", "data_dir",
+    "vm_user_mode", "vm_internet", "vm_desktop_image", "user_agent", "data_dir",
 )
 
 
@@ -948,6 +950,8 @@ def _profile_settings(profile: Path, plan: str, account: Account | None = None) 
         # hier "an".
         settings.legal_guard = True
         settings.vm_user_mode = False
+        # Internet fuer die virtual machine gibt es nur mit Ultra (9.5.31).
+        settings.vm_internet = False
         # 5-Stunden-Sitzung und Woche, am Konto gespeichert (aquaticy/quota.py).
         # Pro bekommt über AUTH.quota() seine eigenen, höheren Grenzen.
         settings.quota = account_quota(profile, account)
@@ -1913,6 +1917,7 @@ def current_values() -> dict[str, str]:
         "AQUATICY_MEMORY": "true" if settings.memory_enabled else "false",
         "AQUATICY_VM_SIZE": settings.vm_size,
         "AQUATICY_VM_USER_MODE": "true" if settings.vm_user_mode else "false",
+        "AQUATICY_VM_INTERNET": "true" if settings.vm_internet else "false",
         "AQUATICY_LEGAL_GUARD": "true" if settings.legal_guard else "false",
         "AQUATICY_AUTO_MODEL": "true" if settings.auto_model else "false",
     }
@@ -2092,6 +2097,12 @@ def save_values(payload: dict[str, Any]) -> Path:
         raise ValueError(
             "Der User mode (virtual machine mit Desktop und Internet) braucht ein Ultra-Konto."
         )
+    internet_on = "AQUATICY_VM_INTERNET" in payload and str(
+        payload.get("AQUATICY_VM_INTERNET", "")
+    ).strip().lower() in {"1", "true", "yes", "on", "ja"}
+    if internet_on and not session.ultra:
+        # Seit 9.5.31: Internet fuer die virtual machine nur mit Ultra.
+        raise ValueError("Internet für die virtual machine gibt es nur mit einem Ultra-Konto.")
     values = {
         key: str(payload.get(key, "")).strip() for key in SETTING_KEYS if key in payload
     }
@@ -2817,13 +2828,19 @@ class Handler(BaseHTTPRequestHandler):
         self._send(status, json.dumps(payload, ensure_ascii=False).encode(), "application/json")
 
     def _json_cookie(
-        self, payload: dict[str, Any], name: str, value: str, max_age: int, status: int = 200
+        self, payload: dict[str, Any], name: str, value: str, max_age: int, status: int = 200,
+        extra: tuple[tuple[str, str, int], ...] = (),
     ) -> None:
         body = json.dumps(payload, ensure_ascii=False).encode()
         self.send_response(status)
         self.send_header("Content-Type", "application/json")
         self.send_header("Content-Length", str(len(body)))
         self.send_header("Cache-Control", "no-store")
+        # Zusaetzliche Cookies (Geraete-Kennung, 9.5.31) zuerst, die Sitzung
+        # zuletzt: einfache Clients, die nur ein Set-Cookie behalten, behalten
+        # so die Anmeldung.
+        for extra_name, extra_value, extra_age in extra:
+            self._set_cookie(extra_name, extra_value, extra_age)
         self._set_cookie(name, value, max_age)
         self.end_headers()
         self.wfile.write(body)
@@ -3546,6 +3563,29 @@ class Handler(BaseHTTPRequestHandler):
                 self._json({"error": "Zu viele Anmeldeversuche. Bitte warte eine Minute."}, 429)
                 return
             payload = self._read_json(limit=AUTH_BODY_BYTES)
+            # Geraet (9.5.31, aquaticy/devices.py): eine zufaellige Kennung im
+            # Cookie plus Hardware/Browser -- Anhaltspunkte gegen Mehrfachkonten.
+            from aquaticy.devices import (
+                DEVICE_COOKIE,
+                DEVICE_COOKIE_AGE,
+                clean_device,
+                new_device_token,
+                token_hash,
+            )
+
+            geraete_kennung = self._cookie(DEVICE_COOKIE)
+            neue_kennung = not token_hash(geraete_kennung)
+            if neue_kennung:
+                geraete_kennung = new_device_token()
+            geraet = clean_device(
+                payload.get("device"),
+                user_agent=self.headers.get("User-Agent") or "",
+                accept_language=self.headers.get("Accept-Language") or "",
+                # Eine frisch erzeugte Kennung trifft nie ein anderes Konto -- sie
+                # wird trotzdem gleich mit gespeichert, damit das naechste Konto
+                # aus diesem Browser sie wiedererkennt.
+                cookie=geraete_kennung,
+            )
             if route.endswith("register"):
                 if not str(payload.get("username", "")).strip():
                     self._json({"ok": False, "error": "Bitte wähle einen Nutzernamen."}, 400)
@@ -3581,6 +3621,7 @@ class Handler(BaseHTTPRequestHandler):
                         terms_accepted=True,
                         terms_version=LEGAL_VERSION,
                         ip=self._client_ip(),
+                        device=geraet,
                     )
                 except ValueError as exc:
                     self._json({"ok": False, "error": str(exc)}, 400)
@@ -3609,6 +3650,10 @@ class Handler(BaseHTTPRequestHandler):
                     self._json({"ok": False, "error": BANNED_MESSAGE, "code": "banned"}, 403)
                     return
             AUTH.note_seen(account.id, self._client_ip())
+            # Das Geraet vermerken -- bei der Registrierung steht es schon da
+            # (dann nur "zuletzt gesehen"), bei einer Anmeldung kommt es dazu.
+            with contextlib.suppress(Exception):
+                AUTH.note_device(account.id, geraet)
             with contextlib.suppress(Exception):
                 start_user_scheduler(account)
             token = AUTH.create_session(account, self._device(), self._client_ip())
@@ -3618,6 +3663,8 @@ class Handler(BaseHTTPRequestHandler):
                 AUTH_COOKIE,
                 token,
                 30 * 86400,
+                extra=((DEVICE_COOKIE, geraete_kennung, DEVICE_COOKIE_AGE),)
+                if neue_kennung else (),
             )
         elif route == "/api/auth/logout":
             if AUTH is not None:

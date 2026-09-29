@@ -72,28 +72,39 @@ def test_pro_gets_more_than_the_normal_quota(store: AuthStore) -> None:
     assert store.quota(p).week_tokens == PRO_WEEK_TOKENS
 
 
-# -- Ein Konto pro Adresse ---------------------------------------------------
+# -- Ein Konto pro Adresse (seit 9.5.31: nur noch ein Anhaltspunkt) --------
 def test_one_account_per_public_ip(store: AuthStore) -> None:
-    store.register("a@e.de", "ein langes Passwort", "normal", username="aa", ip="203.0.113.5",
-                   **TERMS)
+    """Seit 9.5.31 reicht dieselbe Adresse allein nicht mehr zum Sperren --
+    zwei Menschen im selben Haushalt duerfen je ein Konto haben. Dieselbe
+    Adresse plus sehr aehnliche E-Mail plus gleiche Hardware sperrt."""
+    from aquaticy.devices import clean_device
+
+    geraet = clean_device({"cores": 8, "memory": 8, "screen": "1920x1080"},
+                          user_agent="Mozilla/5.0 (Windows NT 10.0) Chrome/126.0")
+    store.register("anna.muster@e.de", "ein langes Passwort", "normal", username="aa",
+                   ip="203.0.113.5", device=geraet, **TERMS)
+    # Selbe Adresse, andere Person: geht durch.
+    store.register("bernd@e.de", "ein langes Passwort", "normal", username="bb",
+                   ip="203.0.113.5", **TERMS)
     with pytest.raises(ValueError, match="schon ein Konto"):
-        store.register("b@e.de", "ein langes Passwort", "normal", username="bb",
-                       ip="203.0.113.5", **TERMS)
-    # Eine andere Adresse geht.
-    store.register("c@e.de", "ein langes Passwort", "normal", username="cc", ip="198.51.100.9",
-                   **TERMS)
+        store.register("anna.muster7@e.de", "ein langes Passwort", "normal", username="cc",
+                       ip="203.0.113.5", device=geraet, **TERMS)
 
 
 def test_the_last_used_address_also_blocks_a_second_account(store: AuthStore) -> None:
-    """Seit 9.5.24: auch die zuletzt genutzte Adresse zaehlt, nicht nur die
-    Anlege-Adresse -- sonst sammelt eine Adresse mehrere Konten."""
-    a = store.register("a@e.de", "ein langes Passwort", "normal", username="aa",
+    """Seit 9.5.24 zaehlt auch die zuletzt genutzte Adresse -- seit 9.5.31
+    als Anhaltspunkt zusammen mit den anderen."""
+    a = store.register("anna.muster@e.de", "ein langes Passwort", "normal", username="aa",
                        ip="203.0.113.9", **TERMS)
-    # Konto a wird spaeter von einer anderen Adresse aus genutzt.
     store.note_seen(a.id, "198.51.100.20")
+    from aquaticy.devices import clean_device
+
+    geraet = clean_device({"cores": 4, "screen": "1280x720"},
+                          user_agent="Mozilla/5.0 (Linux; Android 14) Chrome/126.0")
+    store.note_device(a.id, geraet)
     with pytest.raises(ValueError, match="schon ein Konto"):
-        store.register("b@e.de", "ein langes Passwort", "normal", username="bb",
-                       ip="198.51.100.20", **TERMS)
+        store.register("annamuster@e.de", "ein langes Passwort", "normal", username="bb",
+                       ip="198.51.100.20", device=geraet, **TERMS)
 
 
 def test_loopback_is_exempt_from_one_per_ip(store: AuthStore) -> None:

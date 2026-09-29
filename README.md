@@ -1,4 +1,4 @@
-# Aquaticy AI 9.5.30 Spark
+# Aquaticy AI 9.5.31 Spark
 
 **Aquaticy** recherchiert für dich. Du stellst eine Frage, Aquaticy sucht im Web, liest die
 passenden Seiten und fasst das Ergebnis zusammen — mit Quelle an jeder Angabe. Es läuft im
@@ -98,7 +98,7 @@ $ aquaticy
 **Sicherheit**
 - Rechts-Leitplanken nach Grundgesetz und BGB, Ai-guard gegen Missbrauch.
 - Keine Bezahlschranken, Logins oder Captchas umgehen; `robots.txt` wird beachtet.
-- Konten sauber getrennt, Zugangsdaten verschlüsselt, ein Konto pro IP-Adresse.
+- Konten sauber getrennt, Zugangsdaten verschlüsselt, Schutz vor Mehrfachkonten per Anhaltspunkten.
 - XSS-Schutz: strenge Content-Security-Policy (Skripte nur mit Einmal-Schlüssel je Seite),
   alles Fremde wird maskiert; PHP- und JSP-Dateien lassen sich nicht hochladen, und
   angebliche Bilder müssen echte Bilder sein.
@@ -112,7 +112,7 @@ $ aquaticy
 git clone --branch Aquaticy-ai --single-branch https://github.com/jonasenriklaumen-a11y/Aquaticy-Ai.git
 cd Aquaticy-Ai
 uv tool install --force --reinstall .
-aquaticy --version            # 9.5.30 Spark
+aquaticy --version            # 9.5.31 Spark
 
 # 2. Einrichten — fragt nach Modell und Schlüssel und testet beide
 aquaticy setup
@@ -350,9 +350,28 @@ Ein vollständig geschriebener Slash-Befehl leuchtet im Akzentton; der Text dahi
 ## Konten: Normal, Pro und Ultra
 
 Wer die Weboberfläche öffnet, legt zuerst ein Konto an. Jedes Konto hat eigene Chats,
-Einstellungen, Speicher und Schlüssel. **Pro IP-Adresse gibt es ein Konto** — ein zweites vom
-selben Anschluss lehnt Aquaticy mit einer Meldung ab (der eigene Rechner selbst ist davon
-ausgenommen).
+Einstellungen, Speicher und Schlüssel.
+
+**Mehrfachkonten (seit 9.5.31): Anhaltspunkte statt „ein Konto pro IP-Adresse“.** Zwei Menschen
+im selben Haushalt teilen sich die Adresse — das allein sperrt nicht mehr. Aquaticy zählt Punkte
+gegen jedes vorhandene Konto; ab **3 Punkten** wird kein neues Konto angelegt, ab 1,5 steht ein
+Hinweis im Terminal.
+
+| Anhaltspunkt | Punkte |
+|---|---|
+| dasselbe Gerät (zufällige Geräte-Kennung im Cookie `aquaticy_device`) | 3 |
+| gleiche Hardware **und** gleicher Browser | 1,5 |
+| gleiche Hardware | 1 |
+| gleicher Browser | 0,5 |
+| dieselbe IP-Adresse (Anlege- oder zuletzt genutzte) | 1 |
+| sehr ähnliche E-Mail-Adresse (`max.muster@…` / `maxmuster7@…`) | 1 |
+
+Beispiele: selbe Adresse + selber Browser = 1,5 → geht durch. Zwei gleiche Handys im selben WLAN
+= 2,5 → geht durch. Dasselbe Handy (Kennung) = 3 → gesperrt. Selbe Adresse + ähnliche E-Mail +
+gleiche Hardware = 3 → gesperrt. Der eigene Rechner (Loopback) zählt nicht als gleiche Adresse.
+Gespeichert werden je Konto höchstens 20 Geräte: die Kennung nur als Hash, dazu eine kurze
+lesbare Zusammenfassung („Windows · 16 Kerne · 8 GB · 2560x1440 · NVIDIA …“, „Chrome 126,
+de-DE“). Kein Canvas- oder Audio-Fingerabdruck. Mit dem Konto werden auch die Geräte gelöscht.
 
 | | Normal | Pro | Ultra |
 |---|---|---|---|
@@ -362,6 +381,7 @@ ausgenommen).
 | Auslastungsanzeige | – | – | ✔ |
 | Heimnetz, Home Assistant, Lagerverwaltung | – | – | ✔ |
 | User mode, virtual machine „Plus“, virtual-machine-Add-ons | – | – | ✔ |
+| Internet für die virtual machine (Code-Modus) | – | – | ✔ |
 | Eigene Adressen für Modell und Suche | – | – | ✔ |
 | Rechts-Leitplanken abschaltbar | – | – | ✔ |
 | Ai-guard | sperrt | sperrt | warnt nur |
@@ -419,6 +439,12 @@ Die **virtual machine** ist ein abgeschotteter Rechner, in dem Aquaticy Code wir
 | Plus (Ultra) | 4 | 6 GB | 20 GB |
 
 - Kein Internet, kein Zugriff aufs Heimnetz, kein root; die Platte ist hart begrenzt.
+- **Internet für die virtual machine** (Ultra, seit 9.5.31): ein eigener Schalter in den
+  Einstellungen. Dann gehen im Code-Modus `pip install` und `curl` — das Heimnetz (private
+  Adressbereiche, Router, Home Assistant) bleibt gesperrt, mit derselben Sperre wie im User mode.
+  Lässt sie sich nicht setzen oder fehlt ein Bereich, startet die Maschine gar nicht. Braucht das
+  Desktop-Abbild (unten). Normal- und Pro-Konten sehen den Schalter nur mit Ultra-Hinweis; der
+  Server lehnt ihn für sie ab.
 - Angehängte Dateien liegen unter `eingang`, alles Erstellte kannst du herunterladen.
 - 20 Minuten nach der letzten Nachricht wird die virtual machine samt Inhalt gelöscht.
 
@@ -606,7 +632,7 @@ aquaticy ban "name"            # Konto dauerhaft sperren
 aquaticy ban "name" --tage 7   # Konto für 7 Tage sperren
 aquaticy ban 203.0.113.7       # IP-Adresse sperren
 aquaticy unban "name"          # wieder freigeben (auch Chatsperren)
-aquaticy list                  # Konten mit IP-Adresse und Ai-guard-Stand
+aquaticy list                  # Konten mit IP-Adresse, Gerät, Browser und Ai-guard-Stand
 aquaticy aiguard "du Idiot"    # Stufe und Folge eines Satzes testen -- ohne Vermerk
 aquaticy aiguard --konto "name"  # die letzten Vorfälle eines Kontos
 ```
@@ -734,6 +760,7 @@ setzt du die meisten unter *Einstellungen*.
 | `AQUATICY_VM_SIZE` | virtual machine: `normal` oder `plus` (Ultra) | `normal` |
 | `AQUATICY_VM_IMAGE` | Abbild der virtual machine | `python:3.12-slim` |
 | `AQUATICY_VM_USER_MODE` | User mode (Ultra) | `false` |
+| `AQUATICY_VM_INTERNET` | Internet für die virtual machine im Code-Modus (Ultra) | `false` |
 | `AQUATICY_VM_DESKTOP_IMAGE` | Abbild für den User mode | `aquaticy-werkstatt-desktop:local` |
 | `AQUATICY_VM_IDLE_MINUTES` | virtual machine löschen nach Minuten Ruhe | `20` |
 | `AQUATICY_GITHUB_TOKEN` | Token des GitHub-Add-ons | — |
@@ -754,7 +781,7 @@ unter `users/`), die Einstellungen unter `~/.config/aquaticy/.env`.
 ## Konten verwalten (Betreiber)
 
 ```bash
-aquaticy list                  # alle Konten: Typ, IP-Adresse, Nutzung, Speicher, Ai-guard
+aquaticy list                  # alle Konten: Typ, IP, Gerät, Browser, Nutzung, Speicher, Ai-guard
 aquaticy pro-code              # Code für neue Pro-Konten anzeigen
 aquaticy ultra-code            # Code für neue Ultra-Konten anzeigen
 aquaticy ban "name"            # Konto sperren (auch per IP-Adresse)
