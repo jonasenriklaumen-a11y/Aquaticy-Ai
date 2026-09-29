@@ -1789,6 +1789,20 @@ def current_runs() -> RunBook:
     return session.runs if session.account is not None else RUNS
 
 
+def previous_user_message(session: Any) -> str:
+    """Die letzte Frage des Nutzers im laufenden Chat -- "" wenn keine.
+
+    Fuer Ai-guard (9.5.28): ein Zitat in der Nachricht davor und der Auftrag
+    in dieser gehoeren zusammen.
+    """
+    agent = getattr(session, "_agent", None)
+    for eintrag in reversed(list(getattr(agent, "messages", None) or [])):
+        if isinstance(eintrag, dict) and eintrag.get("role") == "user":
+            inhalt = eintrag.get("content")
+            return inhalt[:2000] if isinstance(inhalt, str) else ""
+    return ""
+
+
 def job_abuse(account: Any, job: Any, payload: dict[str, Any]) -> None:
     """Missbrauch in einem Auftrag -> Ai-guard, wie im Chat (9.5.26)."""
     if AIGUARD is None or account is None:
@@ -3058,16 +3072,18 @@ class Handler(BaseHTTPRequestHandler):
             if AIGUARD is not None and konto is not None:
                 # Auch ein Auftrag ist Text an Aquaticy (9.5.26): eine Beleidigung
                 # darin zaehlt wie im Chat -- und der Auftrag wird nicht angelegt.
-                from aquaticy.aiguard import insult_level
+                from aquaticy.aiguard import demeaning_request, insult_level
 
-                stufe = insult_level(str(payload.get("question", "")))
+                frage = str(payload.get("question", ""))
+                stufe = insult_level(frage) or demeaning_request(frage)
                 if stufe:
                     AIGUARD.record_incident(
                         konto.id, "beleidigung", stufe, chat="auftrag",
                         detail="Beleidigung im Auftrag (erkannt)",
                         enforce=not getattr(konto, "ultra", False))
                     return {"ok": False, "error": "Diesen Auftrag lege ich nicht an — "
-                            "Ai-guard hat darin eine Beleidigung erkannt."}
+                            "Ai-guard hat darin eine Beleidigung oder den Auftrag erkannt, "
+                            "jemanden herabzusetzen."}
             image_id = ""
             saved = False
             try:
@@ -3663,7 +3679,8 @@ class Handler(BaseHTTPRequestHandler):
             konto = self._account()
             aktueller = SESSION.current() if isinstance(SESSION, SessionProxy) else SESSION
             if (AIGUARD is not None and konto is not None
-                    and self._aiguard_text(konto, text, aktueller.chat_id())):
+                    and self._aiguard_text(konto, text, aktueller.chat_id(),
+                                           previous_user_message(aktueller))):
                 # Der Lauf wartet sonst minutenlang auf eine Antwort, die nie kommt.
                 with contextlib.suppress(Exception):
                     SESSION.stop()
@@ -3774,32 +3791,47 @@ p{{margin:0 0 8px;color:#57534a}}</style></head><body><main>
         self.end_headers()
         self.wfile.write(raw)
 
-    def _aiguard_text(self, konto: Any, text: str, chat: str) -> bool:
-        """Chatsperre und Beleidigungserkennung fuer einen Text an Aquaticy.
+    def _aiguard_text(self, konto: Any, text: str, chat: str, previous: str = "") -> bool:
+        """Chatsperre, Beleidigungen und Auftraege zum Herabsetzen (Ai-guard).
+
+        *previous*: die Nachricht davor im selben Chat -- ein Zitat dort und
+        "gib mir was Fieseres zurueck" jetzt sind zusammen ein Auftrag (9.5.28).
 
         Returns: True, wenn die Anfrage damit schon beantwortet ist (403).
         """
-        from aquaticy.aiguard import BANNED_MESSAGE, CHAT_LOCKED_MESSAGE, ban_info, insult_level
+        from aquaticy.aiguard import (
+            BANNED_MESSAGE,
+            DEMEANING_REASON,
+            ban_info,
+            chat_locked_message,
+            demeaning_request,
+            insult_level,
+        )
 
         # Chatsperre (9.5.24): nur DIESER Chat ist zu -- ein neuer geht.
-        if AIGUARD.chat_locked(konto.id, chat):
-            self._json({"error": CHAT_LOCKED_MESSAGE, "code": "chat_locked"}, 403)
+        grund = AIGUARD.chat_locked(konto.id, chat)
+        if grund:
+            self._json({"error": chat_locked_message(grund), "code": "chat_locked"}, 403)
             return True
         # Beleidigungen erkennt Ai-guard seit 9.5.25 auch ohne Modell -- das
-        # Modell uebersah kurze Beschimpfungen oft. Die Massnahme bleibt
-        # dieselbe (Chatsperre bei leichten, Bann bei schweren).
-        stufe = insult_level(text)
+        # Modell uebersah kurze Beschimpfungen oft. Seit 9.5.28 auch den Auftrag,
+        # ANDERE herabzusetzen; ein Zitat allein zaehlt nicht.
+        stufe, eigener_grund, detail = insult_level(text), "", "Beleidigung (erkannt)"
+        if not stufe:
+            stufe = demeaning_request(text, previous)
+            eigener_grund, detail = DEMEANING_REASON, DEMEANING_REASON
         if not stufe:
             return False
         massnahme = AIGUARD.record_incident(
-            konto.id, "beleidigung", stufe, chat=chat, detail="Beleidigung (erkannt)",
-            enforce=not getattr(konto, "ultra", False))
+            konto.id, "beleidigung", stufe, chat=chat, detail=detail,
+            enforce=not getattr(konto, "ultra", False), reason=eigener_grund)
         if massnahme.kind == "ban":
             self._json({"error": BANNED_MESSAGE, "code": "banned",
                         "ban": ban_info(AIGUARD.is_banned(user_id=konto.id))}, 403)
             return True
         if massnahme.kind == "chat":
-            self._json({"error": CHAT_LOCKED_MESSAGE, "code": "chat_locked"}, 403)
+            self._json({"error": chat_locked_message(massnahme.reason),
+                        "code": "chat_locked"}, 403)
             return True
         return False
 
@@ -4224,7 +4256,8 @@ p{{margin:0 0 8px;color:#57534a}}</style></head><body><main>
                             "ban": ban_info(gesperrt)}, 403)
                 return
             aktueller = SESSION.current() if isinstance(SESSION, SessionProxy) else SESSION
-            if self._aiguard_text(konto, message, aktueller.chat_id()):
+            if self._aiguard_text(konto, message, aktueller.chat_id(),
+                                  previous_user_message(aktueller)):
                 return
 
         # Der Lauf gehoert ab hier dem Server, nicht der Verbindung. Reisst

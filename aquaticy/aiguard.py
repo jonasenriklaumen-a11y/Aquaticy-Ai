@@ -379,8 +379,14 @@ _ZITAT_ANLASS = re.compile(
 _TITELZEILE = re.compile(r"^\s*[A-ZÄÖÜ][\w'.&]*(?:\s+[A-ZÄÖÜ&][\w'.&]*){0,4}\s+[-–—]\s+\S")
 #: Was jemand in einer Geschichte sagt ("ein Pirat sagt: du Idiot!") -- Rede,
 #: nicht an Aquaticy gerichtet.
-_REDE = re.compile(r"\b(?:sagt|sagte|ruft|rief|schreit|schrie|brüllt|bruellt|meint|antwortet|"
-                   r"says|said|shouts|yells|replies)\s*:\s*[^\n.?]*")
+_REDE = re.compile(
+    r"\b(?:sagt|sagte|gesagt|ruft|rief|gerufen|schreit|schrie|geschrien|br(?:ü|ue)llt|"
+    r"gebr(?:ü|ue)llt|meint|meinte|gemeint|antwortet|antwortete|geantwortet|schreibt|schrieb|"
+    r"geschrieben|textet|getextet|nannte|genannt|beschimpft|says|said|shouts|shouted|yells|"
+    r"yelled|replies|replied|wrote|texted|called\s+me|told\s+me)"
+    # "hat mir geschrieben:", "sagte zu mir:" -- dann folgt das Zitat (9.5.28:
+    # "Mein Kumpel hat gesagt: du Hurensohn" war sonst 7 Tage Bann).
+    r"(?:\s+(?:zu\s+)?(?:mir|uns|me|us))?\s*[:,]\s*[^\n.?!]*")
 _ZITATE = re.compile(r"\"[^\"]{1,200}\"|„[^“”]{1,200}[“”]|“[^”]{1,200}”|«[^»]{1,200}»|"
                      r"»[^«]{1,200}«|‚[^‘’]{1,200}[‘’]|(?<![^\W\d_])'[^']{1,200}'(?![^\W\d_])")
 _ANREDE = r"(?:du|dich|dir|sie|ihr|you|u|ur|aquaticy|ki|bot)"
@@ -680,6 +686,153 @@ def insult_level(text: str) -> int:
         stufe = max(stufe, _satzteil_stufe(teil, ganze_woerter, anrede))
         if stufe >= 4:
             break
+    return stufe
+
+
+# ---------------------------------------------------------------------------
+# Auftraege, jemanden herabzusetzen (seit 9.5.28)
+# ---------------------------------------------------------------------------
+# Ein Zitat allein ist keine Beleidigung ("Mein Freund hat gesagt 'du Opfer',
+# wie reagiere ich?"). Was zaehlt, ist der Auftrag dahinter: soll Aquaticy
+# jemanden beleidigen, runtermachen, blossstellen oder mobben helfen -- in
+# derselben Nachricht oder in der naechsten ("Und jetzt gib mir einen Konter,
+# der noch schlimmer ist").
+#: Verben des Herabsetzens -> Stufe. Wortanfaenge, damit alle Formen passen.
+_HERABSETZEN: tuple[tuple[int, str], ...] = (
+    (1, r"beleidig|beschimpf|runter\s*(?:mach|putz)|nieder\s*mach|verarsch|dissen|disse\b|"
+        r"l(?:ä|ae)cherlich\s+(?:zu\s+)?mach|lustig\s+mach|(?:ä|ae)rger(?:n|e)?\b|"
+        r"mach\w*\s+(?:[^\W\d_]+\s+){0,3}l(?:ä|ae)cherlich|(?:ü|ue)ber\s+[^.?!]{0,30}lustig|"
+        r"insult|make\s+fun|mock|trash\s*talk|diss\b|roast"),
+    (2, r"fertig\s*(?:zu\s*)?mach|dem(?:ü|ue)tig|erniedrig|blo(?:ß|ss)\s*(?:zu\s*)?stell|"
+        r"mobb|zur\s+sau\s+mach|klein\s*mach|fertigzumach|humiliat|bully|destroy|"
+        # "verletzen/kränken" nur mit Person davor: "die ihn verletzt", nicht
+        # "dass Schimpfwörter verletzen"
+        r"(?<=ihn\s)verletz|(?<=sie\s)verletz|(?<=ihn\s)kr(?:ä|ae)nk|(?<=sie\s)kr(?:ä|ae)nk|"
+        r"(?:ihn|sie|ihm|ihr)\s+(?:[^\W\d_]+\s+){1,2}(?:verletz|kr(?:ä|ae)nk)"),
+)
+#: Was dabei herauskommen soll -- "damit er heult", "so he cries".
+_ABSICHT = re.compile(
+    r"\b(?:damit|dass|so\s+dass|sodass|so\s+that|so|bis|until|that)\s+(?:er|sie|es|die|der|"
+    r"he|she|they|mein\w*|dein\w*)\b[^.?!]{0,40}?\b(?:heult|weint|cries|cry|sich\s+sch(?:ä|ae)mt|"
+    r"sich\s+(?:[^\W\d_]+\s+)?(?:schlecht|mies|dreckig)\s+f(?:ü|ue)hlt|am\s+boden|fertig\s+ist|nie\s+wieder|feels?\s+bad|"
+    r"leidet|zusammenbricht|breaks?\s+down)",
+)
+#: ... und was nie herauskommen darf: dass sich jemand etwas antut.
+_ABSICHT_SCHWER = re.compile(
+    r"\b(?:damit|dass|sodass|so\s+that|so)\s+(?:er|sie|es|he|she|they|mein\w*)\b[^.?!]{0,40}?"
+    r"(?:sich\s+(?:umbringt|was\s+antut|etwas\s+antut|ritzt|das\s+leben\s+nimmt)|"
+    r"kills?\s+(?:himself|herself|themselves)|suizid|selbstmord)",
+)
+#: Eine Bitte an Aquaticy, etwas zu formulieren oder zu helfen.
+_BITTE = re.compile(
+    r"\b(?:gib|gebe?|erkl(?:ä|ae)r\w*|wie\s+ich|schreib\w*|formulier\w*|"
+    r"sag(?:e)?\s+(?:mir|ihm|ihr|ihnen|was|etwas)|sag|nenn(?:e)?|hilf|helf\w*|mach|erstell\w*|"
+    r"denk\s+dir|ideen?|vorschl\w*|verfass\w*|dicht\w*|antworte?|wie\s+(?:kann|könnte|koennte|"
+    r"soll|mache|mach|bringe?|kriege?)\s+ich|was\s+(?:kann|könnte|koennte|soll|schreibe?|sage?)"
+    r"\s+ich|wie\s+\w+e\s+ich|beleidige|beschimpfe|give|write|tell|help|make|how\s+(?:do|can|"
+    r"should)\s+i|what\s+(?:do|can|should)\s+i|roast|insult|humiliate|bully|mock)\b",
+)
+#: Menschen, die jemand herabsetzen koennte -- "meinen Bruder", "die Lehrerin".
+_PERSON = (r"(?:freund|freundin|bruder|br(?:ü|ue)der|schwester|kolleg|chef|boss|lehrer|"
+           r"mitsch(?:ü|ue)ler|sch(?:ü|ue)ler|nachbar|ex|mutter|vater|mama|papa|kumpel|typ|typen|"
+           r"mann|frau|kind|junge|jungen|m(?:ä|ae)dchen|sohn|tochter|partner|cousin|onkel|tante|"
+           r"oma|opa|mitbewohner|kerl|klasse|klassenkamerad|trainer|nachbarin|ehemann|ehefrau|"
+           r"freundes|leute|menschen|person|kollegin|lehrerin|chefin|"
+           r"friend|brother|sister|coworker|colleague|boss|teacher|neighbou?r|kid|guy|girl|"
+           r"boy|classmate|roommate|mom|dad|wife|husband|people|person)\w*")
+#: Jemand anderes als Ziel (nicht "mich" -- das waere der Nutzer als Opfer).
+#: Nur Personen: "die Tabelle fertig machen" ist kein Herabsetzen (Fund 9.5.28).
+_ZIEL = re.compile(
+    r"\b(?:ihn|ihm|inh|sie|ihnen|jemand(?:en|em)?|him|her|them|someone|somebody)\b|"
+    rf"\b(?:meine?[nmrs]?|seine?[nmrs]?|ihre?[nmrs]?|unsere?[nmrs]?|diese?[nmrs]?|den|die|dem|"
+    rf"der|des|einen?|einem|my|his|her|our|the|this|that|a)\s+(?:[^\W\d_]+\s+)?{_PERSON}\b|"
+    rf"\b{_PERSON}\b(?=\s+(?:so|richtig|total|mal)\b)|\bzur(?:ü|ue)ck\b",
+)
+#: Hilfe gegen das Herabsetzen oder eine Entschuldigung ist kein Auftrag dazu.
+_ABWEHR = re.compile(
+    r"\bohne\b|\bnicht\s+(?:zu\s+)?(?:beleidig|verletz|kr(?:ä|ae)nk)|\bkein\w*\s+beleidig|"
+    r"reagier|wehr|sch(?:ü|ue)tz|melde|anzeig|entschuldig|vermeid|verhinder|gegen\s+mobbing|"
+    r"\bstop+\b|\bprevent|\bpolite|respond\s+to|\bwhat\s+should\s+i\s+do|hat\s+mich|"
+    r"wurde|werde\s+ich|wird\s+gemobbt|gemobbt|\bliebevoll|\bfreundlich|sachlich|"
+    r"\bmich\b[^.?!]{0,25}(?:verletz|gekr(?:ä|ae)nkt|beleidigt)|"
+    r"\bwenn\s+(?:jemand|man|er|sie|einer|mich|someone|somebody)\b[^.?!]{0,30}"
+    r"(?:beleidig|beschimpf|mobb|fertig|insult|bull)|\beinen\s+beleidigt|"
+    r"\bist\s+(?:das|es)\s+(?:schon\s+)?(?:mobbing|beleidigung)|"
+    r"\bwas\s+(?:kann|soll)\s+ich\s+(?:da\s+|dagegen\s+)?tun|\bwhat\s+can\s+i\s+do|"
+    r"\b(?:nennt|nannte|nennen)\s+mich|\bcalled\s+me|"
+    r"\bis\s+(?:this|that|it)\s+(?:bullying|an?\s+insult)|"
+    r"strafbar|bedeut|\bwarum\b|\bwhy\b|disstrack\s+von|\bschach|\bspiel|mario",
+)
+#: Hart gemeint: "fieser Konter", "savage comeback".
+_HART = re.compile(
+    r"\b(?:fies\w*|gemein\w*|b(?:ö|oe)s\w*|hart\w*|heftig\w*|verletzend\w*|beleidigend\w*|"
+    r"krass\w*|brutal\w*|(?:ü|ue)bl\w*|derb\w*|vernichtend\w*|mies\w*|schlimm\w*|"
+    r"savage|mean|brutal|nasty|cruel|harsh)\b",
+)
+#: Etwas, das an jemanden gerichtet ist: Konter, Spruch, Antwort ...
+_ENTGEGNUNG = re.compile(
+    r"\b(?:konter|spr(?:u|ü|ue)ch\w*|antwort\w*|satz|s(?:ä|ae)tze|nachricht\w*|kommentar\w*|"
+    r"comeback\w*|reply|response|message|text|diss|zur(?:ü|ue)ck|was\s+\w*\s*zur(?:ü|ue)ck)\b",
+)
+#: Im Verlauf davor ein Zitat mit Beleidigung -> der naechste Satz bezieht sich darauf.
+_NOCH_MEHR = re.compile(
+    r"\b(?:genauso|gleiche|noch\s+(?:schlimmer|h(?:ä|ae)rter|fieser|b(?:ö|oe)ser|gemeiner)\w*|"
+    r"h(?:ä|ae)rter\w*|fieser\w*|trifft|treffen|weh\s*tut|zur(?:ü|ue)ck\s*beleidig)\b",
+)
+
+
+def _enthaelt_schimpfwort(text: str) -> bool:
+    """Steht irgendwo ein Schimpfwort -- egal, ob gerichtet oder zitiert?"""
+    klein = _zusammengesetzt(_vereinheitlicht(text))
+    for wort in re.findall(r"[^\W\d_]+", klein):
+        if _stufe_von(wort)[0] >= 1 or _zusammensetzung(wort):
+            return True
+    return any(m.search(klein) for _, m in _WENDUNGEN) or any(
+        w in klein for _, w in _BELEIDIGUNG_WENDUNGEN)
+
+
+def demeaning_request(text: str, previous: str = "") -> int:
+    """Soll Aquaticy jemanden herabsetzen? Stufe 0 (nein) bis 4 (9.5.28).
+
+    Zaehlt den AUFTRAG, nicht ein Zitat: "Mein Freund hat gesagt 'du Opfer',
+    gib mir einen Satz, mit dem ich ihn beleidige" ja -- "..., wie reagiere
+    ich?" nein. *previous* ist die Nachricht davor im selben Chat: stand dort
+    ein Zitat mit Beleidigung, reicht jetzt "gib mir einen Konter, der noch
+    schlimmer ist".
+
+    1 = beleidigen, runtermachen, fieser Konter; 2 = demuetigen, blossstellen,
+    mobben, "damit er heult"; 4 = "damit er sich etwas antut".
+    """
+    klein = _vereinheitlicht(str(text or ""))[:5000]
+    if not klein:
+        return 0
+    # Das Zitat selbst zaehlt nie -- nur, was um es herum verlangt wird.
+    ohne_zitat = _REDE.sub(" ", _ZITATE.sub(" ", klein))
+    if _ABSICHT_SCHWER.search(ohne_zitat) and _BITTE.search(ohne_zitat):
+        return 4
+    if _ABWEHR.search(ohne_zitat):
+        return 0
+    if previous and _enthaelt_schimpfwort(previous) and (
+            _NOCH_MEHR.search(ohne_zitat) and (_ENTGEGNUNG.search(ohne_zitat)
+                                               or _ZIEL.search(ohne_zitat))):
+        # Die naechste Nachricht nach einem Zitat: "Und jetzt was Fieseres zurueck"
+        # -- auch ohne "gib mir", der Bezug steht in der Nachricht davor.
+        return 1
+    stufe = 0
+    # Satz fuer Satz: Bitte, Verb und Ziel muessen zusammen stehen -- in einem
+    # langen Text weit verstreut ergeben sie keinen Auftrag (Fund 9.5.28).
+    for satz in re.split(r"[.!?\n;]+", ohne_zitat):
+        if not _BITTE.search(satz) or _ABWEHR.search(satz):
+            continue
+        for wert, stamm in _HERABSETZEN:
+            if re.search(rf"\b(?:{stamm})", satz) and _ZIEL.search(satz):
+                stufe = max(stufe, wert)
+        if _ABSICHT.search(satz):
+            stufe = max(stufe, 2)
+        if not stufe and re.search(
+                rf"{_HART.pattern}\s+(?:[^\W\d_]+\s+){{0,2}}{_ENTGEGNUNG.pattern}", satz):
+            # "gib mir einen fiesen Konter" -- eine Entgegnung, hart gemeint
+            stufe = 1
     return stufe
 
 
@@ -1039,7 +1192,7 @@ class AiGuard:
 
     def record_incident(self, user_id: str, category: str, severity: int, *,
                         chat: str = "", detail: str = "", enforce: bool = True,
-                        text: str | None = None) -> Action:
+                        text: str | None = None, reason: str = "") -> Action:
         """Vermerkt einen Vorfall mit Art und Schwere und setzt die Massnahme um.
 
         Die Massnahme entscheidet :func:`decide` (seit 9.5.24): Chatsperre,
@@ -1104,6 +1257,9 @@ class AiGuard:
         if schon is not None and art in _MUSTER_ARTEN:
             return Action("none", category=art, reason="schon vermerkt")
         massnahme = decide(art, stufe, int(vorher))
+        if reason and massnahme.kind != "none":
+            # Eigener Grund (9.5.28), z. B. ein Auftrag, andere herabzusetzen
+            massnahme = Action(massnahme.kind, massnahme.days, art, _sauber(reason, 120))
         if wiederholt and massnahme.kind == "ban":
             massnahme = Action("ban", massnahme.days, art, "wiederholte Beleidigungen")
         if massnahme.kind == "none":
@@ -1272,6 +1428,20 @@ BANNED_MESSAGE = (
 )
 
 #: Der Satz fuer einen gesperrten Chat (9.5.24).
+#: Grund einer Chatsperre, wenn jemand Aquaticy andere herabsetzen lassen wollte.
+DEMEANING_REASON = "Auftrag, jemanden zu beleidigen oder herabzusetzen"
+
+
+def chat_locked_message(grund: str = "") -> str:
+    """Der Satz fuer einen gesperrten Chat -- mit dem richtigen Grund (9.5.28)."""
+    if grund == DEMEANING_REASON:
+        return ("Dabei hilft Aquaticy nicht: andere beleidigen, runtermachen oder "
+                "blossstellen. Ai-guard hat diesen Chat deshalb gesperrt. Ein Zitat allein "
+                "ist in Ordnung — du kannst einen neuen Chat beginnen und zum Beispiel "
+                "fragen, wie du ruhig und bestimmt darauf antwortest.")
+    return CHAT_LOCKED_MESSAGE
+
+
 CHAT_LOCKED_MESSAGE = (
     "In diesem Chat kannst du nicht mehr schreiben — Ai-guard hat ihn wegen "
     "unangemessener Sprache gesperrt. Du kannst einen neuen Chat beginnen."

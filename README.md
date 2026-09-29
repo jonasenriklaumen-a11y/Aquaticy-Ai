@@ -1,4 +1,4 @@
-# Aquaticy AI 9.5.27 Spark
+# Aquaticy AI 9.5.28 Spark
 
 **Aquaticy** recherchiert für dich. Du stellst eine Frage, Aquaticy sucht im Web, liest die
 passenden Seiten und fasst das Ergebnis zusammen — mit Quelle an jeder Angabe. Es läuft im
@@ -112,7 +112,7 @@ $ aquaticy
 git clone --branch Aquaticy-ai --single-branch https://github.com/jonasenriklaumen-a11y/Aquaticy-Ai.git
 cd Aquaticy-Ai
 uv tool install --force --reinstall .
-aquaticy --version            # 9.5.27 Spark
+aquaticy --version            # 9.5.28 Spark
 
 # 2. Einrichten — fragt nach Modell und Schlüssel und testet beide
 aquaticy setup
@@ -559,6 +559,16 @@ Tarnungen helfen nicht: getrennte Buchstaben („I d i o t“), Ziffern und Ster
 „A****loch“), gedehnte Wörter, unsichtbare Zeichen, ähnlich aussehende kyrillische Buchstaben
 oder eine sehr lange Nachricht werden erkannt. Wer nach einer leichten Beleidigung immer wieder
 einen neuen Chat anfängt: Die dritte leichte Beleidigung binnen einer Woche ist ein Bann für 1 Tag.
+
+**Zitieren ist frei, der Auftrag dahinter nicht.** „Mein Freund hat gesagt: du Opfer — wie
+reagiere ich?“ führt zu nichts. Soll Aquaticy aber jemanden beleidigen, runtermachen,
+bloßstellen oder mobben helfen („…gib mir einen Satz, mit dem ich ihn beleidige“, „schreib eine
+Nachricht, die sie fertig macht“, „einen fiesen Konter“), sperrt Ai-guard den Chat — auch, wenn
+der Auftrag erst in der nächsten Nachricht kommt („Und jetzt was Fieseres zurück“). Wer
+„damit er heult“ oder Ähnliches verlangt, wird wie eine mittlere Beleidigung behandelt (Bann
+für 1 Tag); wer will, dass sich jemand etwas antut, dauerhaft gesperrt. Hilfe gegen Mobbing,
+eine ruhige Antwort, eine Entschuldigung oder die Frage, ob etwas eine Beleidigung ist, bleiben
+frei. Auch Aufträge (regelmäßige Recherchen) werden so geprüft.
 
 **Wie genau?** Gemessen an drei beschrifteten Listen mit zusammen 263 Beleidigungen und 337
 harmlosen Sätzen (Stand 9.5.27): alle Beleidigungen erkannt, kein Fehlalarm. Harmlos bleiben
