@@ -449,6 +449,15 @@ CONSENT_COOKIE = "aquaticy_consent"
 AUTH: AuthStore | None = None
 #: Ai-guard: erkennt Missbrauch über mehrere Chats und sperrt (9.5.16 Lion).
 AIGUARD: Any = None
+
+#: Was ein gesperrtes Konto noch schicken darf (9.5.26): abmelden, das Design
+#: aendern, einen Lauf anhalten und die eigenen Chats ansehen, umbenennen oder
+#: loeschen. Alles andere -- Chat, Werkstatt, Add-ons, Auftraege, Befehle,
+#: Einstellungen -- ist waehrend der Sperre zu.
+POST_WHEN_BANNED = frozenset({
+    "/api/auth/logout", "/api/auth/login", "/api/auth/register", "/api/consent",
+    "/api/prefs", "/api/stop", "/api/clear", "/api/open", "/api/chat-edit",
+})
 AUTH_LIMIT = RateLimiter(attempts=8, window_seconds=60)
 #: Fehlversuche je Konto (seit 9.5.22). AUTH_LIMIT zaehlt je Adresse -- wer
 #: von vielen Adressen aus EIN Konto durchprobiert, faellt erst hier auf.
@@ -1780,6 +1789,16 @@ def current_runs() -> RunBook:
     return session.runs if session.account is not None else RUNS
 
 
+def job_abuse(account: Any, job: Any, payload: dict[str, Any]) -> None:
+    """Missbrauch in einem Auftrag -> Ai-guard, wie im Chat (9.5.26)."""
+    if AIGUARD is None or account is None:
+        return
+    AIGUARD.record_incident(
+        str(account.id), str(payload.get("art") or ""), int(payload.get("schwere") or 0),
+        chat=f"auftrag:{getattr(job, 'id', '')}", detail=str(payload.get("art") or ""),
+        enforce=not getattr(account, "ultra", False))
+
+
 def start_user_scheduler(account: Account) -> None:
     """Startet den Taktgeber genau einmal fuer das Konto."""
     from aquaticy.jobs import Scheduler
@@ -1793,6 +1812,7 @@ def start_user_scheduler(account: Account) -> None:
         scheduler = Scheduler(
             SESSIONS.get(account).settings,
             paused=lambda: AIGUARD is not None and AIGUARD.is_banned(user_id=konto_id) is not None,
+            on_abuse=lambda job, payload: job_abuse(account, job, payload),
         )
         scheduler.start()
         USER_SCHEDULERS[account.id] = scheduler
@@ -2729,6 +2749,18 @@ class Handler(BaseHTTPRequestHandler):
         if AUTH is not None and route.startswith("/api/") and not public and account is None:
             self._json({"error": "Bitte melde dich an."}, 401)
             return
+        if (self.command == "POST" and AIGUARD is not None and account is not None
+                and route not in POST_WHEN_BANNED):
+            # Ai-guard (9.5.26): Ein gesperrtes Konto kann lesen, aber nichts
+            # mehr tun. Bis 9.5.25 galt die Sperre nur fuer /api/chat -- Werkstatt,
+            # Add-ons, Auftraege, Befehle und Rueckfrage-Antworten gingen weiter.
+            sperre = AIGUARD.is_banned(user_id=account.id, ip=client)
+            if sperre is not None:
+                from aquaticy.aiguard import BANNED_MESSAGE, ban_info
+
+                self._json({"error": BANNED_MESSAGE, "code": "banned",
+                            "ban": ban_info(sperre)}, 403)
+                return
         previous = getattr(_REQUEST, "session", None)
         if account is not None:
             _REQUEST.session = SESSIONS.get(account)
@@ -3020,8 +3052,22 @@ class Handler(BaseHTTPRequestHandler):
         settings = SESSION.settings()
         store = JobStore(settings.db_path)
         action = str(payload.get("action", "add")).strip().lower()
+        konto = self._account()
 
         if action == "add":
+            if AIGUARD is not None and konto is not None:
+                # Auch ein Auftrag ist Text an Aquaticy (9.5.26): eine Beleidigung
+                # darin zaehlt wie im Chat -- und der Auftrag wird nicht angelegt.
+                from aquaticy.aiguard import insult_level
+
+                stufe = insult_level(str(payload.get("question", "")))
+                if stufe:
+                    AIGUARD.record_incident(
+                        konto.id, "beleidigung", stufe, chat="auftrag",
+                        detail="Beleidigung im Auftrag (erkannt)",
+                        enforce=not getattr(konto, "ultra", False))
+                    return {"ok": False, "error": "Diesen Auftrag lege ich nicht an — "
+                            "Ai-guard hat darin eine Beleidigung erkannt."}
             image_id = ""
             saved = False
             try:
@@ -3090,7 +3136,9 @@ class Handler(BaseHTTPRequestHandler):
                 # naechster Termin in der Vergangenheit.
                 try:
                     # Das Kontingent prueft run_job ueber settings.quota.
-                    state, chat = run_job(job, settings)
+                    state, chat = run_job(
+                        job, settings,
+                        on_abuse=lambda j, p: job_abuse(konto, j, p))
                 except Exception as exc:
                     state, chat = (f"Fehler: {type(exc).__name__}", "")
                 finally:
@@ -3609,7 +3657,17 @@ class Handler(BaseHTTPRequestHandler):
         elif route == "/api/stop":
             self._json({"ok": SESSION.stop()})
         elif route == "/api/answer":
-            text = str(self._read_json().get("text", "")).strip()
+            text = str(self._read_json().get("text", "")).strip()[:MAX_MESSAGE_CHARS]
+            # Auch die Antwort auf eine Rueckfrage geht an Aquaticy -- bis 9.5.25
+            # an Chatsperre und Beleidigungserkennung vorbei (9.5.26).
+            konto = self._account()
+            aktueller = SESSION.current() if isinstance(SESSION, SessionProxy) else SESSION
+            if (AIGUARD is not None and konto is not None
+                    and self._aiguard_text(konto, text, aktueller.chat_id())):
+                # Der Lauf wartet sonst minutenlang auf eine Antwort, die nie kommt.
+                with contextlib.suppress(Exception):
+                    SESSION.stop()
+                return
             self._json({"ok": SESSION.answer(text)})
         elif route == "/api/command":
             line = str(self._read_json().get("line", "")).strip()
@@ -3715,6 +3773,35 @@ p{{margin:0 0 8px;color:#57534a}}</style></head><body><main>
         self.send_header("Content-Length", str(len(raw)))
         self.end_headers()
         self.wfile.write(raw)
+
+    def _aiguard_text(self, konto: Any, text: str, chat: str) -> bool:
+        """Chatsperre und Beleidigungserkennung fuer einen Text an Aquaticy.
+
+        Returns: True, wenn die Anfrage damit schon beantwortet ist (403).
+        """
+        from aquaticy.aiguard import BANNED_MESSAGE, CHAT_LOCKED_MESSAGE, ban_info, insult_level
+
+        # Chatsperre (9.5.24): nur DIESER Chat ist zu -- ein neuer geht.
+        if AIGUARD.chat_locked(konto.id, chat):
+            self._json({"error": CHAT_LOCKED_MESSAGE, "code": "chat_locked"}, 403)
+            return True
+        # Beleidigungen erkennt Ai-guard seit 9.5.25 auch ohne Modell -- das
+        # Modell uebersah kurze Beschimpfungen oft. Die Massnahme bleibt
+        # dieselbe (Chatsperre bei leichten, Bann bei schweren).
+        stufe = insult_level(text)
+        if not stufe:
+            return False
+        massnahme = AIGUARD.record_incident(
+            konto.id, "beleidigung", stufe, chat=chat, detail="Beleidigung (erkannt)",
+            enforce=not getattr(konto, "ultra", False))
+        if massnahme.kind == "ban":
+            self._json({"error": BANNED_MESSAGE, "code": "banned",
+                        "ban": ban_info(AIGUARD.is_banned(user_id=konto.id))}, 403)
+            return True
+        if massnahme.kind == "chat":
+            self._json({"error": CHAT_LOCKED_MESSAGE, "code": "chat_locked"}, 403)
+            return True
+        return False
 
     def _chat_edit(self, payload: dict[str, Any]) -> dict[str, Any]:
         """Benennt einen Chat um oder loescht ihn."""
@@ -4136,35 +4223,9 @@ p{{margin:0 0 8px;color:#57534a}}</style></head><body><main>
                 self._json({"error": BANNED_MESSAGE, "code": "banned",
                             "ban": ban_info(gesperrt)}, 403)
                 return
-            # Chatsperre (9.5.24): nur DIESER Chat ist zu -- ein neuer geht.
             aktueller = SESSION.current() if isinstance(SESSION, SessionProxy) else SESSION
-            if AIGUARD.chat_locked(konto.id, aktueller.chat_id()):
-                from aquaticy.aiguard import CHAT_LOCKED_MESSAGE
-
-                self._json({"error": CHAT_LOCKED_MESSAGE, "code": "chat_locked"}, 403)
+            if self._aiguard_text(konto, message, aktueller.chat_id()):
                 return
-            # Beleidigungen erkennt Ai-guard seit 9.5.25 auch ohne Modell -- das
-            # Modell uebersah kurze Beschimpfungen oft. Die Massnahme bleibt
-            # dieselbe (Chatsperre bei leichten, Bann bei schweren).
-            from aquaticy.aiguard import insult_level
-
-            stufe = insult_level(message)
-            if stufe:
-                massnahme = AIGUARD.record_incident(
-                    konto.id, "beleidigung", stufe, chat=aktueller.chat_id(),
-                    detail="Beleidigung (erkannt)",
-                    enforce=not getattr(konto, "ultra", False))
-                if massnahme.kind == "ban":
-                    from aquaticy.aiguard import BANNED_MESSAGE, ban_info
-
-                    self._json({"error": BANNED_MESSAGE, "code": "banned",
-                                "ban": ban_info(AIGUARD.is_banned(user_id=konto.id))}, 403)
-                    return
-                if massnahme.kind == "chat":
-                    from aquaticy.aiguard import CHAT_LOCKED_MESSAGE
-
-                    self._json({"error": CHAT_LOCKED_MESSAGE, "code": "chat_locked"}, 403)
-                    return
 
         # Der Lauf gehoert ab hier dem Server, nicht der Verbindung. Reisst
         # sie ab, laeuft er weiter und kann spaeter zu Ende gesehen werden.

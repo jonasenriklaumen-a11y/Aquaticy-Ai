@@ -586,7 +586,7 @@ def describe_job_image(agent: Any, job: Job, settings: Any) -> str:
         return ""
 
 
-def run_job(job: Job, settings: Any) -> tuple[str, str]:
+def run_job(job: Job, settings: Any, on_abuse: Any = None) -> tuple[str, str]:
     """Fuehrt einen Auftrag aus. Returns: (Zustand, Chat-Kennung).
 
     Der Agent ist ein eigener: das laufende Gespraech des Nutzers bleibt
@@ -610,7 +610,18 @@ def run_job(job: Job, settings: Any) -> tuple[str, str]:
     cache = Cache(settings.db_path, settings.cache_ttl_hours)
     monitoring = job.kind in MONITORING
     # Fehlversuche einer Beobachtung werden nicht als neue Chats gespeichert.
+    def ereignis(name: str, payload: dict[str, Any]) -> None:
+        # Missbrauch in einem Auftrag zaehlt bei Ai-guard wie im Chat (9.5.26) --
+        # vorher lehnte der Rechtsrahmen ab, aber niemand vermerkte es.
+        if name == "abuse" and on_abuse is not None:
+            try:
+                on_abuse(job, payload)
+            except Exception:
+                LOG.exception("Auftraege: Ai-guard-Meldung zu %s fehlgeschlagen", job.id)
+
     agent = Agent(settings, cache=None if monitoring else cache)
+    if on_abuse is not None:
+        agent.on_event = ereignis
     try:
         frage = job.question
         if job.kind == "image":
@@ -734,9 +745,12 @@ class Scheduler:
     ohnehin gegenseitig ausbremsen.
     """
 
-    def __init__(self, settings_getter: Any, on_run: Any = None, paused: Any = None) -> None:
+    def __init__(self, settings_getter: Any, on_run: Any = None, paused: Any = None,
+                 on_abuse: Any = None) -> None:
         self._settings_getter = settings_getter
         self._on_run = on_run
+        #: Meldet Missbrauch aus einem Auftrag an Ai-guard (9.5.26).
+        self._on_abuse = on_abuse
         #: Liefert True, solange nichts laufen darf -- etwa waehrend eine
         #: Ai-guard-Sperre gilt (9.5.24). Die Auftraege bleiben liegen.
         self._paused = paused
@@ -782,7 +796,10 @@ class Scheduler:
             if not claim_run(settings.db_path, job.id):
                 continue  # laeuft gerade ueber "Jetzt" -- nicht ein zweites Mal
             try:
-                state, chat = run_job(job, settings)
+                if self._on_abuse is not None:
+                    state, chat = run_job(job, settings, on_abuse=self._on_abuse)
+                else:
+                    state, chat = run_job(job, settings)
             except Exception as exc:
                 state, chat = (f"Fehler: {type(exc).__name__}", "")
             finally:

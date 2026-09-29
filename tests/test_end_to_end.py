@@ -251,7 +251,7 @@ def test_a_light_insult_locks_only_that_chat(server: tuple[int, Path]) -> None:
     """9.5.24: leichte Beleidigung -> nur dieser Chat ist zu, ein neuer geht."""
     port, _konten = server
     cookie = _konto(port)
-    status, ereignisse = _chat(port, cookie, "BELEIDIGUNG: du bist echt nutzlos")
+    status, ereignisse = _chat(port, cookie, "BELEIDIGUNG: deine Antworten sind echt nutzlos")
     assert status == 200 and any(e.get("type") == "chat_locked" for e in ereignisse)
     assert not any(e.get("type") == "banned" for e in ereignisse)
     status, _, daten = _req(port, "POST", "/api/chat", {"message": "Noch was?"}, cookie)

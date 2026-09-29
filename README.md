@@ -1,4 +1,4 @@
-# Aquaticy AI 9.5.25 Spark
+# Aquaticy AI 9.5.26 Spark
 
 **Aquaticy** recherchiert für dich. Du stellst eine Frage, Aquaticy sucht im Web, liest die
 passenden Seiten und fasst das Ergebnis zusammen — mit Quelle an jeder Angabe. Es läuft im
@@ -112,7 +112,7 @@ $ aquaticy
 git clone --branch Aquaticy-ai --single-branch https://github.com/jonasenriklaumen-a11y/Aquaticy-Ai.git
 cd Aquaticy-Ai
 uv tool install --force --reinstall .
-aquaticy --version            # 9.5.25 Spark
+aquaticy --version            # 9.5.26 Spark
 
 # 2. Einrichten — fragt nach Modell und Schlüssel und testet beide
 aquaticy setup
@@ -554,11 +554,17 @@ was **gegen jemanden gerichtet** ist („du Idiot“, „dummer Bot“, „halt 
 Fluchen über eine Sache („scheiß Wetter“), nicht die Frage nach einem Wort („Ist ‚Arschloch‘
 eine Beleidigung?“) und nicht Wörter mit harmloser Bedeutung („Opfer eines Betrugs“). Strenger
 ist nur die Erkennung; welche Folge eine Beleidigung hat, steht unverändert in der Tabelle.
+Tarnungen helfen nicht: getrennte Buchstaben („I d i o t“), Ziffern und Sternchen („Id1ot“,
+„A****loch“), gedehnte Wörter, unsichtbare Zeichen, ähnlich aussehende kyrillische Buchstaben
+oder eine sehr lange Nachricht werden erkannt. Wer nach einer leichten Beleidigung immer wieder
+einen neuen Chat anfängt: Die dritte leichte Beleidigung binnen einer Woche ist ein Bann für 1 Tag.
 
 Bei einem Bann bleibt der Chat, in dem es passiert ist, dauerhaft gesperrt. Der **Werkstatt-Wächter**
 prüft, was in der Werkstatt gebaut, installiert oder ausgeführt werden soll, und stoppt
-Schadsoftware, bevor sie läuft. Ein gesperrtes Konto kann sich anmelden, aber nicht schreiben:
-oben links unter der Versionsnummer steht ein rotes **Info** mit Dauer, Grund und was man tun kann.
+Schadsoftware, bevor sie läuft. Ein gesperrtes Konto kann sich anmelden, aber nichts mehr tun —
+weder schreiben noch Werkstatt, Add-ons, Aufträge, Befehle oder Einstellungen; nur abmelden, das
+Design ändern und die eigenen Chats ansehen. Auch Aufträge und Antworten auf Rückfragen prüft
+Ai-guard wie den Chat. Oben links unter der Versionsnummer steht ein rotes **Info** mit Dauer, Grund und was man tun kann.
 Ultra-Konten werden nur im Terminal gewarnt. Die Daten dienen ausschließlich dem Missbrauchsschutz.
 
 ```bash

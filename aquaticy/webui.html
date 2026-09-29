@@ -2037,7 +2037,7 @@ input:focus,select:focus{border-color:var(--accent)}
 const $ = (s) => document.querySelector(s);
 const thread = $("#thread"), main = $("#main"), input = $("#input"), send = $("#send");
 let busy = false;
-const aquaticyVersion = window.__AQUATICY_VERSION__ || "9.5.25 Spark";
+const aquaticyVersion = window.__AQUATICY_VERSION__ || "9.5.26 Spark";
 $("#version").textContent = "v" + aquaticyVersion;
 document.title = `Aquaticy AI ${aquaticyVersion}`;
 
@@ -2858,10 +2858,18 @@ async function finishAsk(text, quiet){
   }
   if (quiet) return;
   try {
-    await api("/api/answer", {
+    const res = await api("/api/answer", {
       method: "POST", headers: {"Content-Type": "application/json"},
       body: JSON.stringify({ text }),
     });
+    if (!res.ok){
+      // Ai-guard (9.5.26): auch eine Rueckfrage-Antwort kann gesperrt werden --
+      // dann sagen, warum, statt still zu warten.
+      let daten = {};
+      try { daten = await res.json(); } catch {}
+      toast(daten.error || "Die Antwort kam nicht an. Versuch es gleich noch einmal.");
+      if (daten.code === "banned") pruefeSperre();
+    }
   } catch { toast("Die Antwort kam nicht an. Versuch es gleich noch einmal."); }
   input.focus();
 }
