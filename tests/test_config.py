@@ -337,7 +337,7 @@ def test_an_explicit_parallelism_is_never_exceeded() -> None:
 
 
 # ---------------------------------------------------------------------------
-# Werkstatt-Groesse: normal oder plus
+# Groesse der virtual machine: normal oder plus
 # ---------------------------------------------------------------------------
 def test_the_default_size_matches_the_old_fixed_numbers(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path

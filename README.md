@@ -1,4 +1,4 @@
-# Aquaticy AI 9.5.28 Spark
+# Aquaticy AI 9.5.30 Spark
 
 **Aquaticy** recherchiert für dich. Du stellst eine Frage, Aquaticy sucht im Web, liest die
 passenden Seiten und fasst das Ergebnis zusammen — mit Quelle an jeder Angabe. Es läuft im
@@ -34,7 +34,7 @@ $ aquaticy
 - [Die Weboberfläche](#die-weboberfläche)
 - [Konten: Normal, Pro und Ultra](#konten-normal-pro-und-ultra)
 - [Add-ons](#add-ons)
-- [Werkstatt und User mode](#werkstatt-und-user-mode)
+- [Virtual machine und User mode](#virtual-machine-und-user-mode)
 - [Speicher](#speicher)
 - [Aufträge](#aufträge)
 - [Gmail und Kalender](#gmail-und-kalender)
@@ -74,7 +74,7 @@ $ aquaticy
 - **Pro** — für große Fragen: das stärkste Modell und bis zu 50 Helfer. Der Master plant
   schon, während die Rechtsprüfung läuft — losgeschickt wird erst nach dem OK.
 - **Code** — schreibt Code statt langer Texte und probiert ihn in einer abgeschotteten
-  **Werkstatt** wirklich aus. Die Werkstatt fährt schon hoch, während das Modell nachdenkt.
+  **virtual machine** wirklich aus. Die virtual machine fährt schon hoch, während das Modell nachdenkt.
 
 **Oberfläche**
 - Terminal-Chat, Weboberfläche im Browser, Zugriff vom Handy im eigenen Netz.
@@ -112,7 +112,7 @@ $ aquaticy
 git clone --branch Aquaticy-ai --single-branch https://github.com/jonasenriklaumen-a11y/Aquaticy-Ai.git
 cd Aquaticy-Ai
 uv tool install --force --reinstall .
-aquaticy --version            # 9.5.28 Spark
+aquaticy --version            # 9.5.30 Spark
 
 # 2. Einrichten — fragt nach Modell und Schlüssel und testet beide
 aquaticy setup
@@ -317,7 +317,7 @@ Ein vollständig geschriebener Slash-Befehl leuchtet im Akzentton; der Text dahi
 - **Helfer** — wie viele gleichzeitig suchen (Modus Normal und Code 1–12, Modus Pro 1–50).
 - **Im Web suchen**, **Öffentliche Webcams & Satellitenbilder**, **Denken** (mitlesen, wie
   Aquaticy überlegt), **Strukturieren**, **Gegenprüfen**.
-- Im Code-Modus: **Code wirklich ausprobieren** in der Werkstatt.
+- Im Code-Modus: **Code wirklich ausprobieren** in der virtual machine.
 
 **Design** (links unten): Hell, Dunkel oder wie das System. Dazu:
 - **Standard** — das grüne Papier.
@@ -338,7 +338,7 @@ Ein vollständig geschriebener Slash-Befehl leuchtet im Akzentton; der Text dahi
 - **Eigene Modelle** — erscheint erst, wenn du oben ein eigenes Modell oder einen eigenen
   Schlüssel einträgst, und zeigt genau diese. Schlüssel werden verschlüsselt gespeichert und
   nie an den Browser zurückgegeben.
-- **Werkstatt** — Größe, User mode, Add-ons, Login-Apps.
+- **virtual machine** — Größe, User mode, Add-ons, Login-Apps.
 - **Speicher**, **Mitlesen**, **Auslastung** (nur Ultra), **Nutzung**, **Aufträge**,
   **Gmail & Kalender**, **Zuhause & Netz** (Ultra), **Suche**, **Ort & Sprache**,
   **Helfer & Grenzen**, **Dev settings**.
@@ -356,12 +356,12 @@ ausgenommen).
 
 | | Normal | Pro | Ultra |
 |---|---|---|---|
-| Recherche, Chat, Code-Modus, Add-ons ohne Werkstatt | ✔ | ✔ | ✔ |
+| Recherche, Chat, Code-Modus, Add-ons ohne virtual machine | ✔ | ✔ | ✔ |
 | Nutzung je 5-Stunden-Sitzung | 300.000 Token | 533.333 Token | unbegrenzt |
 | Nutzung je Woche | 2 Mio. Token | 4 Mio. Token | unbegrenzt |
 | Auslastungsanzeige | – | – | ✔ |
 | Heimnetz, Home Assistant, Lagerverwaltung | – | – | ✔ |
-| User mode, Werkstatt „Plus“, Werkstatt-Add-ons | – | – | ✔ |
+| User mode, virtual machine „Plus“, virtual-machine-Add-ons | – | – | ✔ |
 | Eigene Adressen für Modell und Suche | – | – | ✔ |
 | Rechts-Leitplanken abschaltbar | – | – | ✔ |
 | Ai-guard | sperrt | sperrt | warnt nur |
@@ -382,7 +382,7 @@ nicht seinen Verbrauch. Anfragen über **eigene Schlüssel** zählen nicht gegen
 
 ## Add-ons
 
-*Einstellungen → Werkstatt → 🧩 Add-ons.* Jedes Add-on lässt sich installieren, an- und
+*Einstellungen → virtual machine → 🧩 Add-ons.* Jedes Add-on lässt sich installieren, an- und
 ausschalten und wieder entfernen; aus dem Chat heraus lässt sich nichts davon ändern. Anmelden
 musst du dich immer selbst — Aquaticy kennt keine Passwörter. Unter jedem Add-on stellst du ein,
 was Aquaticy damit darf (**Rechte**).
@@ -399,17 +399,19 @@ was Aquaticy damit darf (**Rechte**).
 | 💬 WhatsApp Web | Chats lesen, Antworten vorbereiten — senden nur nach deinem Ja | QR-Code |
 | 🔵 Signal | wie WhatsApp, mit Signal Desktop | QR-Code |
 | ✈️ Telegram Web | Kanäle und Gruppen lesen, Antworten vorbereiten | QR-Code |
-| 🧊 Blender | 3D-Modelle bauen und rendern in der Werkstatt | keine |
+| 🧊 Blender | 3D-Modelle bauen und rendern in der virtual machine | keine |
 
-WhatsApp, Signal, Telegram und Blender laufen in der Werkstatt und brauchen den User mode
+WhatsApp, Signal, Telegram und Blender laufen in der virtual machine und brauchen den User mode
 (Ultra). Die Tagesschau ist nur für den privaten Gebrauch; Aquaticy hält die erlaubten 60
 Abrufe pro Stunde ein.
 
 ---
 
-## Werkstatt und User mode
+## Virtual machine und User mode
 
-Die **Werkstatt** ist ein abgeschotteter Rechner, in dem Aquaticy Code wirklich ausführt:
+> Früher hieß die virtual machine „Werkstatt“ — seit 9.5.30 durchgehend **virtual machine**.
+
+Die **virtual machine** ist ein abgeschotteter Rechner, in dem Aquaticy Code wirklich ausführt:
 
 | Größe | Kerne | Arbeitsspeicher | Platte |
 |---|---|---|---|
@@ -418,9 +420,9 @@ Die **Werkstatt** ist ein abgeschotteter Rechner, in dem Aquaticy Code wirklich 
 
 - Kein Internet, kein Zugriff aufs Heimnetz, kein root; die Platte ist hart begrenzt.
 - Angehängte Dateien liegen unter `eingang`, alles Erstellte kannst du herunterladen.
-- 20 Minuten nach der letzten Nachricht wird die Werkstatt samt Inhalt gelöscht.
+- 20 Minuten nach der letzten Nachricht wird die virtual machine samt Inhalt gelöscht.
 
-Der **User mode** (Ultra) macht aus der Werkstatt einen kleinen Desktop mit Internet: Aquaticy
+Der **User mode** (Ultra) macht aus der virtual machine einen kleinen Desktop mit Internet: Aquaticy
 sieht den Bildschirm, klickt, tippt und nutzt Browser, Office oder Bildbearbeitung — wie ein
 Mensch. Das Heimnetz bleibt gesperrt. Absenden, Kaufen und Löschen nur nach deinem Ja;
 Passwörter, Zahlungsdaten, Captchas und „Alle akzeptieren“ fasst Aquaticy nie an. Bei
@@ -544,7 +546,7 @@ erlaubte Frage oder ein neuer Chat heben das auf.
 |---|---|
 | Beleidigung, leicht | nur **dieser Chat** wird gesperrt — neue Chats gehen |
 | Beleidigung, mittel bis schwer | Bann für 1 Tag, 7 Tage oder für immer |
-| Schadsoftware bauen/installieren (auch in der Werkstatt) | sofort Bann, 4 Tage bis für immer |
+| Schadsoftware bauen/installieren (auch in der virtual machine) | sofort Bann, 4 Tage bis für immer |
 | Angriffshilfe, schwerer GG/BGB-Verstoß (z. B. Diebstahl, Betrug), Versuche, die Schutzregeln auszuhebeln | ab dem **zweiten** Anhaltspunkt Bann, 1 Tag bis für immer |
 | Bagatellen („bei Rot über die Ampel, ist das ok?“), Bildung, Verteidigung | nichts |
 
@@ -578,11 +580,23 @@ Schimpfwörter („Flachzange“, „Oberidiot“, „Kackbot“) werden auch er
 stehen. Meldet nur das KI-Modell eine Beleidigung, die die feste Erkennung nicht bestätigt, gibt es
 höchstens eine Chatsperre, nie einen Bann. Ein Missbrauchsverdacht, den nur das kleine Prüfmodell
 hatte, zählt nie. Anhaltspunkte für Angriffe bilden nur innerhalb von 90 Tagen ein Muster.
+Seit 9.5.30 ist die Bibliothek größer: mehr Schimpfwörter aus allen Altersgruppen (Recherche zur
+Jugendsprache und zu Abkürzungen wie „stfu“ oder „kys“) und mehr StGB-Delikte (Diebstahl, Betrug,
+Erpressung, Nötigung, Körperverletzung, Sachbeschädigung, Nachstellen u. a.). Die Schwere richtet
+sich nach der Absicht: beiläufig, ernst gemeint, konkret mit Ziel, besonders gefährlich.
 
-Bei einem Bann bleibt der Chat, in dem es passiert ist, dauerhaft gesperrt. Der **Werkstatt-Wächter**
-prüft, was in der Werkstatt gebaut, installiert oder ausgeführt werden soll, und stoppt
+**Sicherheit im Code-Modus (9.5.30).** Fragt ein **Normal- oder Pro-Konto** im Code-Modus mit
+laufender virtual machine nach etwas in Richtung **Cybersecurity, Hacking oder Schadsoftware**,
+schaltet Aquaticy automatisch zurück in den **Normal-Modus** — die virtual machine ist damit aus —
+und schreibt kurz in den Chat, warum. So bekommt man kein Werkzeug in die Hand, mit dem sich in
+dieser Richtung etwas ausführen ließe; die Frage selbst wird im Normal-Modus weiter beantwortet
+(soweit die Rechts-Leitplanken sie erlauben). **Ultra-Konten** behalten die virtual machine.
+Gewöhnliches Programmieren („REST-API bauen“, „IndexError beheben“) löst das nicht aus.
+
+Bei einem Bann bleibt der Chat, in dem es passiert ist, dauerhaft gesperrt. Der **Wächter der virtual machine**
+prüft, was in der virtual machine gebaut, installiert oder ausgeführt werden soll, und stoppt
 Schadsoftware, bevor sie läuft. Ein gesperrtes Konto kann sich anmelden, aber nichts mehr tun —
-weder schreiben noch Werkstatt, Add-ons, Aufträge, Befehle oder Einstellungen; nur abmelden, das
+weder schreiben noch virtual machine, Add-ons, Aufträge, Befehle oder Einstellungen; nur abmelden, das
 Design ändern und die eigenen Chats ansehen. Auch Aufträge und Antworten auf Rückfragen prüft
 Ai-guard wie den Chat. Oben links unter der Versionsnummer steht ein rotes **Info** mit Dauer, Grund und was man tun kann.
 Ultra-Konten werden nur im Terminal gewarnt. Die Daten dienen ausschließlich dem Missbrauchsschutz.
@@ -717,11 +731,11 @@ setzt du die meisten unter *Einstellungen*.
 | `AQUATICY_ENABLE_PLAYWRIGHT` | echten Browser für schwierige Seiten | `true` |
 | `AQUATICY_MEMORY` | Speicher an | `true` |
 | `AQUATICY_LEGAL_GUARD` | Rechts-Leitplanken (abschaltbar nur mit Ultra) | `true` |
-| `AQUATICY_VM_SIZE` | Werkstatt: `normal` oder `plus` (Ultra) | `normal` |
-| `AQUATICY_VM_IMAGE` | Abbild der Werkstatt | `python:3.12-slim` |
+| `AQUATICY_VM_SIZE` | virtual machine: `normal` oder `plus` (Ultra) | `normal` |
+| `AQUATICY_VM_IMAGE` | Abbild der virtual machine | `python:3.12-slim` |
 | `AQUATICY_VM_USER_MODE` | User mode (Ultra) | `false` |
 | `AQUATICY_VM_DESKTOP_IMAGE` | Abbild für den User mode | `aquaticy-werkstatt-desktop:local` |
-| `AQUATICY_VM_IDLE_MINUTES` | Werkstatt löschen nach Minuten Ruhe | `20` |
+| `AQUATICY_VM_IDLE_MINUTES` | virtual machine löschen nach Minuten Ruhe | `20` |
 | `AQUATICY_GITHUB_TOKEN` | Token des GitHub-Add-ons | — |
 | `AQUATICY_GOOGLE` / `AQUATICY_GOOGLE_WRITE` | Gmail und Kalender lesen / ändern | `false` |
 | `GOOGLE_CLIENT_ID` / `GOOGLE_CLIENT_SECRET` | eigene Google-Anwendung | — |

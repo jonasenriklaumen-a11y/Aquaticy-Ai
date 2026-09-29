@@ -125,7 +125,7 @@ class ChatRenderer:
         self._flush_reading()
         self.console.print(
             Text.assemble(
-                ("  [Werkstatt] ", "bold cyan"), ("Internet an, Heimnetz gesperrt", "white")
+                ("  [virtual machine] ", "bold cyan"), ("Internet an, Heimnetz gesperrt", "white")
             )
         )
 
@@ -150,7 +150,7 @@ class ChatRenderer:
                                           "(liegt im Datenordner unter media/)", "white")))
 
     def _on_desktop(self, payload: dict[str, Any]) -> None:
-        """Was Aquaticy im User mode auf dem Desktop der Werkstatt tut."""
+        """Was Aquaticy im User mode auf dem Desktop der virtual machine tut."""
         self._flush_reading()
         aktion = str(payload.get("action", ""))
         warnung = aktion in ("abgelehnt", "nicht bestaetigt")

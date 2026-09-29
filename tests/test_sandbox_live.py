@@ -1,8 +1,8 @@
-"""Die Werkstatt des Code-Modus in einem echten Behaelter -- nur, wo es Docker gibt.
+"""Die virtual machine des Code-Modus in einem echten Behaelter -- nur, wo es Docker gibt.
 
 Bis 9.5.12 gab es dafuer keinen echten Lauf, nur Befehlszeilen-Tests. Genau
 dadurch fiel nicht auf, dass Docker 29 den Arbeitsordner beim ersten
-Einhaengen wieder root gab: die Werkstatt startete, rechnete, antwortete --
+Einhaengen wieder root gab: die virtual machine startete, rechnete, antwortete --
 und konnte keine einzige Datei schreiben. Dieser Test startet wirklich und
 schreibt wirklich.
 """
@@ -32,7 +32,7 @@ def _bereit() -> bool:
 
 
 pytestmark = pytest.mark.skipif(
-    not _bereit(), reason="kein Docker-Dienst oder kein Werkstatt-Abbild vorhanden"
+    not _bereit(), reason="kein Docker-Dienst oder kein Abbild der virtual machine vorhanden"
 )
 
 

@@ -663,7 +663,7 @@ def test_every_run_is_found_by_its_id() -> None:
     assert len(buch._runs) == buch.KEEP
 
 
-# -- Werkstatt: harte Platzgrenze auch ohne Quote der Laufzeit -----------------------------
+# -- virtual machine: harte Platzgrenze auch ohne Quote der Laufzeit -----------------------------
 import subprocess as _subprocess  # noqa: E402
 
 from aquaticy import sandbox as werkstatt  # noqa: E402

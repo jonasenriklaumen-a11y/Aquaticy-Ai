@@ -8,7 +8,7 @@ Zwei Waende uebereinander:
    und der Weg nach draussen ins Netz. Kein Heimverzeichnis, keine Geraete,
    keine Wurzelrechte.
 
-2. **Die innere Kiste.** Die Werkstatt, in der der Code-Modus fremden Code
+2. **Die innere Kiste.** Die virtual machine, in der der Code-Modus fremden Code
    ausfuehrt, laeuft noch einmal in einem eigenen Container INNERHALB der
    aeusseren. Ein Ausbruch von dort landet also nicht auf dem Rechner,
    sondern in der aeusseren Kiste -- und die hat selbst kaum etwas.
@@ -18,10 +18,10 @@ Kiste, die sich selbst einsperrt, waere ein Widerspruch. Was hier als
 `Loch` gemeldet wird, gehoert in die Startdatei, nicht in den Programmlauf.
 
 **Warum der Docker-Socket des Wirts nie hineingereicht wird.** Das ist der
-uebliche Kurzweg, damit die Werkstatt drinnen Container starten kann -- und
+uebliche Kurzweg, damit die virtual machine drinnen Container starten kann -- und
 er hebt die ganze aeussere Wand auf: wer den Socket erreicht, startet auf
 dem Wirt einen Container mit dessen Wurzelverzeichnis und ist damit root.
-Die Werkstatt bekommt deshalb eine eigene, wurzellose Laufzeit im Inneren.
+Die virtual machine bekommt deshalb eine eigene, wurzellose Laufzeit im Inneren.
 """
 
 from __future__ import annotations
@@ -67,7 +67,7 @@ class Posture:
 
     @property
     def workshop_possible(self) -> bool:
-        """Kann der Code-Modus ueberhaupt eine Werkstatt aufmachen?"""
+        """Kann der Code-Modus ueberhaupt eine virtual machine aufmachen?"""
         return bool(self.nested)
 
 
@@ -106,7 +106,7 @@ def in_a_box() -> bool:
 
 
 def nested_runtime() -> str:
-    """Die Laufzeit, mit der drinnen eine Werkstatt aufgemacht werden kann."""
+    """Die Laufzeit, mit der drinnen eine virtual machine aufgemacht werden kann."""
     for name in NESTED_RUNTIMES:
         try:
             gefunden = shutil.which(name)
@@ -147,10 +147,10 @@ def posture() -> Posture:
         offen.append("Datenordner und Ausgabeordner")
     innen = nested_runtime()
     if innen:
-        offen.append(f"innere Kiste fuer die Werkstatt ({innen})")
+        offen.append(f"innere Kiste fuer die virtual machine ({innen})")
 
     # Nur in der Kiste ist der Sockel ein Loch. Auf dem eigenen Rechner ist
-    # er normal -- die Werkstatt braucht ihn sogar. Bis 9.5.12 stand dort
+    # er normal -- die virtual machine braucht ihn sogar. Bis 9.5.12 stand dort
     # trotzdem ein rotes LOCH, und `aquaticy sandbox` endete mit Fehlercode.
     for pfad in reachable_host_sockets() if boxed else ():
         loecher.append(
@@ -185,10 +185,10 @@ def describe(stand: Posture | None = None) -> list[str]:
             "Mit ./aquaticy-sandbox startet es eingeschlossen."
         )
     if stand.nested:
-        zeilen.append(f"Werkstatt: innere Kiste ueber {stand.nested} moeglich.")
+        zeilen.append(f"virtual machine: innere Kiste ueber {stand.nested} moeglich.")
     else:
         zeilen.append(
-            "Werkstatt: keine Laufzeit fuer die innere Kiste gefunden -- "
+            "virtual machine: keine Laufzeit fuer die innere Kiste gefunden -- "
             "der Code-Modus fuehrt dann nichts aus."
         )
     zeilen.extend(f"offen: {eintrag}" for eintrag in stand.openings)

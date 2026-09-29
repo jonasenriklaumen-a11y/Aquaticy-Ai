@@ -9,7 +9,7 @@ Was hier festgehalten wird:
   die das Konto selbst eingetragen hat), nie an einen Server des Betreibers.
   Ein Schluessel des Betreibers geht nie an eine Adresse des Kontos.
 * Modelle mit eigenem Schluessel zaehlen nicht ins Kontingent. Was auf dem
-  Server arbeitet -- Werkstatt, Seitenabrufe, Suchen --, zaehlt immer.
+  Server arbeitet -- virtual machine, Seitenabrufe, Suchen --, zaehlt immer.
 * Die Modelle eines eigenen Schluessels sieht nur dieses Konto.
 """
 

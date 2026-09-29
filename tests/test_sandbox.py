@@ -1,4 +1,4 @@
-"""Tests fuer die Werkstatt.
+"""Tests fuer die virtual machine.
 
 Ein echter Behaelter laeuft hier nicht -- in der Pruefkette gibt es weder
 Docker noch Podman, und ein Test, der ein Abbild aus dem Netz zieht, waere
@@ -96,7 +96,7 @@ def test_nothing_of_the_computer_goes_in(box: tuple[werkstatt.Sandbox, FakeRun])
     erlaubt = {"HOME", "PATH", "LANG", "PYTHONDONTWRITEBYTECODE"}
     for eintrag in umgebung:
         name = eintrag.split("=", 1)[0]
-        assert name in erlaubt, f"{name} hat in der Werkstatt nichts zu suchen"
+        assert name in erlaubt, f"{name} hat in der virtual machine nichts zu suchen"
 
 
 def test_the_strongest_runtime_wins(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -108,7 +108,7 @@ def test_the_strongest_runtime_wins(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(werkstatt, "_works", lambda binary: binary in vorhanden)
     monkeypatch.setattr(werkstatt, "_has_gvisor", lambda binary: "gvisor" in vorhanden)
 
-    assert werkstatt.find_runtime() is None, "ohne Laufzeit gibt es keine Werkstatt"
+    assert werkstatt.find_runtime() is None, "ohne Laufzeit gibt es keine virtual machine"
 
     vorhanden = {"docker"}
     gefunden = werkstatt.find_runtime()
@@ -245,11 +245,11 @@ def test_the_clock_starts_over_with_every_use(box: tuple[werkstatt.Sandbox, Fake
     assert sandkasten._timer is not erster, "die Uhr wird neu gestellt"
     assert sandkasten._timer is not None
     sandkasten.stop("Test")
-    assert sandkasten._timer is None, "ohne Werkstatt keine Uhr"
+    assert sandkasten._timer is None, "ohne virtual machine keine Uhr"
 
 
 def test_a_failed_start_leaves_nothing_standing(monkeypatch: pytest.MonkeyPatch) -> None:
-    """Halbe Werkstatt ist schlimmer als keine."""
+    """Halbe virtual machine ist schlimmer als keine."""
     fake = FakeRun({"run": (1, "", "kein Abbild")})
     monkeypatch.setattr(subprocess, "run", fake)
     sandkasten = werkstatt.Sandbox()
@@ -277,7 +277,7 @@ def test_forgotten_workshops_are_swept(monkeypatch: pytest.MonkeyPatch) -> None:
 # Dateien hinein und heraus
 # ---------------------------------------------------------------------------
 def _laufende(monkeypatch: pytest.MonkeyPatch) -> werkstatt.Sandbox:
-    """Eine Werkstatt, die sich fuer laufend haelt -- ohne echten Behaelter."""
+    """Eine virtual machine, die sich fuer laufend haelt -- ohne echten Behaelter."""
     sandkasten = werkstatt.Sandbox(image="python:3.12-slim")
     sandkasten.runtime = werkstatt.Runtime("docker", "docker", "Docker (gehaertet)")
     sandkasten._name = "aquaticy-werkstatt-test"
@@ -486,7 +486,7 @@ def test_an_incomplete_lock_means_no_user_mode(monkeypatch: pytest.MonkeyPatch, 
         sandkasten.ensure()
     assert not sandkasten.alive
     assert any("rm" in aufruf and "--force" in aufruf for aufruf in fake.aufrufe), (
-        "die offene Werkstatt wird sofort wieder abgebaut"
+        "die offene virtual machine wird sofort wieder abgebaut"
     )
 
 
@@ -607,7 +607,7 @@ def test_a_restart_without_the_lock_takes_the_workshop_down(
     fake.regeln = "-P OUTPUT ACCEPT\n"  # nach dem Neustart fehlt die Sperre
     monkeypatch.setattr(werkstatt, "_runs_capped", _zu_lang(fake))
     sandkasten.run("sleep 999", timeout=1)
-    assert not sandkasten.alive, "eine offene Werkstatt ist schlimmer als keine"
+    assert not sandkasten.alive, "eine offene virtual machine ist schlimmer als keine"
 
 
 def test_a_look_from_outside_starts_no_workshop(monkeypatch: pytest.MonkeyPatch) -> None:

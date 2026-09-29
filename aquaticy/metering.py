@@ -19,7 +19,7 @@ Jetzt gilt:
   und vor so einem Aufruf wird auch nicht geprueft. Gestellte Modelle (mit
   dem Schluessel des Betreibers, oder lokal wie Ollama auf dem Server)
   zaehlen wie immer.
-* **Serverarbeit zaehlt immer.** Was auf dem Server passiert -- Werkstatt,
+* **Serverarbeit zaehlt immer.** Was auf dem Server passiert -- virtual machine,
   Seitenabrufe, Suchen, Handlungen im User mode --, kostet den Server, egal
   mit wessen Schluessel das Modell laeuft. Sie wird in Token umgerechnet
   (``WORK_COSTS``), damit sie in dasselbe Kontingent passt.
@@ -87,9 +87,9 @@ IMAGE_TOKENS = 5_000
 #: Was Arbeit auf dem Server kostet -- in Token gerechnet, damit sie mit den
 #: Modellaufrufen in dasselbe Kontingent passt. (Einheit, Token je Einheit)
 WORK_COSTS: dict[str, tuple[str, int]] = {
-    "werkstatt": ("je angefangene Sekunde Rechenzeit in der Werkstatt", 150),
-    "werkstatt_start": ("je Start einer Werkstatt", 750),
-    "datei": ("je Datei, die in die Werkstatt geht oder aus ihr kommt", 50),
+    "werkstatt": ("je angefangene Sekunde Rechenzeit in der virtual machine", 150),
+    "werkstatt_start": ("je Start einer virtual machine", 750),
+    "datei": ("je Datei, die in die virtual machine geht oder aus ihr kommt", 50),
     "seite": ("je abgerufene Webseite", 100),
     "suche": ("je Suchanfrage", 50),
     "desktop": ("je Handlung im User mode (sehen, klicken, tippen)", 100),

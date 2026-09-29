@@ -1480,7 +1480,7 @@ def test_the_platform_list_stays_short() -> None:
 
 
 # ---------------------------------------------------------------------------
-# Werkstatt-Werkzeuge: Zahlen, die zur Groesse passen
+# Werkzeuge der virtual machine: Zahlen, die zur Groesse passen
 # ---------------------------------------------------------------------------
 def test_vm_schemas_carry_the_real_numbers() -> None:
     from aquaticy.tools import vm_schemas_for

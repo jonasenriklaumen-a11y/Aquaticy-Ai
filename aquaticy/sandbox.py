@@ -1,4 +1,4 @@
-"""Die Werkstatt: eine Wegwerf-Maschine, in der Aquaticy Code ausfuehren darf.
+"""Die virtual machine: eine Wegwerf-Maschine, in der Aquaticy Code ausfuehren darf.
 
 Im Code-Modus laesst sich eine abgeschottete Umgebung zuschalten. Darin darf
 Aquaticy alles -- Dateien anlegen, Programme starten, Tests laufen lassen --,
@@ -24,7 +24,7 @@ heraus. Die drei belastbaren Stufen sind, von stark nach schwach:
 
 Aquaticy nimmt, was da ist, in genau dieser Reihenfolge, und faellt niemals auf
 "dann eben direkt auf dem Rechner" zurueck. Ist keine der Stufen vorhanden,
-gibt es die Werkstatt nicht, und das Werkzeug sagt, was zu installieren ist.
+gibt es die virtual machine nicht, und das Werkzeug sagt, was zu installieren ist.
 
 **Womit die Wand zusaetzlich gehaertet wird** -- jede Zeile hat einen Grund:
 
@@ -41,15 +41,15 @@ gibt es die Werkstatt nicht, und das Werkzeug sagt, was zu installieren ist.
 * `--memory`, `--cpus`, `--pids-limit`, `--ulimit` -- eine Endlosschleife, eine
   Gabelbombe oder ein Speicherfresser bringt den Rechner nicht in die Knie.
 * Keine Umgebungsvariablen von aussen. Die Schluessel des Nutzers haben in der
-  Werkstatt nichts zu suchen, und sie kommen auch nicht hinein.
+  virtual machine nichts zu suchen, und sie kommen auch nicht hinein.
 * Kein Verzeichnis des Rechners wird hineingereicht. Dateien gehen nur durch
   das Werkzeug hinein und heraus, ueber die Standardeingabe des Prozesses.
 
 **Was danach uebrig bleibt: nichts.** Zwanzig Minuten nach der letzten Nutzung
 werden Behaelter und Datentraeger geloescht. Beim naechsten Mal entsteht eine
-neue, leere Werkstatt. Auch beim Beenden des Programms wird aufgeraeumt.
+neue, leere virtual machine. Auch beim Beenden des Programms wird aufgeraeumt.
 
-**User mode.** Auf Wunsch (Einstellungen -> Werkstatt) wird die Werkstatt ein
+**User mode.** Auf Wunsch (Einstellungen -> virtual machine) wird die virtual machine ein
 kleiner Desktop, den Aquaticy bedient wie ein Mensch: Bildschirm ansehen,
 klicken, tippen, Programme oeffnen (siehe aquaticy/desktop.py). Dafuer
 aendert sich genau zweierlei, und beides ist hier begruendet:
@@ -60,7 +60,7 @@ aendert sich genau zweierlei, und beides ist hier begruendet:
   Faehigkeit `NET_ADMIN`. Alles andere laeuft weiter als unprivilegierter
   Nutzer ohne jede Faehigkeit -- die Sperre kann von drinnen niemand aendern.
   Aquaticy liest die Regeln danach selbst nach. Fehlt auch nur ein Bereich,
-  wird die Werkstatt sofort wieder abgebaut: ohne Sperre kein User mode.
+  wird die virtual machine sofort wieder abgebaut: ohne Sperre kein User mode.
 * Mehr Prozesse und offene Dateien, ein Aufraeumer (`tini`) als erster
   Prozess und ein beschreibbares `/run` -- ein Browser ist kein Skript.
 
@@ -84,7 +84,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
-#: Wie lange die Werkstatt nach der letzten Nutzung stehen bleibt.
+#: Wie lange die virtual machine nach der letzten Nutzung stehen bleibt.
 IDLE_MINUTES = 20
 
 #: Grenzen. Ein Kern, ein Gigabyte Arbeitsspeicher, vier Gigabyte Platte.
@@ -92,7 +92,7 @@ CPUS = 1
 MEMORY_MB = 1024
 DISK_GB = 4
 
-#: Zwei Groessen fuer die Werkstatt, waehlbar in den Einstellungen
+#: Zwei Groessen fuer die virtual machine, waehlbar in den Einstellungen
 #: (AQUATICY_VM_SIZE). "normal" ist der Alltag -- ein Skript schreiben,
 #: ausfuehren, die Ausgabe lesen. "plus" gibt es fuer alles, was mehr
 #: Rechenleistung braucht: ein Blender-Rendering zum Beispiel bringt mit
@@ -135,7 +135,7 @@ MAX_LIST = 500
 #: Das Abbild. Klein, mit Python und den ueblichen Werkzeugen.
 DEFAULT_IMAGE = "python:3.12-slim"
 
-#: Das Arbeitsverzeichnis in der Werkstatt. Nur hier darf geschrieben werden.
+#: Das Arbeitsverzeichnis in der virtual machine. Nur hier darf geschrieben werden.
 WORKDIR = "/work"
 
 #: Die Kennung, unter der drinnen gearbeitet wird -- nicht root.
@@ -150,7 +150,7 @@ DESKTOP_IMAGE = "aquaticy-werkstatt-desktop:local"
 DESKTOP_PID_LIMIT = 1024
 DESKTOP_FILE_LIMIT = 4096
 
-#: Der Bildschirm in der Werkstatt.
+#: Der Bildschirm in der virtual machine.
 DISPLAY = ":1"
 
 #: Die Hilfsprogramme im Desktop-Abbild.
@@ -159,7 +159,7 @@ NETWORK_SCRIPT = "/usr/local/sbin/aquaticy-netz"
 
 #: Diese Bereiche muessen in der Netzsperre stehen, sonst gilt sie als nicht
 #: eingerichtet: das Heimnetz (RFC 1918), Tailscale/CGNAT, Loopback und
-#: Link-Local. Die Werkstatt kaeme sonst an Router, Home Assistant und Lager.
+#: Link-Local. Die virtual machine kaeme sonst an Router, Home Assistant und Lager.
 BLOCKED_RANGES = (
     "10.0.0.0/8",
     "100.64.0.0/10",
@@ -170,7 +170,7 @@ BLOCKED_RANGES = (
 )
 
 #: Der Suchpfad fuer die beiden Aufrufe als root (Sperre setzen, Sperre lesen).
-#: Drinnen gilt sonst der knappe PATH der Werkstatt -- ohne /usr/sbin, wo
+#: Drinnen gilt sonst der knappe PATH der virtual machine -- ohne /usr/sbin, wo
 #: iptables liegt.
 ROOT_PATH = "/usr/sbin:/sbin:/usr/bin:/bin"
 
@@ -185,7 +185,7 @@ class SandboxUnavailable(RuntimeError):
 
 @dataclass(frozen=True)
 class Runtime:
-    """Womit die Werkstatt betrieben wird."""
+    """Womit die virtual machine betrieben wird."""
 
     binary: str
     #: "gvisor", "podman" oder "docker" -- absteigend nach Staerke.
@@ -237,7 +237,7 @@ def cleanup_command(command: str) -> bool:
 def _runs_capped(
     binary: str, *args: str, timeout: float = 8.0
 ) -> subprocess.CompletedProcess[str]:
-    """Fuehrt einen Werkstatt-Befehl mit begrenzten Empfangspuffern aus.
+    """Fuehrt einen virtual-machine-Befehl mit begrenzten Empfangspuffern aus.
 
     Die Begrenzung muss hier am Host-Rohr liegen: ein Container-Speicherlimit
     verhindert nicht, dass sein Client beliebig viel Ausgabe in Aquaticys
@@ -303,7 +303,7 @@ def find_runtime() -> Runtime | None:
 
     Returns:
         Die Laufzeit, oder `None`, wenn es keine gibt. Dann gibt es auch keine
-        Werkstatt -- ein Rueckfall auf den Rechner selbst waere genau das, was
+        virtual machine -- ein Rueckfall auf den Rechner selbst waere genau das, was
         diese Datei verhindern soll.
     """
     for binary in ("podman", "docker"):
@@ -320,7 +320,7 @@ def find_runtime() -> Runtime | None:
 
 @dataclass
 class RunResult:
-    """Was ein Befehl in der Werkstatt hinterlassen hat."""
+    """Was ein Befehl in der virtual machine hinterlassen hat."""
 
     exit_code: int
     stdout: str
@@ -361,10 +361,10 @@ PATH_CHARS = re.compile(r"^[A-Za-z0-9._/\- ]+$")
 
 
 def safe_path(path: str) -> str:
-    """Prueft einen Pfad in der Werkstatt.
+    """Prueft einen Pfad in der virtual machine.
 
     Erlaubt ist alles unterhalb von `/work`. Das ist keine Sicherheitsgrenze --
-    die ist die Werkstatt selbst --, sondern Ordnung: Dateien, die ausserhalb
+    die ist die virtual machine selbst --, sondern Ordnung: Dateien, die ausserhalb
     liegen, waeren beim naechsten Start weg und wuerden nur verwirren.
 
     Raises:
@@ -389,7 +389,7 @@ def safe_path(path: str) -> str:
 
 #: So heissen die Datentraeger der Add-ons: je Konto und Add-on einer.
 ADDON_VOLUME_RE = re.compile(r"^aquaticy-addon-[0-9a-f]{12}-[a-z_]{2,20}$")
-#: Und dort haengen sie in der Werkstatt.
+#: Und dort haengen sie in der virtual machine.
 ADDON_PATH_RE = re.compile(r"^/addons/[a-z_]{2,20}$")
 #: Beschriftung, an der man sie erkennt -- sweep() laesst sie in Ruhe.
 ADDON_LABEL = "aquaticy-addon=1"
@@ -456,7 +456,7 @@ def addon_volumes(runtime: Runtime, prefix: str) -> list[str]:
 
 
 class Sandbox:
-    """Eine Werkstatt: startet auf Bedarf, raeumt sich selbst weg."""
+    """Eine virtual machine: startet auf Bedarf, raeumt sich selbst weg."""
 
     def __init__(
         self,
@@ -477,7 +477,7 @@ class Sandbox:
         #: Womit sich der Browser im User mode bei Webseiten meldet.
         self.browser_agent = browser_agent
         #: Datentraeger der eingeschalteten Add-ons -> wo sie haengen
-        #: (/addons/<name>). Sie gehoeren nicht der Werkstatt und bleiben,
+        #: (/addons/<name>). Sie gehoeren nicht der virtual machine und bleiben,
         #: wenn sie abgebaut wird -- dort liegen Programme und Anmeldungen.
         self.addon_mounts = {
             volume: ziel
@@ -522,7 +522,7 @@ class Sandbox:
     def _emit(self, event: str, **payload: Any) -> None:
         # Das Aufraeumen laeuft in einem eigenen Thread und meldet sich unter
         # Umstaenden, wenn die Anfrage laengst vorbei ist. Ein Fehler im
-        # Empfaenger darf die Werkstatt nicht stehen lassen.
+        # Empfaenger darf die virtual machine nicht stehen lassen.
         if not self.on_event:
             return
         with contextlib.suppress(Exception):  # nur Anzeige, nie kritisch
@@ -530,7 +530,7 @@ class Sandbox:
 
     # -- Aufbau -----------------------------------------------------------
     def ensure(self) -> str:
-        """Startet die Werkstatt, falls sie nicht schon laeuft.
+        """Startet die virtual machine, falls sie nicht schon laeuft.
 
         Returns:
             Der Name des Behaelters.
@@ -569,7 +569,7 @@ class Sandbox:
                     if not self.headless:
                         self._start_desktop()
             except Exception:
-                # Halbe Werkstatt ist schlimmer als keine: alles wieder weg.
+                # Halbe virtual machine ist schlimmer als keine: alles wieder weg.
                 self._destroy_locked("Start fehlgeschlagen")
                 raise
             self._touch_locked()
@@ -578,7 +578,7 @@ class Sandbox:
     def _check_nested_network(self) -> None:
         """Im eingeschlossenen Start (Kiste in der Kiste) braucht Netz ein Geraet.
 
-        Die innere Werkstatt laeuft dort mit Podman ohne Wurzelrechte, und das
+        Die innere virtual machine laeuft dort mit Podman ohne Wurzelrechte, und das
         baut sein Netz ueber /dev/net/tun. Die aeussere Kiste reicht dieses
         Geraet bewusst nicht von selbst herein (compose.sandbox.yaml). Ohne
         diese Pruefung kaeme eine Fehlermeldung von Podman, die niemand
@@ -589,7 +589,7 @@ class Sandbox:
         if not Path("/dev/net/tun").exists():
             raise SandboxUnavailable(
                 "Im eingeschlossenen Start braucht der User mode das Geraet /dev/net/tun, "
-                "damit die Werkstatt ins Internet kann. Freigeben in compose.sandbox.yaml "
+                "damit die virtual machine ins Internet kann. Freigeben in compose.sandbox.yaml "
                 "(Abschnitt 'devices', dort erklaert) und neu starten -- oder den User "
                 "mode ausschalten."
             )
@@ -597,7 +597,7 @@ class Sandbox:
     def _create_volume(self) -> None:
         """Legt den Datentraeger an und macht ihn fuer die Kennung schreibbar.
 
-        Der Datentraeger gehoert dieser Werkstatt allein und verschwindet mit
+        Der Datentraeger gehoert dieser virtual machine allein und verschwindet mit
         ihr. Bind-Mounts vom Rechner gibt es bewusst nicht: was drinnen
         passiert, soll drinnen bleiben.
         """
@@ -627,7 +627,7 @@ class Sandbox:
         )
         if prepared.returncode != 0:
             raise SandboxUnavailable(
-                "Die Werkstatt liess sich nicht vorbereiten: " + prepared.stderr.strip()[:300]
+                "Die virtual machine liess sich nicht vorbereiten: " + prepared.stderr.strip()[:300]
             )
 
     def _run_flags(self) -> list[str]:
@@ -665,7 +665,7 @@ class Sandbox:
             # `nocopy`: Neuere Docker-Versionen (29.x) legen wegen --workdir
             # den Ordner zuerst im Abbild an -- als root -- und kopieren das
             # beim ersten Einhaengen in den noch leeren Datentraeger. Das
-            # machte das chown aus _create_volume zunichte, und die Werkstatt
+            # machte das chown aus _create_volume zunichte, und die virtual machine
             # konnte in /work nichts schreiben (bis 9.5.12).
             "-v", f"{self._volume}:{WORKDIR}:nocopy",
             *(
@@ -738,7 +738,8 @@ class Sandbox:
                     f" (Fehlt das Abbild? '{runtime.binary} pull {self.image}' holt es einmalig.)"
                 )
             raise SandboxUnavailable(
-                "Die Werkstatt liess sich nicht starten: " + started.stderr.strip()[:300] + hilfe
+                "Die virtual machine liess sich nicht starten: "
+                + started.stderr.strip()[:300] + hilfe
             )
 
     def _lock_network(self) -> None:
@@ -747,7 +748,7 @@ class Sandbox:
         Das Skript im Abbild laeuft als root, weil nur root mit NET_ADMIN die
         Regeln setzen kann. Danach liest Aquaticy die Regeln aus und verlaesst
         sich nicht auf das "gesperrt" des Skripts: steht auch nur ein Bereich
-        nicht darin, gilt die Werkstatt als offen -- und wird abgebaut.
+        nicht darin, gilt die virtual machine als offen -- und wird abgebaut.
 
         Raises:
             SandboxUnavailable: Wenn die Sperre fehlt oder unvollstaendig ist.
@@ -783,7 +784,7 @@ class Sandbox:
         self._emit("vm_net", locked=True, ranges=len(BLOCKED_RANGES))
 
     def _start_desktop(self) -> None:
-        """Startet Bildschirm, Fenstermanager und Leiste in der Werkstatt."""
+        """Startet Bildschirm, Fenstermanager und Leiste in der virtual machine."""
         runtime = self.runtime
         assert runtime is not None
         gestartet = _runs(
@@ -794,7 +795,7 @@ class Sandbox:
         )
         if gestartet.returncode != 0 or "bereit" not in gestartet.stdout:
             raise SandboxUnavailable(
-                "Der Desktop in der Werkstatt ist nicht hochgekommen: "
+                "Der Desktop in der virtual machine ist nicht hochgekommen: "
                 + (gestartet.stderr.strip() or gestartet.stdout.strip())[:300]
             )
         self._emit("vm_desktop", ready=True)
@@ -809,24 +810,24 @@ class Sandbox:
         Standardeingabe.
 
         Args:
-            start: Darf dafuer eine Werkstatt entstehen? Ein Blick von aussen
+            start: Darf dafuer eine virtual machine entstehen? Ein Blick von aussen
                 (die Oberflaeche) soll keine hochfahren -- auch keine, deren
                 Behaelter inzwischen verschwunden ist.
 
         Raises:
-            SandboxUnavailable: Wenn die Werkstatt nicht im User mode laeuft.
+            SandboxUnavailable: Wenn die virtual machine nicht im User mode laeuft.
         """
         if not self.user_mode:
             raise SandboxUnavailable(
-                "Die Werkstatt laeuft nicht im User mode -- den schaltet der Nutzer in "
-                "den Einstellungen unter 'Werkstatt' ein."
+                "Die virtual machine laeuft nicht im User mode -- den schaltet der Nutzer in "
+                "den Einstellungen unter 'virtual machine' ein."
             )
         if start:
             name = self.ensure()
         elif self._name and self._running():
             name = self._name
         else:
-            raise SandboxUnavailable("Die Werkstatt laeuft gerade nicht.")
+            raise SandboxUnavailable("Die virtual machine laeuft gerade nicht.")
         runtime = self.runtime
         assert runtime is not None
         done = subprocess.run(
@@ -846,7 +847,7 @@ class Sandbox:
     def addon_helper(
         self, *args: str, timeout: int = 1800
     ) -> subprocess.CompletedProcess[str]:
-        """Ruft den Add-on-Installer in der Werkstatt auf -- feste Argumente, keine Shell.
+        """Ruft den Add-on-Installer in der virtual machine auf -- feste Argumente, keine Shell.
 
         Laenger als ein gewoehnlicher Befehl darf er: Blender ist gut 350 MB gross.
         """
@@ -891,7 +892,7 @@ class Sandbox:
 
     # -- Arbeiten ---------------------------------------------------------
     def run(self, command: str, timeout: int = COMMAND_TIMEOUT) -> RunResult:
-        """Fuehrt *command* in der Werkstatt aus.
+        """Fuehrt *command* in der virtual machine aus.
 
         Der Befehl geht als Argument an die Laufzeit, nie durch eine Shell auf
         diesem Rechner -- interpretiert wird er erst drinnen.
@@ -907,7 +908,8 @@ class Sandbox:
             # Hart (9.5.15): ueber der Grenze laeuft nur noch Aufraeumen.
             return RunResult(
                 exit_code=125, stdout="",
-                stderr=(f"[Werkstatt] Voll: mehr als {self.disk_gb} GB belegt. Erst aufräumen "
+                stderr=(f"[virtual machine] Voll: mehr als {self.disk_gb} GB belegt. Erst "
+                        "aufräumen "
                         "-- erlaubt sind jetzt nur rm, rmdir, truncate, du, ls und df, "
                         "jeweils einzeln."),
                 seconds=0.0,
@@ -962,7 +964,7 @@ class Sandbox:
     def _refuse_if_full(self) -> None:
         """Ueber der Grenze wird nichts mehr hineingeschrieben (9.5.15)."""
         if self._over_quota:
-            raise ValueError(f"Die Werkstatt ist voll (mehr als {self.disk_gb} GB) -- "
+            raise ValueError(f"Die virtual machine ist voll (mehr als {self.disk_gb} GB) -- "
                              "erst aufräumen.")
 
     #: So oft misst der Aufpasser waehrend eines Befehls (Sekunden).
@@ -979,7 +981,7 @@ class Sandbox:
     def _check_quota(self, result: RunResult) -> None:
         """Misst den Platz nach jedem Befehl, wo die Laufzeit keine Quote kann.
 
-        Ueber der Grenze ist die Werkstatt gesperrt -- bis aufgeraeumt ist,
+        Ueber der Grenze ist die virtual machine gesperrt -- bis aufgeraeumt ist,
         laufen nur noch Aufraeumbefehle (``cleanup_command``). Bis 9.5.14 gab
         es hier nur eine Warnung.
         """
@@ -994,7 +996,7 @@ class Sandbox:
         self._over_quota = True
         self._quota_warned = True
         result.stderr = (
-            f"[Werkstatt] {voll} GB belegt, erlaubt sind {self.disk_gb} GB. Der Befehl wurde "
+            f"[virtual machine] {voll} GB belegt, erlaubt sind {self.disk_gb} GB. Der Befehl wurde "
             "abgebrochen bzw. ist gesperrt, bis aufgeräumt ist (rm, einzeln).\n" + result.stderr
         )
 
@@ -1004,8 +1006,8 @@ class Sandbox:
         Im User mode baut ein Neustart das Netz des Behaelters neu auf -- ohne
         die Sperre von vorher. Die wird deshalb sofort neu gesetzt und
         nachgelesen, bevor irgendetwas anderes darin laeuft, und der Desktop
-        kommt wieder hoch. Klappt eins davon nicht, wird die Werkstatt
-        abgebaut: eine offene Werkstatt ist schlimmer als keine.
+        kommt wieder hoch. Klappt eins davon nicht, wird die virtual machine
+        abgebaut: eine offene virtual machine ist schlimmer als keine.
         """
         runtime = self.runtime
         if runtime is None or not self._name:
@@ -1023,7 +1025,7 @@ class Sandbox:
                 self._destroy_locked("Netzsperre nach dem Neustart nicht wiederhergestellt")
 
     def write(self, path: str, text: str) -> dict[str, Any]:
-        """Legt eine Datei in der Werkstatt an."""
+        """Legt eine Datei in der virtual machine an."""
         full = safe_path(path)
         name = self.ensure()
         runtime = self.runtime
@@ -1052,7 +1054,7 @@ class Sandbox:
         return {"written": full, "bytes": len(data)}
 
     def read(self, path: str, max_bytes: int = MAX_READ_BYTES) -> dict[str, Any]:
-        """Liest eine Datei aus der Werkstatt."""
+        """Liest eine Datei aus der virtual machine."""
         full = safe_path(path)
         name = self.ensure()
         runtime = self.runtime
@@ -1074,7 +1076,7 @@ class Sandbox:
         return {"path": full, "text": text, "truncated": cut}
 
     def put_bytes(self, path: str, data: bytes) -> dict[str, Any]:
-        """Legt eine Datei unveraendert in die Werkstatt -- auch ein Bild.
+        """Legt eine Datei unveraendert in die virtual machine -- auch ein Bild.
 
         `write` nimmt Text und wuerde an einem PNG scheitern. Hierueber geht
         alles, was der Nutzer anhaengt, unangetastet hinein.
@@ -1082,7 +1084,7 @@ class Sandbox:
         full = safe_path(path)
         if len(data) > MAX_FILE_BYTES:
             raise ValueError(
-                f"Die Datei ist zu gross fuer die Werkstatt "
+                f"Die Datei ist zu gross fuer die virtual machine "
                 f"({MAX_FILE_BYTES // (1024 * 1024)} MB sind das Hoechste)."
             )
         name = self.ensure()
@@ -1131,7 +1133,7 @@ class Sandbox:
         )
         self.touch()
         if done.returncode != 0:
-            raise FileNotFoundError(f"In der Werkstatt liegt keine Datei '{full}'.")
+            raise FileNotFoundError(f"In der virtual machine liegt keine Datei '{full}'.")
         if len(done.stdout) > limit:
             raise ValueError(
                 f"Die Datei ist groesser als {limit // (1024 * 1024)} MB -- "
@@ -1140,7 +1142,7 @@ class Sandbox:
         return done.stdout
 
     def list_files(self, path: str = WORKDIR) -> list[dict[str, Any]]:
-        """Was in der Werkstatt liegt -- Pfad und Groesse, flach aufgelistet.
+        """Was in der virtual machine liegt -- Pfad und Groesse, flach aufgelistet.
 
         Ohne diese Liste muesste man raten, wie eine erzeugte Datei heisst,
         um sie herauszuholen.
@@ -1171,7 +1173,7 @@ class Sandbox:
         return dateien
 
     def usage_gb(self) -> float:
-        """Wie voll die Werkstatt ist -- in Gigabyte."""
+        """Wie voll die virtual machine ist -- in Gigabyte."""
         if not self.alive or self.runtime is None:
             return 0.0
         done = _runs(
@@ -1297,7 +1299,7 @@ def sweep(runtime: Runtime | None = None) -> int:
     return len(ids)
 
 
-#: Eine Werkstatt je Kontoprofil. So koennen mehrere Nutzer gleichzeitig
+#: Eine virtual machine je Kontoprofil. So koennen mehrere Nutzer gleichzeitig
 #: arbeiten, ohne Dateien, Prozesse oder Ereignisse miteinander zu teilen.
 _shared: dict[str, Sandbox] = {}
 _shared_lock = threading.Lock()
@@ -1309,7 +1311,7 @@ _KEEP = object()
 
 
 def shared(settings: Any = None, on_event: Any = _KEEP) -> Sandbox:
-    """Die Werkstatt des aktuellen Kontoprofils.
+    """Die virtual machine des aktuellen Kontoprofils.
 
     Wer keinen Empfaenger uebergibt, laesst den bestehenden stehen: sonst
     haette ein Blick auf die Dateiliste mitten in einer Anfrage die

@@ -772,7 +772,7 @@ def test_job_view_names_every_rhythm(rhythm: str, text: str) -> None:
     assert ansicht["when_text"].startswith(text)
 
 
-# -- 32: Einstellungen speichern loescht die Werkstatt nicht mehr -------------
+# -- 32: Einstellungen speichern loescht die virtual machine nicht mehr -------------
 def test_saving_an_unrelated_setting_keeps_the_workshop(settings: Settings,
                                                         monkeypatch: pytest.MonkeyPatch) -> None:
     from dataclasses import replace
@@ -787,7 +787,7 @@ def test_saving_an_unrelated_setting_keeps_the_workshop(settings: Settings,
     session._settings = settings
     neu["s"] = replace(settings, model="mistral/mistral-small-latest")
     session.reload()
-    assert gestoppt == [], "ein anderes Modell braucht keine neue Werkstatt"
+    assert gestoppt == [], "ein anderes Modell braucht keine neue virtual machine"
     session._settings = neu["s"]
     neu["s"] = replace(settings, vm_memory_mb=2048)
     session.reload()

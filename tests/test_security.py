@@ -13,7 +13,7 @@ oder die gezielt nachgeprueft wurde:
   der Test-Knopf haengte den Schluessel des Betreibers an.
 * Eine negative Laenge im Anfragekopf liess den Server lesen, bis die
   Verbindung zu ist.
-* Die Pro-Sperren selbst (Pro-Code, User mode, Plus-Werkstatt, LAN, Home
+* Die Pro-Sperren selbst (Pro-Code, User mode, Plus-virtual machine, LAN, Home
   Assistant, Lager, Leitplanken) -- noch einmal ueber echtes HTTP.
 """
 

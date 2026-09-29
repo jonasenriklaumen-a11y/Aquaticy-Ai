@@ -1,7 +1,7 @@
 """Kleine Laeden, die keine Suchmaschine kennt -- aus der Karte.
 
 Das haerteste Suchproblem ist nicht die grosse Frage, sondern die kleine:
-der Fahrradladen in der Nebenstrasse, die Werkstatt ohne Website, das Cafe,
+der Fahrradladen in der Nebenstrasse, die virtual machine ohne Website, das Cafe,
 das nur auf einem Zettel im Schaufenster wirbt. Suchmaschinen kennen sie
 nicht oder erst auf Seite vier, weil niemand fuer sie optimiert.
 

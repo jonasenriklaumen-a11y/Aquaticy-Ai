@@ -255,7 +255,7 @@ def header_view(
     name = modell.split("/")[-1] if modell else ""
     teile = [str(getattr(settings, "location", "") or "") or "kein Ortsfilter"]
     if modus == "code" and stand.get("sandbox"):
-        teile.append("Werkstatt")
+        teile.append("virtual machine")
     elif modus != "code" and stand.get("online") is False:
         teile.append("ohne Web")
     if modus != "code" and stand.get("visual_sources"):

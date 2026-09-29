@@ -16,7 +16,7 @@ Nicht aenderbar ist alles, was Aquaticy mehr Zugriff auf fremdes Eigentum gaebe:
 * ob er sich Dinge merken darf (``MEMORY``),
 * ob er sich an die Rechts-Leitplanken haelt (``LEGAL_GUARD``) -- die schaltet
   nur ein Ultra-Konto in den Einstellungen ab, nie ein Satz im Chat,
-* ob die Werkstatt ins Internet darf und er sie bedient wie ein Mensch
+* ob die virtual machine ins Internet darf und er sie bedient wie ein Mensch
   (``VM_USER_MODE``), und welches Abbild dort laeuft.
 
 Das ist kein Misstrauen gegen das Modell, sondern eine Bauweise: Wer die
@@ -164,10 +164,10 @@ PROTECTED: dict[str, str] = {
     "AQUATICY_MEMORY": "ob ich mir Dinge merken darf",
     "AQUATICY_LEGAL_GUARD": "ob ich mich an die Leitplanken nach Grundgesetz und BGB halte",
     "AQUATICY_VM_USER_MODE": (
-        "ob ich die Werkstatt mit Internet bediene wie ein Mensch (User mode)"
+        "ob ich die virtual machine mit Internet bediene wie ein Mensch (User mode)"
     ),
     "AQUATICY_VM_DESKTOP_IMAGE": "welches Abbild der User mode benutzt",
-    "AQUATICY_VM_IMAGE": "welches Abbild die Werkstatt benutzt",
+    "AQUATICY_VM_IMAGE": "welches Abbild die virtual machine benutzt",
     "AQUATICY_GITHUB_TOKEN": "mit welchem Zugang ich GitHub lese",
     "AQUATICY_ADDONS": (
         "welche Add-ons installiert, eingeschaltet und angemeldet sind (GitHub, "

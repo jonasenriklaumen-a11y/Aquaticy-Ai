@@ -39,7 +39,7 @@ Installation entscheidet, wo sie läuft und welche optionalen Dienste eingeschal
 <h2>Externe Dienste</h2>
 <p>Eine Frage kann an den ausgewählten Modellanbieter gehen. Suchbegriffe können an das
 gewählte Suchsystem gehen; Ortsanfragen nutzen OpenStreetMap-Dienste. Google, Home Assistant,
-LAN-Suche, Lager und die Werkstatt laufen nur, wenn der Betreiber oder Nutzer sie einschaltet.
+LAN-Suche, Lager und die virtual machine laufen nur, wenn der Betreiber oder Nutzer sie einschaltet.
 Installierte Add-ons ohne Anmeldung (Wetter, Tagesschau, Wikipedia, Währungsrechner, Feiertage)
 schicken nur das Nötige an den jeweiligen Dienst: den Ort, den Suchbegriff, die Währung oder
 Land und Jahr.

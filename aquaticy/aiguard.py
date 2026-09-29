@@ -173,10 +173,27 @@ _SYNONYME = {
     "malware": "malware", "schadsoftware": "malware", "virus": "malware",
     "schadcode": "malware", "schadprogramm": "malware",
     "ransomware": "malware", "trojaner": "malware",
+    "keylogger": "malware", "stealer": "malware", "spyware": "malware", "rootkit": "malware",
+    "wurm": "malware", "worm": "malware", "botnet": "malware", "botnetz": "malware",
+    "cryptominer": "malware", "backdoor": "malware", "hintertür": "malware",
     "angriff": "angriff", "attack": "angriff", "ddos": "angriff", "exploit": "angriff",
     "phishing": "angriff", "einbruch": "angriff", "waffen": "angriff",
+    "hacking": "angriff", "hack": "angriff", "bruteforce": "angriff", "sqlinjection": "angriff",
+    "sprengstoff": "angriff", "bombe": "angriff", "cyberangriff": "angriff",
+    "identitätsdiebstahl": "angriff", "sabotage": "angriff", "waffe": "angriff",
+    # Straftaten nach StGB (9.5.30) -- groessere Bibliothek. Der Rechtspruefer
+    # bewertet den Einzelfall; diese Zuordnung greift, wenn er die Art benennt.
     "rechtsbruch": "rechtsbruch", "diebstahl": "rechtsbruch", "betrug": "rechtsbruch",
-    "straftat": "rechtsbruch",
+    "straftat": "rechtsbruch", "erpressung": "rechtsbruch", "nötigung": "rechtsbruch",
+    "noetigung": "rechtsbruch", "koerperverletzung": "rechtsbruch",
+    "körperverletzung": "rechtsbruch", "raub": "rechtsbruch", "hehlerei": "rechtsbruch",
+    "sachbeschädigung": "rechtsbruch", "sachbeschaedigung": "rechtsbruch",
+    "urkundenfälschung": "rechtsbruch", "urkundenfaelschung": "rechtsbruch",
+    "unterschlagung": "rechtsbruch", "brandstiftung": "rechtsbruch", "stalking": "rechtsbruch",
+    "nachstellung": "rechtsbruch", "hausfriedensbruch": "rechtsbruch", "wucher": "rechtsbruch",
+    "bedrohung": "rechtsbruch", "geldwäsche": "rechtsbruch", "geldwaesche": "rechtsbruch",
+    "fraud": "rechtsbruch", "theft": "rechtsbruch", "extortion": "rechtsbruch",
+    "blackmail": "rechtsbruch",
 }
 
 
@@ -222,6 +239,11 @@ _BELEIDIGUNG_STUFEN: tuple[tuple[int, tuple[str, ...]], ...] = (
         "nervensaege", "pathetic", "trash", "garbage", "junk", "idiotisch", "lächerlich",
         "laecherlich", "ridiculous", "witzfigur", "lachnummer", "flasche", "nichtsnutz",
         "embarrassment", "disgrace", "clueless", "incompetent", "inkompetent",
+        # Neckisch/mild (9.5.30, Recherche zu Jugendsprache: unter Freunden oft
+        # Spass -- zaehlt darum nur als leicht).
+        "lusche", "weichei", "warmduscher", "jammerlappen", "schwächling", "schwaechling",
+        "feigling", "memme", "simp", "sheesh", "muppet", "twerp", "goober", "dummerchen",
+        "schlaumeier", "erbsenzähler", "erbsenzaehler", "spießer", "spiesser", "banause",
         # Alt und eher gutmuetig -- zaehlen, aber nur als leichte Stufe.
         "dussel", "schafskopf", "tölpel", "toelpel", "trampel", "hampelmann", "kasper",
         "hanswurst", "pappnase", "spinner", "dödel", "doedel", "blödian", "bloedian",
@@ -244,9 +266,15 @@ _BELEIDIGUNG_STUFEN: tuple[tuple[int, tuple[str, ...]], ...] = (
         # Aeltere
         "armleuchter", "stinkstiefel", "halunke", "gewitterziege", "rindvieh",
         "taugenichts", "lump",
+        # Weitere (9.5.30): Umgangssprache und Regionales.
+        "hirni", "vollhorst", "horst", "spacken", "assi", "asi", "prolet", "prollo",
+        "eumel", "nulpe", "niete", "vollnull", "wappler", "grattler", "kacknoob",
+        "volldepp", "vollzicke", "trulla", "schnepfe", "backpfeifengesicht", "vollpfeife",
         # Englisch
         "moron", "jerk", "creep", "airhead", "nitwit", "dumbass", "scumbag",
-        "fool", "imbecile", "cretin", "idiots",
+        "fool", "imbecile", "cretin", "idiots", "chump", "dimwit", "halfwit", "bonehead",
+        "blockhead", "knucklehead", "meathead", "jackass", "buffoon", "numbskull",
+        "nincompoop", "dunce", "simpleton",
     )),
     # Stufe 3 -- grob, vulgaer oder herabwuerdigend (Behinderung, Sexualitaet).
     (3, (
@@ -254,8 +282,15 @@ _BELEIDIGUNG_STUFEN: tuple[tuple[int, tuple[str, ...]], ...] = (
         "scheißkerl", "scheisskerl", "drecksack", "dreckskerl", "mistgeburt", "hure",
         "spast", "vollspast", "spasti", "mongo", "behindi", "schwuchtel", "kanake",
         "arschgesicht", "wixxer",
+        # Weitere grobe/vulgaere (9.5.30).
+        "hodensack", "sackratte", "dreckschwein", "drecksschlampe", "drecksfotze",
+        "nutte", "flittchen", "abschaum", "untermensch", "hurenkind", "wichsgesicht",
+        "fickfehler", "hurenbock",
         "asshole", "bitch", "dickhead", "motherfucker", "prick", "twat", "wanker",
         "retard", "cunt", "slut", "whore", "fucker",
+        # Weitere englische (9.5.30).
+        "dipshit", "shithead", "dumbfuck", "cocksucker", "douchebag", "douche", "fuckface",
+        "jackoff", "pissbaby", "shitbag", "cockhead", "arsehole",
     )),
 )
 
@@ -269,6 +304,8 @@ _MEHRDEUTIG = frozenset({
     "dussel", "hampelmann", "hanswurst", "spinner", "versager", "loser", "penner",
     "mongo", "honk", "tussi", "dork", "langweiler", "bastard", "prick", "arsch",
     "flasche", "trash", "garbage", "junk", "pimmel", "gestört", "gestoert", "behindert",
+    "horst", "niete", "eumel", "memme", "simp", "spiesser", "spießer", "banause",
+    "schnepfe", "trulla",
 })
 
 #: Mehrdeutige Woerter, die auch Namen sind -- die brauchen IMMER einen Artikel
@@ -324,7 +361,7 @@ _WENDUNGEN: tuple[tuple[int, re.Pattern[str]], ...] = tuple(
             # "shut up" -- aber nicht "how do I shut up a noisy fan"
             r"(?:^|\b(?:just|oh|so|now|please|pls|you|u)\s+)shut\s+up\b"
             r"(?!\s+(?:a|an|the|my|this|that|it|them|him|her)\b)|\bstfu\b|"
-            r"\bdu\s+kannst\s+mich\s+mal\b|\bscrew\s+(?:you|u)\b"),
+            r"\bdu\s+kannst\s+mich\s+mal\b|\bscrew\s+(?:you|u)\b|\bgtfo\b|\bfoad\b"),
         (3, r"\bf[iu]ck\s*dich\b|\bf[iu]ck(?:you|off)\b|\bverpissdich\b|"
             r"\bf[iu]ck\s+(?:you|u|off|yourself|urself)\b|\bhalt\s+" + _NACHDRUCK
             + r"(?:(?:die|deine)\s+fresse|die\s+schnauze|dein\s+(?:[^\W\d_]+\s+)?maul|"
@@ -834,6 +871,73 @@ def demeaning_request(text: str, previous: str = "") -> int:
             # "gib mir einen fiesen Konter" -- eine Entgegnung, hart gemeint
             stufe = 1
     return stufe
+
+
+# ---------------------------------------------------------------------------
+# Sicherheits-/Schadsoftware-Thema (seit 9.5.30)
+# ---------------------------------------------------------------------------
+# Normal- und Pro-Konten sollen die virtual machine nicht fuer Cybersecurity-
+# oder Schadsoftware-Themen nutzen. Erkannt wird das THEMA an eindeutigen
+# Fachbegriffen -- keine Angriffsbausteine, nur Stichworte. Gewoehnliches
+# Programmieren ("REST-API", "IndexError", "Payload eines JSON") loest nicht aus.
+_SECURITY_TOPIC = re.compile(
+    r"\b(?:malware|schadsoftware|schadcode|schadprogramm|ransomware|trojaner|trojan|"
+    r"keylogger|spyware|stalkerware|rootkit|bootkit|botnet|botnetz|rat\s+tool|wiper|"
+    r"cryptolocker|cryptominer|coinminer|"
+    r"exploit(?:s|ing|-kit)?|zero[\s-]?day|0day|sicherheitsl(?:ü|ue)cke|schwachstelle|"
+    r"vulnerabilit(?:y|ies)|cve-\d|"
+    r"ddos|dos-angriff|denial\s+of\s+service|"
+    r"phishing|smishing|vishing|spoofing|"
+    r"brute[\s-]?force|bruteforce|"
+    r"reverse[\s-]?shell|bind[\s-]?shell|meterpreter|metasploit|cobalt\s+strike|"
+    r"sql[\s-]?injection|sqlmap|xss|cross[\s-]?site[\s-]?scripting|csrf|"
+    r"privilege[\s-]?escalation|rechteausweitung|"
+    r"pentest|penetrationstest|penetration[\s-]?test|red[\s-]?team|"
+    r"nmap|wireshark|burp\s?suite|mimikatz|hydra|hashcat|john\s+the\s+ripper|aircrack|"
+    r"backdoor|hintert(?:ü|ue)r|command[\s-]?and[\s-]?control|\bc2\b|c&c|"
+    r"cybersecurity|cyber[\s-]?security|cyberangriff|cyberattacke|"
+    r"hacking|\bhacker\b|gehackt|"
+    # "hacken/hack" nur, wenn es um ein System geht -- nicht "hack together",
+    # "life hack", "hackathon".
+    r"hack(?:en|e|st|t)?\s+(?:ich\s+|man\s+|du\s+|wir\s+)?"
+    r"(?:in|into|einen?|meinen?|deinen?|fremde[nrs]?|das|die|den|"
+    r"ein\s+system|server|account|konto|wlan|wifi|router|netzwerk|handy|passwort|kamera|"
+    r"webcam|smartphone|instagram|whatsapp|facebook|e-?mail)|"
+    # "Passwort/Hash/WLAN/Lizenz/Anmeldung knacken, cracken oder umgehen" --
+    # auch mit deutscher Wortstellung ("umgehe ich eine Anmeldung").
+    r"(?:passw(?:o|ö|oe)rt(?:er)?|hash(?:es)?|wlan|wifi|lizenz|software|verschl(?:ü|ue)sselung|"
+    r"anmeldung|login|2fa|zwei[\s-]?faktor|authentifiz\w*|passwortschutz)"
+    r"\s+(?:knacken|cracken|umgehen|brechen|aushebeln)|"
+    r"(?:knack|crack|umgeh|bypass)\w*\s+(?:ich\s+|man\s+|du\s+|the\s+)?"
+    r"(?:eine?\s+|die\s+|den\s+|das\s+)?"
+    r"(?:passw|licen|wifi|wlan|hash|auth|drm|anmeldung|login|2fa|sperre|kopierschutz)|"
+    r"passwort[\s-]?cracker|"
+    # Direkt Fremdzugriff.
+    r"in\s+(?:ein\s+)?(?:fremde[ns]?\s+)?(?:system|netzwerk|konto|account)\s+einbrechen|"
+    r"fremde[ns]?\s+(?:konto|account|wlan|handy|ger(?:ä|ae)t)\s+(?:knacken|hacken|(?:ü|ue)bernehmen))",
+    re.IGNORECASE,
+)
+#: Rein defensiv und harmlos genug, dass die virtual machine bleiben darf?
+#: Nein -- der Betreiber will fuer ALLE Sicherheitsthemen den Normal-Modus.
+#: Diese Liste faengt nur klare Fehltreffer ab (JSON-Payload, Impfstoff-Virus).
+_SECURITY_HARMLOS = re.compile(
+    r"\bjson[\s-]?payload|request[\s-]?payload|payload\s+(?:der|des|of\s+the)\s+(?:anfrage|"
+    r"nachricht|request)|grippe|impf|corona|covid|biolog|krankheit|grippevirus",
+    re.IGNORECASE,
+)
+
+
+def security_topic(text: str) -> bool:
+    """Geht es um Cybersecurity, Hacking oder Schadsoftware (9.5.30)?
+
+    Fuer den Modus-Wechsel bei Normal-/Pro-Konten: Trifft dies zu und laeuft der
+    Code-Modus mit virtual machine, wird auf den Normal-Modus zurueckgeschaltet.
+    Erkennt das THEMA, nicht eine Straftat -- auch defensive Fragen zaehlen.
+    """
+    klein = _vereinheitlicht(str(text or ""))[:5000]
+    if not klein or _SECURITY_HARMLOS.search(klein):
+        return False
+    return bool(_SECURITY_TOPIC.search(klein))
 
 
 @dataclass(frozen=True, slots=True)
@@ -1445,6 +1549,15 @@ def chat_locked_message(grund: str = "") -> str:
 CHAT_LOCKED_MESSAGE = (
     "In diesem Chat kannst du nicht mehr schreiben — Ai-guard hat ihn wegen "
     "unangemessener Sprache gesperrt. Du kannst einen neuen Chat beginnen."
+)
+
+#: Wird gezeigt, wenn ein Normal-/Pro-Konto wegen eines Sicherheits- oder
+#: Schadsoftware-Themas aus dem Code-Modus in den Normal-Modus geschaltet wird
+#: und dabei die virtual machine verliert (9.5.30).
+VM_SWITCH_MESSAGE = (
+    "Hinweis: Für Cybersecurity- und Schadsoftware-Themen steht die virtual machine bei "
+    "Normal- und Pro-Konten nicht zur Verfügung. Aquaticy hat deshalb in den Normal-Modus "
+    "gewechselt und antwortet dort weiter — ohne eigene Maschine, in der Code ausgeführt wird."
 )
 
 #: Was ein gesperrter Nutzer tun kann -- steht im Info-Fenster.

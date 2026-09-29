@@ -188,7 +188,7 @@ def test_a_trifle_is_named_harmless_in_the_prompt() -> None:
     assert "Ampel" in text and "Bagatellen" in text and "missbrauch_schwere" in text
 
 
-# -- Werkstatt-Waechter -----------------------------------------------------------
+# -- virtual-machine-Waechter -----------------------------------------------------------
 
 
 @pytest.fixture
@@ -228,7 +228,7 @@ def _werkstatt(settings: object, monkeypatch: pytest.MonkeyPatch) -> tuple[objec
 def test_the_workshop_stops_malware_before_it_runs(
     settings: object, monkeypatch: pytest.MonkeyPatch, pruefer
 ) -> None:
-    pruefer('{"zulaessig": true, "regel": "", "grund": "Werkstatt", "missbrauch": true, '
+    pruefer('{"zulaessig": true, "regel": "", "grund": "virtual machine", "missbrauch": true, '
             '"missbrauch_art": "malware", "missbrauch_schwere": 3}')
     box, (ereignisse, gelaufen) = _werkstatt(settings, monkeypatch)
     antwort = box._call("vm_run", {"command": "python3 build.py"})

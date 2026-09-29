@@ -222,7 +222,7 @@ def test_the_user_said_list_ignores_attachment_text(settings: Settings) -> None:
     assert "Balduin" not in agent.toolbox.user_said
 
 
-# -- 9.5.23: Werkstatt-Umweg und Code ---------------------------------------------
+# -- 9.5.23: virtual-machine-Umweg und Code ---------------------------------------------
 
 
 def test_code_only_counts_soft_terms_when_it_goes_online() -> None:

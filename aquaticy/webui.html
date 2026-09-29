@@ -494,7 +494,7 @@ textarea::placeholder{color:var(--text-3)}
 .mode.on{background:var(--bg);color:var(--accent-text);font-weight:600;
   box-shadow:0 1px 2px rgba(0,0,0,.06)}
 /* Was nur im einen oder anderen Modus Sinn ergibt, steht auch nur dort:
-   im Web suchen gehoert zur Recherche, die Werkstatt zum Programmieren.
+   im Web suchen gehoert zur Recherche, die virtual machine zum Programmieren.
    `only-normal` heisst "ueberall ausser im Code-Modus" -- Pro ist der
    Standardmodus mit voller Leistung und hat dieselben Schalter.
    `only-standard` ist enger: nur der Standardmodus, `only-pro` das
@@ -1060,7 +1060,7 @@ input:focus,select:focus{border-color:var(--accent)}
 .pro-lock{border:1px solid var(--line-2);background:var(--surface-2);border-radius:10px;
   padding:10px 12px;margin:0 0 16px;color:var(--text-2)}
 .pro-lock[hidden]{display:none}.locked-feature{opacity:.62}
-/* User mode: der Bildschirm der Werkstatt -- im Dialog und klein im Verlauf */
+/* User mode: der Bildschirm der virtual machine -- im Dialog und klein im Verlauf */
 .vm-screen{margin:4px 0 14px}.vm-screen[hidden]{display:none}
 .vm-screen img{display:block;width:100%;height:auto;border-radius:10px;
   border:1px solid var(--line-2);background:var(--surface-2)}
@@ -1251,8 +1251,8 @@ input:focus,select:focus{border-color:var(--accent)}
       <span id="model-name">Modell</span><span class="caret">▾</span>
     </button>
     <span class="spacer"></span>
-    <button class="iconbtn" id="btn-vmfiles" title="Dateien in der Werkstatt"
-            aria-label="Dateien in der Werkstatt" hidden>🗀</button>
+    <button class="iconbtn" id="btn-vmfiles" title="Dateien in der virtual machine"
+            aria-label="Dateien in der virtual machine" hidden>🗀</button>
   </div>
 
   <div class="picker" id="picker-models" hidden>
@@ -1436,13 +1436,13 @@ input:focus,select:focus{border-color:var(--accent)}
 
 <div class="overlay" id="vmbox">
   <div class="sheet merk-sheet" role="dialog" aria-modal="true" aria-labelledby="vm-title">
-    <h2 id="vm-title">Werkstatt</h2>
+    <h2 id="vm-title">virtual machine</h2>
     <p class="lead">Die Dateien, an denen Aquaticy gerade arbeitet. Was du anhängst,
       liegt im Ordner „eingang“. Alles, was Aquaticy erstellt, kannst du herunterladen.
       20 Minuten nach deiner letzten Nachricht wird alles gelöscht.</p>
     <div class="vm-screen" id="vm-screen" hidden>
-      <img id="vm-screen-img" alt="Bildschirm der Werkstatt im User mode">
-      <div class="note">So sieht der Desktop der Werkstatt gerade aus (User mode).</div>
+      <img id="vm-screen-img" alt="Bildschirm der virtual machine im User mode">
+      <div class="note">So sieht der Desktop der virtual machine gerade aus (User mode).</div>
     </div>
     <div class="merkliste" id="vmliste"></div>
     <div class="actions">
@@ -1475,12 +1475,12 @@ input:focus,select:focus{border-color:var(--accent)}
       (zweimal klicken = Doppelklick) und tipp unten ein, was hinein soll — etwa dein
       Passwort. Das landet nur dort: nicht im Verlauf und nicht bei Aquaticy.</p>
     <div class="screen-live">
-      <img id="screen-img" alt="Bildschirm der Werkstatt — klicken, um dort zu klicken">
+      <img id="screen-img" alt="Bildschirm der virtual machine — klicken, um dort zu klicken">
       <div class="screen-leer" id="screen-leer" hidden></div>
     </div>
     <div class="screen-open" id="screen-open">
-      <input type="text" id="screen-url" placeholder="https://… — im Werkstatt-Browser öffnen"
-             autocomplete="off" aria-label="Adresse im Werkstatt-Browser öffnen">
+      <input type="text" id="screen-url" placeholder="https://… — im Browser der virtual machine öffnen"
+             autocomplete="off" aria-label="Adresse im Browser der virtual machine öffnen">
       <button type="button" class="btn" id="screen-go">Öffnen</button>
     </div>
     <div class="screen-type">
@@ -1629,10 +1629,10 @@ input:focus,select:focus{border-color:var(--accent)}
         <div class="note" id="keys-quota"></div>
       </fieldset>
 
-      <fieldset id="workshop-settings"><legend>Werkstatt</legend>
+      <fieldset id="workshop-settings"><legend>virtual machine</legend>
         <div class="pro-lock" id="vm-plus-lock" hidden>🔒 „Plus“ gibt es nur mit Ultra.
           Die Größe „Normal“ kannst du trotzdem nutzen.</div>
-        <label><span class="lbl">Größe <span class="why">Gilt ab der nächsten Werkstatt — eine
+        <label><span class="lbl">Größe <span class="why">Gilt ab der nächsten virtual machine — eine
           laufende bleibt, wie sie ist</span></span>
           <select name="AQUATICY_VM_SIZE">
             <option value="normal">Normal — 1 Kern, 1 GB Arbeitsspeicher, 4 GB Speicher</option>
@@ -1644,9 +1644,9 @@ input:focus,select:focus{border-color:var(--accent)}
         <div class="check usermode-row">
           <input type="checkbox" role="switch" class="schalter" id="usermode"
                  name="AQUATICY_VM_USER_MODE">
-          <label for="usermode" style="margin:0">User mode — Aquaticy bedient die Werkstatt
+          <label for="usermode" style="margin:0">User mode — Aquaticy bedient die virtual machine
             wie ein Mensch <span class="pro-tag">Ultra</span>
-            <span class="why">Die Werkstatt wird ein kleiner Desktop mit Internet: Aquaticy
+            <span class="why">Die virtual machine wird ein kleiner Desktop mit Internet: Aquaticy
               sieht den Bildschirm, klickt, tippt und nutzt Programme wie Browser, Office und
               Bildbearbeitung. Dein Heimnetz bleibt tabu. Absenden, Kaufen und Löschen nur,
               wenn du Ja sagst. Passwörter, Zahlungsdaten, Captchas und „Alle akzeptieren“
@@ -1662,7 +1662,7 @@ input:focus,select:focus{border-color:var(--accent)}
         </div>
         <div class="note" id="usermode-note">Dafür braucht Aquaticy ein Modell, das Bilder
           versteht (siehe Modell), und der Desktop muss einmal eingerichtet werden:
-          <code>docker build -f docker/workshop-desktop.Dockerfile -t aquaticy-werkstatt-desktop:local .</code>
+          <code>docker build -f docker/virtual machine-desktop.Dockerfile -t aquaticy-werkstatt-desktop:local .</code>
           Für den Browser reicht „Normal“. Browser und Office zusammen laufen mit „Plus“
           deutlich flüssiger.</div>
       </fieldset>
@@ -2037,7 +2037,7 @@ input:focus,select:focus{border-color:var(--accent)}
 const $ = (s) => document.querySelector(s);
 const thread = $("#thread"), main = $("#main"), input = $("#input"), send = $("#send");
 let busy = false;
-const aquaticyVersion = window.__AQUATICY_VERSION__ || "9.5.28 Spark";
+const aquaticyVersion = window.__AQUATICY_VERSION__ || "9.5.30 Spark";
 $("#version").textContent = "v" + aquaticyVersion;
 document.title = `Aquaticy AI ${aquaticyVersion}`;
 
@@ -2123,7 +2123,7 @@ function setMode(wanted, { merken = true } = {}){
   $("#input").placeholder = PLATZHALTER[mode] || PLATZHALTER.normal;
   if (merken) merkeZustand({ mode });
   setAgents(agents, { merken });
-  zeigeWerkstattKnopf();
+  zeigeVmKnopf();
   refreshHeader();
   // Pro heisst vor allem: viele Agenten. Die gibt es nur mit Strukturieren
   // -- ohne das antwortet das Modell selbst, und vom Modus bliebe nur ein
@@ -2159,13 +2159,13 @@ function setSandbox(on, { merken = true } = {}){
   sandbox = !!on;
   $("#werkstatt").checked = sandbox;
   if (merken) merkeZustand({ sandbox });
-  zeigeWerkstattKnopf();
+  zeigeVmKnopf();
   refreshHeader();
 }
 
-// Der Knopf zur Werkstatt steht nur da, wo es eine gibt: im Code-Modus mit
+// Der Knopf zur virtual machine steht nur da, wo es eine gibt: im Code-Modus mit
 // eingeschalteter Maschine. Sonst waere es ein Knopf ins Leere.
-function zeigeWerkstattKnopf(){
+function zeigeVmKnopf(){
   const knopf = $("#btn-vmfiles");
   if (knopf) knopf.hidden = !(mode === "code" && sandbox);
 }
@@ -2541,13 +2541,13 @@ function renderResultMedia(bubble, products = [], visuals = []){
   const grid = document.createElement("div"); grid.className = "result-media";
   const seen = new Set();
   (Array.isArray(visuals) ? visuals : []).slice(0, 6).forEach(visual => {
-    // Ein Bildschirmfoto der Werkstatt hat keine Webadresse -- nur das
+    // Ein Bildschirmfoto der virtual machine hat keine Webadresse -- nur das
     // gespeicherte Bild. Gezeigt wird dann auch keine "Bildquelle".
     // Ebenso ein Bild, das Aquaticy selbst erstellt hat -- dort steht statt
     // einer Quelle, dass es KI-erstellt ist, und die Beschreibung dazu.
     if (visual?.kind === "desktop" || visual?.kind === "erstellt"){
       const erstellt = visual.kind === "erstellt";
-      const standard = erstellt ? "KI-Bild" : "Bildschirm der Werkstatt";
+      const standard = erstellt ? "KI-Bild" : "Bildschirm der virtual machine";
       const id = String(visual.media_id || "");
       if (!id || seen.has(id)) return; seen.add(id);
       const image = resultImage("", visual.caption || visual.title || standard, id);
@@ -3168,22 +3168,22 @@ async function verfolge(hole, steps, bubble, text){
           : `Gegengeprüft — ${ev.checked} Teilergebnisse auf anderen Quellen, nichts widersprochen`);
         break;
       case "vm_start":
-        step(steps, "[Werkstatt]", `wird gestartet (${ev.runtime})`); break;
+        step(steps, "[virtual machine]", `wird gestartet (${ev.runtime})`); break;
       case "vm_run":
-        step(steps, "[Werkstatt]", ev.command); break;
+        step(steps, "[virtual machine]", ev.command); break;
       case "vm_write":
-        step(steps, "[Werkstatt]", `schreibt ${ev.path}`); break;
+        step(steps, "[virtual machine]", `schreibt ${ev.path}`); break;
       case "vm_done":
-        step(steps, "[Werkstatt]", ev.exit_code === 0
+        step(steps, "[virtual machine]", ev.exit_code === 0
           ? `lief durch (${ev.seconds}s)`
           : `Rückgabewert ${ev.exit_code} (${ev.seconds}s)`,
           ev.exit_code === 0 ? "" : "warn"); break;
       case "vm_stop":
-        step(steps, "[Werkstatt]", `abgeräumt — ${ev.reason}`); break;
+        step(steps, "[virtual machine]", `abgeräumt — ${ev.reason}`); break;
       case "vm_net":
-        step(steps, "[Werkstatt]", "Internet an, Heimnetz gesperrt"); break;
+        step(steps, "[virtual machine]", "Internet an, Heimnetz gesperrt"); break;
       case "vm_desktop":
-        step(steps, "[Werkstatt]", "Desktop bereit (User mode)"); break;
+        step(steps, "[virtual machine]", "Desktop bereit (User mode)"); break;
       case "desktop": {
         const was = {sieht: "sieht", klickt: "klickt", tippt: "tippt", drueckt: "drückt",
           scrollt: "scrollt", oeffnet: "öffnet", abgelehnt: "abgelehnt",
@@ -3192,7 +3192,7 @@ async function verfolge(hole, steps, bubble, text){
           ev.action === "abgelehnt" || ev.action === "nicht bestaetigt" ? "warn" : "");
         if (/^[0-9]{13}-[0-9a-f]{16}\.(jpg|png|webp|gif)$/.test(String(ev.media_id || ""))){
           const bild = document.createElement("img");
-          bild.className = "shot"; bild.alt = "Bildschirm der Werkstatt";
+          bild.className = "shot"; bild.alt = "Bildschirm der virtual machine";
           bild.loading = "lazy"; bild.src = "/api/media?id=" + encodeURIComponent(ev.media_id);
           bild.addEventListener("error", () => bild.remove());
           zeile.querySelector(".txt").appendChild(bild);
@@ -3286,6 +3286,15 @@ async function verfolge(hole, steps, bubble, text){
         // Nur dieser Chat ist zu (9.5.24) -- ein neuer Chat geht weiter.
         step(steps, "[Ai-guard]",
              "Dieser Chat ist gesperrt (unangemessene Sprache). Ein neuer Chat geht.", "err");
+        break;
+      case "mode_switch":
+        // Ai-guard (9.5.30): Sicherheits-/Schadsoftware-Thema bei einem Normal-
+        // oder Pro-Konto -- zurueck in den Normal-Modus, die virtual machine ist
+        // damit aus. Die Schalter werden nachgezogen, der Grund steht im Chat.
+        setMode(ev.mode || "normal", { merken: false });
+        setSandbox(false, { merken: false });
+        mark(bubble, ev.text || "");
+        step(steps, "[Ai-guard]", "In den Normal-Modus gewechselt (virtual machine aus).");
         break;
       case "error": step(steps, "[Fehler]", ev.message, "err"); break;
       case "chunk":
@@ -3693,7 +3702,7 @@ const EN = {
 "Seitenleiste ein- oder ausblenden": "Show or hide the sidebar",
 "Modell wechseln": "Change model",
 "Modell": "Model",
-"Dateien in der Werkstatt": "Files in the workshop",
+"Dateien in der virtual machine": "Files in the virtual machine",
 "Modell wählen": "Choose model",
 "Denktiefe": "Thinking depth",
 "Wie gründlich Aquaticy nachdenkt, bevor es antwortet. Low ist schnell, High nimmt sich Zeit für knifflige Fragen.": "How carefully Aquaticy thinks before answering. Low is fast, High takes its time for tricky questions.",
@@ -3753,16 +3762,16 @@ const EN = {
 "Warum": "Why",
 "Was du tun kannst": "What you can do",
 "Verstanden": "Understood",
-"Werkstatt": "Workshop",
+"virtual machine": "Virtual machine",
 "Die Dateien, an denen Aquaticy gerade arbeitet. Was du anhängst, liegt im Ordner „eingang“. Alles, was Aquaticy erstellt, kannst du herunterladen. 20 Minuten nach deiner letzten Nachricht wird alles gelöscht.": "The files Aquaticy is working on right now. What you attach is in the folder “eingang”. You can download everything Aquaticy creates. Everything is deleted 20 minutes after your last message.",
-"So sieht der Desktop der Werkstatt gerade aus (User mode).": "This is what the workshop desktop looks like right now (user mode).",
+"So sieht der Desktop der virtual machine gerade aus (User mode).": "This is what the virtual machine desktop looks like right now (user mode).",
 "Neu ansehen": "Refresh",
 "Fertig": "Done",
 "Extras für Aquaticy: Dienste, Konten und Programme. Du kannst jedes installieren, an- und ausschalten und wieder entfernen. Anmelden musst du dich selbst — Aquaticy kennt deine Passwörter nie. Aus dem Chat heraus lässt sich hier nichts ändern.": "Extras for Aquaticy: services, accounts and programs. You can install each one, switch it on and off and remove it again. You have to sign in yourself — Aquaticy never knows your passwords. Nothing here can be changed from the chat.",
 "Selbst anmelden": "Sign in yourself",
 "So sieht der Bildschirm gerade aus. Klick auf ein Feld (zweimal klicken = Doppelklick) und tipp unten ein, was hinein soll — etwa dein Passwort. Das landet nur dort: nicht im Verlauf und nicht bei Aquaticy.": "This is what the screen looks like right now. Click a field (click twice = double-click) and type below what should go in — for example your password. It only goes there: not into the history and not to Aquaticy.",
-"https://… — im Werkstatt-Browser öffnen": "https://… — open in the workshop browser",
-"Adresse im Werkstatt-Browser öffnen": "Open address in the workshop browser",
+"https://… — im Browser der virtual machine öffnen": "https://… — open in the virtual machine browser",
+"Adresse im Browser der virtual machine öffnen": "Open address in the virtual machine browser",
 "Öffnen": "Open",
 "Text für das angeklickte Feld": "Text for the clicked field",
 "Text zum Tippen": "Text to type",
@@ -3813,12 +3822,12 @@ const EN = {
 "Hier stehen nur die Modelle und Schlüssel, die du oben selbst hinzugefügt hast.": "Only the models and keys you added yourself above are listed here.",
 "🔒 „Plus“ gibt es nur mit Ultra. Die Größe „Normal“ kannst du trotzdem nutzen.": "🔒 “Plus” is only available with Ultra. You can still use the “Normal” size.",
 "Größe": "Size",
-"Gilt ab der nächsten Werkstatt — eine laufende bleibt, wie sie ist": "Applies from the next workshop — a running one stays as it is",
+"Gilt ab der nächsten virtual machine — eine laufende bleibt, wie sie ist": "Applies from the next virtual machine — a running one stays as it is",
 "Normal — 1 Kern, 1 GB Arbeitsspeicher, 4 GB Speicher": "Normal — 1 core, 1 GB RAM, 4 GB storage",
 "Plus — 4 Kerne, 6 GB Arbeitsspeicher, 20 GB Speicher": "Plus — 4 cores, 6 GB RAM, 20 GB storage",
 "Normal reicht für die meisten Programmieraufgaben. Plus lohnt sich für alles, was mehr Rechenleistung braucht — zum Beispiel, wenn Aquaticy im Code-Modus mit Blender ein 3D-Design erstellen oder rendern soll.": "Normal is enough for most programming tasks. Plus is worth it for anything that needs more computing power — for example when Aquaticy is to create or render a 3D design with Blender in code mode.",
-"User mode — Aquaticy bedient die Werkstatt wie ein Mensch": "User mode — Aquaticy uses the workshop like a person",
-"Die Werkstatt wird ein kleiner Desktop mit Internet: Aquaticy sieht den Bildschirm, klickt, tippt und nutzt Programme wie Browser, Office und Bildbearbeitung. Dein Heimnetz bleibt tabu. Absenden, Kaufen und Löschen nur, wenn du Ja sagst. Passwörter, Zahlungsdaten, Captchas und „Alle akzeptieren“ fasst Aquaticy nie an.": "The workshop becomes a small desktop with internet: Aquaticy sees the screen, clicks, types and uses programs like a browser, office and image editing. Your home network stays off limits. Sending, buying and deleting only if you say yes. Aquaticy never touches passwords, payment details, captchas or “Accept all”.",
+"User mode — Aquaticy bedient die virtual machine wie ein Mensch": "User mode — Aquaticy uses the virtual machine like a person",
+"Die virtual machine wird ein kleiner Desktop mit Internet: Aquaticy sieht den Bildschirm, klickt, tippt und nutzt Programme wie Browser, Office und Bildbearbeitung. Dein Heimnetz bleibt tabu. Absenden, Kaufen und Löschen nur, wenn du Ja sagst. Passwörter, Zahlungsdaten, Captchas und „Alle akzeptieren“ fasst Aquaticy nie an.": "The virtual machine becomes a small desktop with internet: Aquaticy sees the screen, clicks, types and uses programs like a browser, office and image editing. Your home network stays off limits. Sending, buying and deleting only if you say yes. Aquaticy never touches passwords, payment details, captchas or “Accept all”.",
 "Login-Apps": "Login apps",
 "— hier meldest du dich selbst an: Du siehst den Bildschirm, klickst hinein und tippst Name, Passwort oder Code selbst ein. Aquaticy tippt nie ein Passwort und liest nicht mit.": "— you sign in here yourself: you see the screen, click into it and type your name, password or code yourself. Aquaticy never types a password and doesn't read along.",
 "⌨ Selbst anmelden": "⌨ Sign in yourself",
@@ -4000,9 +4009,9 @@ const EN = {
 "Die Aufträge ließen sich nicht laden.": "The jobs couldn't be loaded.",
 "Die Datei kam nicht durch.": "The file didn't get through.",
 "Die Schlüssel ließen sich nicht laden.": "The keys couldn't be loaded.",
-"Die Werkstatt antwortet nicht.": "The workshop isn't answering.",
-"Die Werkstatt läuft, es liegt aber noch nichts darin.": "The workshop is running, but there's nothing in it yet.",
-"Die Werkstatt öffnet die Seite …": "The workshop is opening the page …",
+"Die virtual machine antwortet nicht.": "The virtual machine isn't answering.",
+"Die virtual machine läuft, es liegt aber noch nichts darin.": "The virtual machine is running, but there's nothing in it yet.",
+"Die virtual machine öffnet die Seite …": "The virtual machine is opening the page …",
 "Einen Moment …": "One moment …",
 "Fenster bei Google geöffnet — danach die Adresse hier einfügen.": "Window opened at Google — then paste the address here.",
 "Ging nicht.": "Didn't work.",
@@ -4839,8 +4848,8 @@ $("#usermode").addEventListener("click", async (e) => {
   e.preventDefault();
   await guardDialog({
     title: "Das gibt es leider nur mit einem Ultra-Konto.",
-    text: "Der User mode — die Werkstatt als Desktop mit Internet — gehört zu Ultra. "
-      + "Die Add-ons ohne Werkstatt (GitHub, Wetter, RSS-Feeds, Tagesschau, Wikipedia, "
+    text: "Der User mode — die virtual machine als Desktop mit Internet — gehört zu Ultra. "
+      + "Die Add-ons ohne virtual machine (GitHub, Wetter, RSS-Feeds, Tagesschau, Wikipedia, "
       + "Währungsrechner, Feiertage) kannst du trotzdem nutzen.",
     ok: "Verstanden",
   });
@@ -4939,7 +4948,7 @@ function addonKarte(a){
       if (a.werkstatt && !addonDaten.pro){
         guardDialog({
           title: "Das gibt es leider nur mit einem Ultra-Konto.",
-          text: `${a.name} läuft in der Werkstatt im User mode — und der gehört zu Ultra.`,
+          text: `${a.name} läuft in der virtual machine im User mode — und der gehört zu Ultra.`,
           ok: "Verstanden",
         });
         return;
@@ -4951,7 +4960,7 @@ function addonKarte(a){
       const weiter = await guardDialog({
         title: `${a.name} wirklich deinstallieren?`,
         text: a.werkstatt
-          ? "Programm und Anmeldung werden gelöscht. Eine laufende Werkstatt startet dafür neu."
+          ? "Programm und Anmeldung werden gelöscht. Eine laufende virtual machine startet dafür neu."
           : "Die Einrichtung und die Anmeldung werden gelöscht.",
         ok: "Deinstallieren", cancel: "Abbrechen",
       });
@@ -5042,7 +5051,7 @@ function addonAnmeldung(a){
                         text: "Schalte es oben rechts in der Karte ein.", ok: "Verstanden" });
           return;
         }
-        $("#addon-note").textContent = "Die Werkstatt startet — das dauert beim ersten Mal "
+        $("#addon-note").textContent = "Die virtual machine startet — das dauert beim ersten Mal "
           + "etwas …";
         const ok = await addonTun({ action: "login", id: a.id }, b);
         if (ok) bildschirmOeffnen(angemeldet ? null : a);
@@ -5051,7 +5060,7 @@ function addonAnmeldung(a){
       zeile.appendChild(knopf("Abmelden", "", async (b) => {
         const weiter = await guardDialog({
           title: `Von ${a.name} abmelden?`,
-          text: "Die Anmeldung in der Werkstatt wird gelöscht. Eine laufende Werkstatt startet "
+          text: "Die Anmeldung in der virtual machine wird gelöscht. Eine laufende virtual machine startet "
             + "dafür neu.",
           ok: "Abmelden", cancel: "Abbrechen",
         });
@@ -5126,9 +5135,9 @@ $("#btn-addons").addEventListener("click", () => {
 $("#addon-close").addEventListener("click", addonsSchliessen);
 addonBox.addEventListener("click", (e) => { if (e.target === addonBox) addonsSchliessen(); });
 
-/* ---------- Login-Apps: die Werkstatt selbst bedienen ---------- */
+/* ---------- Login-Apps: die virtual machine selbst bedienen ---------- */
 // Ein frisches Foto alle anderthalb Sekunden -- kein Video. Klicks und Text
-// gehen an /api/werkstatt/eingabe und von dort nur an die Werkstatt.
+// gehen an /api/werkstatt/eingabe und von dort nur an die virtual machine.
 let bildTakt = null, bildAddon = null;
 
 function bildNeu(){
@@ -5136,7 +5145,7 @@ function bildNeu(){
   bild.onload = () => { leer.hidden = true; bild.hidden = false; };
   bild.onerror = () => {
     bild.hidden = true; leer.hidden = false;
-    leer.textContent = "Die Werkstatt läuft gerade nicht. Öffne oben eine Adresse — oder "
+    leer.textContent = "Die virtual machine läuft gerade nicht. Öffne oben eine Adresse — oder "
       + "starte eine Login-App über 🧩 Add-ons → Anmelden.";
   };
   bild.src = "/api/werkstatt/bildschirm?leise=1&t=" + Date.now();
@@ -5177,7 +5186,7 @@ async function eingabe(body){
   return false;
 }
 
-// Klick ins Bild -> Klick an dieselbe Stelle der Werkstatt (1280 x 800).
+// Klick ins Bild -> Klick an dieselbe Stelle der virtual machine (1280 x 800).
 let letzterKlick = 0;
 $("#screen-img").addEventListener("click", (e) => {
   const bild = e.currentTarget, rahmen = bild.getBoundingClientRect();
@@ -5207,7 +5216,7 @@ $("#screen-go").addEventListener("click", async () => {
   const url = $("#screen-url").value.trim();
   if (!url) return;
   $("#screen-note").className = "note";
-  $("#screen-note").textContent = "Die Werkstatt öffnet die Seite …";
+  $("#screen-note").textContent = "Die virtual machine öffnet die Seite …";
   if (await eingabe({ art: "open", url })) $("#screen-note").textContent = "";
 });
 $("#screen-done").addEventListener("click", async () => {
@@ -5221,7 +5230,7 @@ $("#btn-loginapps").addEventListener("click", async () => {
   if (!kontoPro){
     await guardDialog({
       title: "Das gibt es leider nur mit einem Ultra-Konto.",
-      text: "Login-Apps laufen in der Werkstatt im User mode — und der gehört zu Ultra.",
+      text: "Login-Apps laufen in der virtual machine im User mode — und der gehört zu Ultra.",
       ok: "Verstanden",
     });
     return;
@@ -5495,25 +5504,25 @@ $("#limit-banner-open").addEventListener("click", async () => {
   }, 350);
 });
 
-/* ---------- Werkstatt: Dateien ---------- */
+/* ---------- virtual machine: Dateien ---------- */
 // Ohne diese Liste muesste man raten, wie die Datei heisst, die Aquaticy
 // gerade gebaut hat -- und haette keine Moeglichkeit, sie mitzunehmen.
 const vmBox = $("#vmbox");
 
-async function loadWorkshop(){
+async function loadVm(){
   const liste = $("#vmliste"), note = $("#vm-note");
   liste.innerHTML = "";
   note.textContent = "";
   $("#vm-screen").hidden = true;
   let data;
   try { data = await (await api("/api/werkstatt")).json(); }
-  catch { note.textContent = "Die Werkstatt antwortet nicht."; return; }
+  catch { note.textContent = "Die virtual machine antwortet nicht."; return; }
   if (data.running && data.status?.user_mode) zeigeBildschirm();
 
   if (!data.running){
     const leer = document.createElement("div");
     leer.className = "merk-leer";
-    leer.textContent = "Die Werkstatt läuft gerade nicht. Sie entsteht mit der "
+    leer.textContent = "Die virtual machine läuft gerade nicht. Sie entsteht mit der "
       + "nächsten Frage im Code-Modus — und verschwindet zwanzig Minuten nach "
       + "der letzten wieder.";
     liste.appendChild(leer);
@@ -5523,7 +5532,7 @@ async function loadWorkshop(){
   if (!dateien.length){
     const leer = document.createElement("div");
     leer.className = "merk-leer";
-    leer.textContent = "Die Werkstatt läuft, es liegt aber noch nichts darin.";
+    leer.textContent = "Die virtual machine läuft, es liegt aber noch nichts darin.";
     liste.appendChild(leer);
   }
   for (const datei of dateien) liste.appendChild(vmZeile(datei));
@@ -5536,7 +5545,7 @@ async function loadWorkshop(){
 }
 
 // Der Bildschirm im User mode -- ein frisches Foto, kein Video. Geladen wird
-// es nur, wenn die Werkstatt ohnehin laeuft; ein Blick soll keine starten.
+// es nur, wenn die virtual machine ohnehin laeuft; ein Blick soll keine starten.
 function zeigeBildschirm(){
   const bild = $("#vm-screen-img"), rahmen = $("#vm-screen");
   bild.onload = () => { rahmen.hidden = false; };
@@ -5577,10 +5586,10 @@ function vmZeile(datei){
 }
 
 $("#btn-vmfiles").addEventListener("click", () => {
-  loadWorkshop();
+  loadVm();
   openOverlay(vmBox);
 });
-$("#vm-refresh").addEventListener("click", loadWorkshop);
+$("#vm-refresh").addEventListener("click", loadVm);
 $("#vm-close").addEventListener("click", () => closeOverlay(vmBox));
 vmBox.addEventListener("click", (e) => { if (e.target === vmBox) closeOverlay(vmBox); });
 

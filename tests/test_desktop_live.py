@@ -1,4 +1,4 @@
-"""Der User mode in einer echten Werkstatt -- nur, wo es Docker und das Abbild gibt.
+"""Der User mode in einer echten virtual machine -- nur, wo es Docker und das Abbild gibt.
 
 Alle anderen Tests pruefen Befehlszeilen und Entscheidungen. Dieser hier
 startet wirklich: Behaelter, Netzsperre, Desktop, Browser. Er laeuft nur, wenn
@@ -43,7 +43,7 @@ pytestmark = pytest.mark.skipif(
     not _bereit(), reason="kein Docker-Dienst oder kein Desktop-Abbild gebaut"
 )
 
-SEITE = """<!doctype html><meta charset=utf-8><title>Werkstatt-Test</title>
+SEITE = """<!doctype html><meta charset=utf-8><title>virtual-machine-Test</title>
 <form action=/senden><input name=q autofocus style='font:20px sans-serif;width:600px'></form>"""
 
 SERVER = """import http.server, json, os

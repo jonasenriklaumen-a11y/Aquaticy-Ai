@@ -452,7 +452,7 @@ AIGUARD: Any = None
 
 #: Was ein gesperrtes Konto noch schicken darf (9.5.26): abmelden, das Design
 #: aendern, einen Lauf anhalten und die eigenen Chats ansehen, umbenennen oder
-#: loeschen. Alles andere -- Chat, Werkstatt, Add-ons, Auftraege, Befehle,
+#: loeschen. Alles andere -- Chat, virtual machine, Add-ons, Auftraege, Befehle,
 #: Einstellungen -- ist waehrend der Sperre zu.
 POST_WHEN_BANNED = frozenset({
     "/api/auth/logout", "/api/auth/login", "/api/auth/register", "/api/consent",
@@ -747,7 +747,7 @@ def client_ip(direkt: str, forwarded: str = "", real_ip: str = "") -> str:
     return direkt
 
 
-#: Was die laufende Werkstatt festlegt -- aendert sich eines davon, wird sie
+#: Was die laufende virtual machine festlegt -- aendert sich eines davon, wird sie
 #: neu aufgebaut (siehe ChatSession.reload).
 WORKSHOP_FIELDS: tuple[str, ...] = (
     "vm_size", "vm_image", "vm_idle_minutes", "vm_memory_mb", "vm_disk_gb", "vm_cpus",
@@ -756,7 +756,7 @@ WORKSHOP_FIELDS: tuple[str, ...] = (
 
 
 def workshop_changed(alt: Any, neu: Any) -> bool:
-    """Braucht die Werkstatt nach diesem Speichern einen Neuaufbau?"""
+    """Braucht die virtual machine nach diesem Speichern einen Neuaufbau?"""
     return any(getattr(alt, feld, None) != getattr(neu, feld, None) for feld in WORKSHOP_FIELDS)
 
 
@@ -930,7 +930,7 @@ def _profile_settings(profile: Path, plan: str, account: Account | None = None) 
     # dieses Konto waehlt (Settings.route).
     settings.api_base_for = base.model
     if plan != "ultra":
-        # Netz-Features (Heimnetz, Home Assistant, Lager, Werkstatt-Desktop)
+        # Netz-Features (Heimnetz, Home Assistant, Lager, Desktop der virtual machine)
         # gehören seit 9.5.17 nur noch zu Ultra -- Normal UND Pro sind hier
         # gleich beschränkt. Der Unterschied ist das Kontingent (Pro hat mehr).
         settings.lan_enabled = False
@@ -1098,9 +1098,9 @@ class ChatSession:
     def reload(self, workshop: bool = False) -> None:
         """Nach dem Speichern neuer Einstellungen alles neu aufbauen.
 
-        Die Werkstatt gehoert dazu, wenn sich an ihr etwas geaendert hat: haette
+        Die virtual machine gehoert dazu, wenn sich an ihr etwas geaendert hat: haette
         jemand ihre Grenzen geaendert, arbeitete die laufende sonst noch mit den
-        alten weiter. *workshop* erzwingt den Neuaufbau (Add-ons: die Werkstatt
+        alten weiter. *workshop* erzwingt den Neuaufbau (Add-ons: die virtual machine
         muss ihre Datentraeger loslassen oder neu einhaengen).
 
         Der Chat bleibt derselbe. Wer waehrend eines Gespraechs das Modell
@@ -1120,10 +1120,10 @@ class ChatSession:
             self._settings = None
             if self.profile is None:
                 reset_settings_cache()
-            # Die Werkstatt nur neu aufbauen, wenn sich an IHR etwas geaendert
+            # Die virtual machine nur neu aufbauen, wenn sich an IHR etwas geaendert
             # hat (seit 9.5.16). Bis dahin loeschte jede gespeicherte
             # Einstellung -- schon ein anderes Modell in der Auswahl -- die
-            # laufende Werkstatt samt allem, was unter /work lag.
+            # laufende virtual machine samt allem, was unter /work lag.
             with contextlib.suppress(Exception):
                 from aquaticy.sandbox import forget_shared
 
@@ -1267,7 +1267,7 @@ class ChatSession:
 
     @staticmethod
     def _workshop_wanted(agent: Any, mode: str, sandbox: bool | None) -> bool:
-        """Ob dieser Turn in der Werkstatt landet -- vor `agent.ask`.
+        """Ob dieser Turn in der virtual machine landet -- vor `agent.ask`.
 
         Die Anhaenge werden verarbeitet, bevor der Agent den Modus dieses
         Turns kennt. Wer stattdessen `agent.workshop_on` fragt, bekommt den
@@ -1347,18 +1347,18 @@ class ChatSession:
                 continue
             emit("upload", {"name": name, "bytes": len(data)})
             block = self._one_attachment(agent, name, data)
-            # Ist die Werkstatt an, landet die Datei zusaetzlich unveraendert
+            # Ist die virtual machine an, landet die Datei zusaetzlich unveraendert
             # darin. Sonst koennte das Modell ueber ein Bild reden, es aber
             # nicht oeffnen -- und ein Zip oder eine CSV waere gar nicht erst
             # angekommen.
             gelegt = self._into_workshop(name, data) if workshop else ""
             if gelegt:
-                block += f"\n[Liegt in der Werkstatt unter {gelegt}]"
+                block += f"\n[Liegt in der virtual machine unter {gelegt}]"
             blocks.append(block)
         return "\n\n".join(blocks)
 
     def _into_workshop(self, name: str, data: bytes) -> str:
-        """Legt einen Anhang in die Werkstatt.
+        """Legt einen Anhang in die virtual machine.
 
         Returns: der Pfad drinnen, oder "" wenn das Hineinlegen nicht
         geklappt hat. Ein Fehlschlag hier darf die Anfrage nicht abbrechen:
@@ -1368,7 +1368,7 @@ class ChatSession:
 
         if len(data) > MAX_FILE_BYTES:
             return ""
-        # Die Werkstatt nimmt nur ASCII-Pfade; "Übung.txt" waere sonst raus.
+        # Die virtual machine nimmt nur ASCII-Pfade; "Übung.txt" waere sonst raus.
         schlicht = "".join(
             zeichen if zeichen.isascii() and (zeichen.isalnum() or zeichen in "-_.") else "_"
             for zeichen in name
@@ -1386,10 +1386,10 @@ class ChatSession:
         except metering.QuotaExceeded:
             return ""
         except Exception:
-            # Ohne Werkstatt geht die Datei trotzdem an das Modell -- aber
+            # Ohne virtual machine geht die Datei trotzdem an das Modell -- aber
             # nicht still: das Protokoll sagt, warum sie dort nicht liegt.
             logging.getLogger("aquaticy.web").warning(
-                "Anhang nicht in die Werkstatt gelegt", exc_info=True)
+                "Anhang nicht in die virtual machine gelegt", exc_info=True)
         return ""
 
     def _one_attachment(self, agent: Any, name: str, data: bytes) -> str:
@@ -2065,7 +2065,7 @@ def save_values(payload: dict[str, Any]) -> Path:
     plus_workshop = str(payload.get("AQUATICY_VM_SIZE", "")).strip() == "plus"
     if not session.ultra and (pro_integration or plus_workshop):
         raise ValueError(
-            "Heimnetz-Suche, Home Assistant, Lagerverwaltung und die große Werkstatt "
+            "Heimnetz-Suche, Home Assistant, Lagerverwaltung und die große virtual machine "
             "gibt es nur mit einem Ultra-Konto."
         )
     if not session.ultra:
@@ -2090,7 +2090,7 @@ def save_values(payload: dict[str, Any]) -> Path:
     ).strip().lower() in {"1", "true", "yes", "on", "ja"}
     if user_mode_on and not session.ultra:
         raise ValueError(
-            "Der User mode (Werkstatt mit Desktop und Internet) braucht ein Ultra-Konto."
+            "Der User mode (virtual machine mit Desktop und Internet) braucht ein Ultra-Konto."
         )
     values = {
         key: str(payload.get(key, "")).strip() for key in SETTING_KEYS if key in payload
@@ -2230,7 +2230,7 @@ def keys_view(session: Any) -> dict[str, Any]:
         ),
         "quota_note": (
             "Modelle mit deinem eigenen Schlüssel zählen nicht in dein Limit — dort zählt "
-            "nur, was auf dem Server passiert: Werkstatt, Seitenabrufe, Suchen."
+            "nur, was auf dem Server passiert: virtual machine, Seitenabrufe, Suchen."
             if getattr(session.settings(), "quota", None) is not None else ""
         ),
     }
@@ -2344,7 +2344,7 @@ ADDON_ACTIONS = frozenset({
     "feeds", "rights",
 })
 
-#: Aktionen, bei denen die laufende Werkstatt neu aufgebaut werden muss --
+#: Aktionen, bei denen die laufende virtual machine neu aufgebaut werden muss --
 #: sie haelt die Datentraeger der Add-ons fest.
 _RESTARTS_WORKSHOP = frozenset({"uninstall", "enable", "disable", "logout"})
 
@@ -2366,7 +2366,7 @@ def addon_action(payload: dict[str, Any]) -> tuple[dict[str, Any], int]:
         addon = addons.get(addon_id)
         if action in _RESTARTS_WORKSHOP and addon.programm and session.busy():
             return {"ok": False, "error": (
-                "Gerade arbeitet Aquaticy noch — die Werkstatt muss dafür neu starten. "
+                "Gerade arbeitet Aquaticy noch — die virtual machine muss dafür neu starten. "
                 "Bitte gleich noch einmal."
             )}, 409
         hinweis = ""
@@ -2378,7 +2378,7 @@ def addon_action(payload: dict[str, Any]) -> tuple[dict[str, Any], int]:
             hinweis = "Wird installiert …" if addon.programm else "Installiert und eingeschaltet."
         elif action == "uninstall":
             if addon.programm:
-                session.reload(workshop=True)          # die Werkstatt laesst den Datentraeger los
+                session.reload(workshop=True)   # die virtual machine laesst den Datentraeger los
             addons.uninstall(session.settings(), addon.id)
             session.reload(workshop=True)
             hinweis = "Deinstalliert — Programm und Anmeldung sind gelöscht."
@@ -2390,7 +2390,7 @@ def addon_action(payload: dict[str, Any]) -> tuple[dict[str, Any], int]:
             if addon.login != "token":
                 raise addons.AddOnError(f"{addon.name} meldet sich nicht mit einem Token an.")
             ergebnis = addons.github_login(settings, str(payload.get("token") or ""))
-            session.reload()  # GitHub laeuft nicht in der Werkstatt
+            session.reload()  # GitHub laeuft nicht in der virtual machine
             hinweis = f"Angemeldet als {ergebnis['who']}." + (
                 f" {ergebnis['warning']}" if ergebnis["warning"] else "")
         elif action == "login":
@@ -2404,17 +2404,17 @@ def addon_action(payload: dict[str, Any]) -> tuple[dict[str, Any], int]:
             addons.logout(session.settings(), addon.id)
             session.reload(workshop=True)
             hinweis = "Abgemeldet." + (
-                " Entferne die Werkstatt auf dem Handy auch unter „Verknüpfte Geräte“."
+                " Entferne die virtual machine auf dem Handy auch unter „Verknüpfte Geräte“."
                 if addon.login == "qr" else "")
         elif action == "rights":
             # Wirkt sofort: Werkzeuge und Desktop lesen die Rechte bei jedem
             # Aufruf, der Systemtext wird vor der naechsten Frage erneuert.
-            # Kein Neuaufbau -- die Werkstatt laeuft weiter.
+            # Kein Neuaufbau -- die virtual machine laeuft weiter.
             neu = addons.set_rights(settings, addon.id, payload.get("rechte"))
             hinweis = "Gespeichert: " + addons.rights_text(addon.id, neu) + "."
         else:  # feeds
             feeds = addons.set_feeds(settings, payload.get("feeds") or [])
-            session.reload()  # Feeds laufen nicht in der Werkstatt
+            session.reload()  # Feeds laufen nicht in der virtual machine
             hinweis = f"{len(feeds)} Feeds gespeichert."
     except addons.AddOnError as exc:
         return {"ok": False, "error": str(exc)}, 400
@@ -2425,13 +2425,13 @@ def addon_action(payload: dict[str, Any]) -> tuple[dict[str, Any], int]:
 
 
 def _addon_login(session: Any, addon: Any) -> str:
-    """Oeffnet das Programm in der Werkstatt -- anmelden tut sich der Nutzer selbst."""
+    """Oeffnet das Programm in der virtual machine -- anmelden tut sich der Nutzer selbst."""
     from aquaticy import addons
     from aquaticy import sandbox as werkstatt
 
     settings = session.settings()
     if addon.login != "qr":
-        raise addons.AddOnError(f"{addon.name} braucht keine Anmeldung in der Werkstatt.")
+        raise addons.AddOnError(f"{addon.name} braucht keine Anmeldung in der virtual machine.")
     ok, warum = addons.usable(addon, settings, session.ultra)
     if not ok:
         raise addons.AddOnError(warum)
@@ -2445,12 +2445,12 @@ def _addon_login(session: Any, addon: Any) -> str:
             + (fertig.stderr.decode("utf-8", "replace").strip() or "keine Meldung")[:300]
         )
     return (
-        f"{addon.name} ist in der Werkstatt offen. Scanne den QR-Code unten mit deinem Handy "
+        f"{addon.name} ist in der virtual machine offen. Scanne den QR-Code unten mit deinem Handy "
         "und drück dann „Ich bin angemeldet“."
     )
 
 
-#: Tasten, die man im Werkstatt-Bildschirm selbst druecken kann.
+#: Tasten, die man im virtual-machine-Bildschirm selbst druecken kann.
 INPUT_KEYS = frozenset({
     "Return", "Tab", "BackSpace", "Escape", "Delete", "Up", "Down", "Left", "Right",
     "Home", "End", "Page_Up", "Page_Down", "ctrl+a", "ctrl+c", "ctrl+v", "ctrl+l", "shift+Tab",
@@ -2462,13 +2462,13 @@ MAX_INPUT_CHARS = 1000
 
 
 def workshop_input(payload: dict[str, Any]) -> tuple[dict[str, Any], int]:
-    """Der Nutzer bedient die Werkstatt selbst: klicken, tippen, Tasten.
+    """Der Nutzer bedient die virtual machine selbst: klicken, tippen, Tasten.
 
     Das ist der Weg fuer Anmeldungen ("Login-Apps"): Passwoerter und Codes
     tippt der Mensch, nicht Aquaticy. Deshalb laeuft das bewusst NICHT durch
     die Pruefungen aus aquaticy/desktop.py -- die gelten fuer die KI. Und
     deshalb wird der Text nirgends abgelegt: nicht im Verlauf, nicht im
-    Protokoll, nicht beim Modell. Er geht einmal an die Werkstatt, fertig.
+    Protokoll, nicht beim Modell. Er geht einmal an die virtual machine, fertig.
     """
     from aquaticy import sandbox as werkstatt
     from aquaticy.desktop import HEIGHT, WIDTH
@@ -2483,7 +2483,7 @@ def workshop_input(payload: dict[str, Any]) -> tuple[dict[str, Any], int]:
     box = werkstatt.shared(settings)
     art = str(payload.get("art") or "").strip().lower()
     if art == "open":
-        # Der einzige Weg, der eine Werkstatt starten darf: der Nutzer will
+        # Der einzige Weg, der eine virtual machine starten darf: der Nutzer will
         # sich selbst irgendwo anmelden und oeffnet dafuer eine Adresse.
         from aquaticy.desktop import URL_RE
 
@@ -2493,12 +2493,12 @@ def workshop_input(payload: dict[str, Any]) -> tuple[dict[str, Any], int]:
         try:
             fertig = box.desktop("open", "browser", adresse, timeout=90)
         except Exception as exc:
-            return {"ok": False, "error": f"Die Werkstatt startet nicht: {exc}"}, 502
+            return {"ok": False, "error": f"Die virtual machine startet nicht: {exc}"}, 502
         if fertig.returncode != 0:
             return {"ok": False, "error": fertig.stderr.decode("utf-8", "replace")[:200]}, 400
         return {"ok": True}, 200
     if not box.alive or not box.user_mode:
-        return {"ok": False, "error": "Es läuft gerade keine Werkstatt im User mode."}, 404
+        return {"ok": False, "error": "Es läuft gerade keine virtual machine im User mode."}, 404
     try:
         if art == "click":
             x, y = int(payload.get("x")), int(payload.get("y"))
@@ -2523,7 +2523,8 @@ def workshop_input(payload: dict[str, Any]) -> tuple[dict[str, Any], int]:
     except (TypeError, ValueError):
         return {"ok": False, "error": "x und y bitte als Zahlen."}, 400
     except Exception as exc:
-        return {"ok": False, "error": f"Die Werkstatt antwortet nicht: {type(exc).__name__}"}, 502
+        return {"ok": False,
+                "error": f"Die virtual machine antwortet nicht: {type(exc).__name__}"}, 502
     if fertig.returncode != 0:
         meldung = fertig.stderr.decode("utf-8", "replace").strip()[:200]
         return {"ok": False, "error": meldung or "Das hat nicht geklappt."}, 400
@@ -2766,7 +2767,7 @@ class Handler(BaseHTTPRequestHandler):
         if (self.command == "POST" and AIGUARD is not None and account is not None
                 and route not in POST_WHEN_BANNED):
             # Ai-guard (9.5.26): Ein gesperrtes Konto kann lesen, aber nichts
-            # mehr tun. Bis 9.5.25 galt die Sperre nur fuer /api/chat -- Werkstatt,
+            # mehr tun. Bis 9.5.25 galt die Sperre nur fuer /api/chat -- virtual machine,
             # Add-ons, Auftraege, Befehle und Rueckfrage-Antworten gingen weiter.
             sperre = AIGUARD.is_banned(user_id=account.id, ip=client)
             if sperre is not None:
@@ -3168,13 +3169,13 @@ class Handler(BaseHTTPRequestHandler):
         return {"ok": False, "error": f"Unbekannt: {action}"}
 
     def _workshop_file(self) -> None:
-        """Reicht eine Datei aus der Werkstatt heraus -- zum Herunterladen."""
+        """Reicht eine Datei aus der virtual machine heraus -- zum Herunterladen."""
         from aquaticy import sandbox as werkstatt
 
         wanted = (parse_qs(urlsplit(self.path).query).get("path") or [""])[0]
         box = werkstatt.shared(SESSION.settings())
         if not box.alive:
-            self._json({"error": "Die Werkstatt laeuft gerade nicht."}, 404)
+            self._json({"error": "Die virtual machine laeuft gerade nicht."}, 404)
             return
         try:
             data = box.get_bytes(wanted)
@@ -3185,11 +3186,11 @@ class Handler(BaseHTTPRequestHandler):
             self._json({"error": str(exc)}, 400)
             return
         except Exception as exc:  # pragma: no cover - Laufzeit meldet Unerwartetes
-            self._json({"error": f"Die Werkstatt antwortet nicht: {exc}"}, 502)
+            self._json({"error": f"Die virtual machine antwortet nicht: {exc}"}, 502)
             return
         name = safe_name(wanted.rsplit("/", 1)[-1] or "datei")
         self.send_response(200)
-        # Immer als Anhang: sonst koennte eine HTML-Datei aus der Werkstatt
+        # Immer als Anhang: sonst koennte eine HTML-Datei aus der virtual machine
         # im Browser laufen -- und zwar unter der Adresse von Aquaticy.
         self.send_header("Content-Type", "application/octet-stream")
         self.send_header("Content-Disposition", f'attachment; filename="{name}"')
@@ -3200,9 +3201,9 @@ class Handler(BaseHTTPRequestHandler):
         self.wfile.write(data)
 
     def _workshop_screen(self) -> None:
-        """Der Bildschirm der Werkstatt im User mode -- so, wie Aquaticy ihn sieht.
+        """Der Bildschirm der virtual machine im User mode -- so, wie Aquaticy ihn sieht.
 
-        Startet nichts: laeuft keine Werkstatt, gibt es auch kein Bild. Ein
+        Startet nichts: laeuft keine virtual machine, gibt es auch kein Bild. Ein
         Blick hinein soll keine Maschine hochfahren.
         """
         from aquaticy import sandbox as werkstatt
@@ -3216,7 +3217,7 @@ class Handler(BaseHTTPRequestHandler):
                 self.send_header("Cache-Control", "no-store")
                 self.end_headers()
                 return
-            self._json({"error": "Es laeuft gerade keine Werkstatt im User mode."}, 404)
+            self._json({"error": "Es laeuft gerade keine virtual machine im User mode."}, 404)
             return
         try:
             data = box.screenshot(start=False)
@@ -3387,7 +3388,7 @@ class Handler(BaseHTTPRequestHandler):
             self._json({"title": title, "markdown": chat_markdown(title, entries),
                         "filename": webview.export_filename(title)})
         elif route == "/api/werkstatt":
-            # Was in der Werkstatt liegt. Ist keine da, ist das keine
+            # Was in der virtual machine liegt. Ist keine da, ist das keine
             # Stoerung -- dann liegt eben nichts da.
             from aquaticy import sandbox as werkstatt
 
@@ -4228,6 +4229,20 @@ p{{margin:0 0 8px;color:#57534a}}</style></head><body><main>
         if mode == "code":
             online = True
             visual_sources = False
+        # Ai-guard (9.5.30): Normal- und Pro-Konten sollen die virtual machine nicht
+        # fuer Cybersecurity- oder Schadsoftware-Themen nutzen. Merken sie das im
+        # Code-Modus mit laufender virtual machine an, geht es zurueck in den
+        # Normal-Modus (ohne Maschine), mit kurzer Meldung im Chat. Ultra behaelt sie.
+        vm_switch = False
+        if mode == "code" and sandbox:
+            konto_vorab = self._account()
+            if (konto_vorab is not None and not getattr(konto_vorab, "ultra", False)):
+                from aquaticy.aiguard import security_topic
+
+                if security_topic(message):
+                    mode, sandbox, online, vm_switch = "normal", False, True, True
+                    with contextlib.suppress(Exception):
+                        ui_state().write({"mode": "normal", "sandbox": False})
         if visual_sources and not selected_vision_model(SESSION.settings()):
             self._json(
                 {"error": "Webcams und Satellitenbilder brauchen ein bildfähiges "
@@ -4264,6 +4279,12 @@ p{{margin:0 0 8px;color:#57534a}}</style></head><body><main>
         # sie ab, laeuft er weiter und kann spaeter zu Ende gesehen werden.
         session = SESSION.current() if isinstance(SESSION, SessionProxy) else SESSION
         lauf = current_runs().start(message)
+        if vm_switch:
+            # Steht vor der Antwort: der Chat erklaert, warum in den Normal-Modus
+            # gewechselt wurde, und die Oberflaeche stellt die Schalter nach.
+            from aquaticy.aiguard import VM_SWITCH_MESSAGE
+
+            lauf.add({"type": "mode_switch", "mode": "normal", "text": VM_SWITCH_MESSAGE})
         if kontingent is not None:
             # Die 5-Stunden-Sitzung beginnt mit der ersten Nachricht -- nicht
             # erst mit dem ersten gezaehlten Token.
@@ -4568,7 +4589,7 @@ def serve(
     AIGUARD = guard_for(data_dir)
     print(f"  Pro-Code:   {code} (9 Zeichen, geheim halten)")
     print(f"  Ultra-Code: {ultra} (14 Zeichen, geheim halten)")
-    # Ein harter Abbruch kann eine Werkstatt zurueckgelassen haben. Sie belegt
+    # Ein harter Abbruch kann eine virtual machine zurueckgelassen haben. Sie belegt
     # Speicher und hat nichts mehr zu tun -- also weg damit, bevor es losgeht.
     try:
         from aquaticy.sandbox import sweep

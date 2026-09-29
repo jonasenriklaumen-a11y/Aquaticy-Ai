@@ -304,7 +304,7 @@ class Settings:
     #: Modell fuer den Code-Modus. Leer heisst: Aquaticy sucht sich das
     #: staerkste erreichbare selbst aus.
     code_model: str = ""
-    #: Die Werkstatt im Code-Modus: Abbild und Grenzen. Die Groesse waehlt
+    #: Die virtual machine im Code-Modus: Abbild und Grenzen. Die Groesse waehlt
     #: man in den Einstellungen ("normal" oder "plus", siehe VM_SIZES in
     #: aquaticy/sandbox.py); die einzelnen Zahlen bleiben zusaetzlich per
     #: .env ueberschreibbar, fuer wer genauer schrauben will.
@@ -314,7 +314,7 @@ class Settings:
     vm_memory_mb: int = 1024
     vm_disk_gb: int = 4
     vm_cpus: int = 1
-    #: User mode: die Werkstatt ist ein kleiner Desktop mit Internet, den
+    #: User mode: die virtual machine ist ein kleiner Desktop mit Internet, den
     #: Aquaticy bedient wie ein Mensch (siehe aquaticy/desktop.py). Aus, bis
     #: es jemand in den Einstellungen einschaltet -- aus dem Chat heraus nie.
     vm_user_mode: bool = False

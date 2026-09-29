@@ -209,7 +209,7 @@ def test_blender_scripts_only_keeps_the_window_closed(konto: Settings) -> None:
 
 # -- Messenger im Desktop --------------------------------------------------------------
 class Box:
-    """Die Werkstatt: vorn ist das Fenster, das der Test will."""
+    """Die virtual machine: vorn ist das Fenster, das der Test will."""
 
     def __init__(self, klasse: str = "Navigator.aquaticy-whatsapp",
                  titel: str = "WhatsApp") -> None:
@@ -361,7 +361,7 @@ def test_changing_rights_keeps_the_workshop_running(
     antwort, status = web.addon_action(
         {"action": "rights", "id": "whatsapp", "rechte": {"zugriff": "schreiben"}})
     assert status == 200 and "Lesen und schreiben" in antwort["message"]
-    assert neu_gebaut == [], "die Werkstatt (und die Anmeldung darin) bleibt"
+    assert neu_gebaut == [], "die virtual machine (und die Anmeldung darin) bleibt"
     whatsapp = next(a for a in antwort["addons"] if a["id"] == "whatsapp")
     assert whatsapp["rechte"]["zugriff"] == "schreiben"
     antwort, status = web.addon_action(

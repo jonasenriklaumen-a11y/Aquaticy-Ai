@@ -1086,7 +1086,7 @@ def test_standard_answers_work_in_every_mode_without_starting_extra_work(
     monkeypatch.setattr(
         Agent,
         "_touch_workshop",
-        lambda *args, **kwargs: pytest.fail("die Standardantwort braucht keine Werkstatt"),
+        lambda *args, **kwargs: pytest.fail("die Standardantwort braucht keine virtual machine"),
     )
     agent = Agent(settings, cache=None, toolbox=toolbox)
     result = agent.ask("Hallo", stream=False, mode=mode, sandbox=True)
@@ -2583,7 +2583,7 @@ def test_without_the_web_there_is_no_second_round(
 
 
 # ---------------------------------------------------------------------------
-# Die Werkstatt
+# Die virtual machine
 # ---------------------------------------------------------------------------
 def test_the_workshop_exists_only_in_the_code_mode(
     settings: Settings, toolbox: Toolbox
@@ -2594,12 +2594,12 @@ def test_the_workshop_exists_only_in_the_code_mode(
     agent.ask("", mode="code", sandbox=True)
     namen = {schema["function"]["name"] for schema in agent.tools}
     assert {"vm_run", "vm_write", "vm_read", "blender_run"} <= namen
-    assert "Werkstatt" in agent.messages[0]["content"]
+    assert "virtual machine" in agent.messages[0]["content"]
 
     agent.ask("", mode="normal")
     namen = {schema["function"]["name"] for schema in agent.tools}
     assert not ({"vm_run", "vm_write", "vm_read", "blender_run"} & namen), "im Gespraech nicht"
-    assert "Werkstatt" not in agent.messages[0]["content"]
+    assert "virtual machine" not in agent.messages[0]["content"]
 
     agent.ask("", mode="code", sandbox=False)
     namen = {schema["function"]["name"] for schema in agent.tools}
@@ -2611,7 +2611,7 @@ def test_the_workshop_exists_only_in_the_code_mode(
 def test_blender_is_mentioned_only_in_the_workshop_prompt(
     settings: Settings, toolbox: Toolbox
 ) -> None:
-    """Nur im Code-Modus mit Werkstatt weiss das Modell, dass es Blender gibt."""
+    """Nur im Code-Modus mit virtual machine weiss das Modell, dass es Blender gibt."""
     agent = Agent(settings, cache=None, toolbox=toolbox)
 
     agent.ask("", mode="code", sandbox=True)
@@ -3298,7 +3298,7 @@ def test_without_structuring_the_pro_mode_promises_no_agents(
 
 
 def test_the_pro_mode_needs_no_workshop(settings: Settings, toolbox: Toolbox) -> None:
-    """Die Werkstatt gehoert zum Programmieren, nicht zur Leistung."""
+    """Die virtual machine gehoert zum Programmieren, nicht zur Leistung."""
     agent = Agent(settings, cache=None, toolbox=toolbox)
     agent.sandbox = True
     agent._apply_mode("pro")

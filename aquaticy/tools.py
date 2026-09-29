@@ -829,15 +829,15 @@ STORAGE_EDIT_SCHEMA: dict[str, Any] = {
 
 
 # ---------------------------------------------------------------------------
-# Die Werkstatt -- nur im Code-Modus, nur wenn sie eingeschaltet ist
+# Die virtual machine -- nur im Code-Modus, nur wenn sie eingeschaltet ist
 # ---------------------------------------------------------------------------
 #: Vorlage fuer die vm_run-Beschreibung -- die Zahlen haengen von der
-#: gewaehlten Werkstatt-Groesse ab (normal/plus, siehe AQUATICY_VM_SIZE) und
+#: gewaehlten Groesse der virtual machine ab (normal/plus, siehe AQUATICY_VM_SIZE) und
 #: werden erst in `vm_schemas_for` eingesetzt. Falsche Zahlen waeren
 #: schlimmer als gar keine: das Modell plant damit, wie viel es sich leisten
 #: kann.
 VM_RUN_DESCRIPTION = (
-    "Fuehrt einen Shell-Befehl in der abgeschotteten Werkstatt aus und gibt "
+    "Fuehrt einen Shell-Befehl in der abgeschotteten virtual machine aus und gibt "
     "Ausgabe und Rueckgabewert zurueck. Dort darfst du alles: Dateien anlegen, "
     "Programme starten, Tests laufen lassen. {netz}, {memory_mb} MB "
     "Arbeitsspeicher, {cpus} {kern_wort} und {disk_gb} GB Platte unter /work. "
@@ -879,7 +879,7 @@ VM_WRITE_SCHEMA: dict[str, Any] = {
     "function": {
         "name": "vm_write",
         "description": (
-            "Legt eine Datei in der Werkstatt an oder ueberschreibt sie. Pfade liegen "
+            "Legt eine Datei in der virtual machine an oder ueberschreibt sie. Pfade liegen "
             "unter /work. So bringst du deinen Code hinein, bevor du ihn ausfuehrst."
         ),
         "parameters": {
@@ -897,7 +897,7 @@ VM_READ_SCHEMA: dict[str, Any] = {
     "type": "function",
     "function": {
         "name": "vm_read",
-        "description": "Liest eine Datei aus der Werkstatt (unter /work).",
+        "description": "Liest eine Datei aus der virtual machine (unter /work).",
         "parameters": {
             "type": "object",
             "properties": {"path": {"type": "string"}},
@@ -911,7 +911,7 @@ VM_FILES_SCHEMA: dict[str, Any] = {
     "function": {
         "name": "vm_files",
         "description": (
-            "Listet auf, was in der Werkstatt liegt -- Pfad und Groesse. Anhaenge des "
+            "Listet auf, was in der virtual machine liegt -- Pfad und Groesse. Anhaenge des "
             "Nutzers landen unter /work/eingang. Was du unter /work ablegst, kann der "
             "Nutzer sich herunterladen; sag ihm also, wie die Datei heisst."
         ),
@@ -927,9 +927,9 @@ VM_FILES_SCHEMA: dict[str, Any] = {
     },
 }
 
-#: Blender arbeitet nur im Code-Modus, in der Werkstatt -- nie auf dem
+#: Blender arbeitet nur im Code-Modus, in der virtual machine -- nie auf dem
 #: Rechner des Nutzers, und nie ohne die Abschottung. Ob es das Werkzeug
-#: wirklich gibt, haengt am Werkstatt-Abbild (AQUATICY_VM_IMAGE): das
+#: wirklich gibt, haengt am Abbild der virtual machine (AQUATICY_VM_IMAGE): das
 #: mitgelieferte Standardabbild bringt es nicht mit, sondern nur eins, das
 #: Blender selbst enthaelt (siehe docker/workshop-blender.Dockerfile). Fehlt
 #: es, kommt "command not found" zurueck -- das ist keine Stoerung, sondern
@@ -941,7 +941,7 @@ BLENDER_SCHEMA: dict[str, Any] = {
         "description": (
             "Fuehrt ein Python-Skript headless in Blender aus (die bpy-API) und "
             "erstellt oder bearbeitet damit ein 3D-Design: Modelle, Szenen, "
-            "Materialien, Renderings. Das Skript landet als Datei in der Werkstatt "
+            "Materialien, Renderings. Das Skript landet als Datei in der virtual machine "
             "und startet dann mit 'blender --background --python <datei>'. "
             "Schreib normalen bpy-Code hinein, z.B. bpy.ops.mesh.primitive_cube_add(...), "
             "bpy.ops.wm.save_as_mainfile(filepath='/work/design.blend'), oder fuers "
@@ -949,11 +949,11 @@ BLENDER_SCHEMA: dict[str, Any] = {
             "bpy.ops.render.render(write_still=True). Fertige Dateien liegen danach "
             "unter /work -- mit vm_files findest du sie, der Nutzer kann sie sich "
             "herunterladen. Blender braucht mehr Rechenleistung als ein Skript: bei "
-            "der Werkstatt-Groesse 'normal' kann ein Rendering am Zeitlimit oder am "
-            "Speicher scheitern, 'plus' (Einstellungen -> Werkstatt) schafft mehr. "
-            "Blender ist nur da, wenn die Werkstatt mit einem Blender-faehigen Abbild "
+            "der Groesse der virtual machine 'normal' kann ein Rendering am Zeitlimit oder am "
+            "Speicher scheitern, 'plus' (Einstellungen -> virtual machine) schafft mehr. "
+            "Blender ist nur da, wenn die virtual machine mit einem Blender-faehigen Abbild "
             "laeuft -- fehlt es, kommt 'command not found' zurueck, dann sag dem "
-            "Nutzer, dass dafür ein anderes Werkstatt-Abbild noetig ist."
+            "Nutzer, dass dafür ein anderes Abbild der virtual machine noetig ist."
         ),
         "parameters": {
             "type": "object",
@@ -1005,7 +1005,7 @@ UNTRUSTED_SOURCES = frozenset({
     "local_places", "github", "weather", "read_feeds", "mail_search", "mail_read",
     "news_tagesschau", "wikipedia", "currency", "holidays",
     "calendar_events", "desktop_look", "desktop_windows", "research_subtasks",
-    # Seit 9.5.16: was in der Werkstatt ausgegeben wird (im User mode mit
+    # Seit 9.5.16: was in der virtual machine ausgegeben wird (im User mode mit
     # Internet: curl, heruntergeladene Dateien), und Namen/Zustaende aus Home
     # Assistant (ein Mediaplayer meldet den Titel, den ein Fremder vergibt).
     "vm_run", "vm_read", "vm_files", "blender_run", "ha_states",
@@ -1037,7 +1037,7 @@ VM_SCHEMAS: tuple[dict[str, Any], ...] = (
 )
 
 # ---------------------------------------------------------------------------
-# User mode: die Werkstatt bedienen wie ein Mensch (siehe aquaticy/desktop.py)
+# User mode: die virtual machine bedienen wie ein Mensch (siehe aquaticy/desktop.py)
 # ---------------------------------------------------------------------------
 DESKTOP_SCHEMAS: tuple[dict[str, Any], ...] = (
     {
@@ -1045,7 +1045,7 @@ DESKTOP_SCHEMAS: tuple[dict[str, Any], ...] = (
         "function": {
             "name": "desktop_look",
             "description": (
-                "Sieht auf den Bildschirm der Werkstatt (User mode, 1280x800). Du bekommst "
+                "Sieht auf den Bildschirm der virtual machine (User mode, 1280x800). Du bekommst "
                 "eine Beschreibung: welches Fenster vorn ist, der sichtbare Text, die "
                 "bedienbaren Elemente mit Koordinaten, dazu die Liste der Fenster. Der "
                 "Nutzer sieht das Bild im Chat. Nimm es am Anfang und nach jedem Schritt, "
@@ -1146,7 +1146,7 @@ DESKTOP_SCHEMAS: tuple[dict[str, Any], ...] = (
         "function": {
             "name": "desktop_open",
             "description": (
-                "Oeffnet ein Programm in der Werkstatt: browser (mit target = Webadresse), "
+                "Oeffnet ein Programm in der virtual machine: browser (mit target = Webadresse), "
                 "writer, calc, impress (LibreOffice), editor, dateien, terminal, grafik "
                 "(GIMP). Bei den anderen darf target eine Datei unter /work sein.%(addons)s"
             ),
@@ -1183,9 +1183,9 @@ DESKTOP_SCHEMAS: tuple[dict[str, Any], ...] = (
 
 
 def vm_schemas_for(settings: Any) -> tuple[dict[str, Any], ...]:
-    """Die Werkstatt-Werkzeuge, mit den tatsaechlichen Grenzen im Text.
+    """Die Werkzeuge der virtual machine, mit den tatsaechlichen Grenzen im Text.
 
-    Die Zahlen in `vm_run` haengen von der gewaehlten Werkstatt-Groesse ab
+    Die Zahlen in `vm_run` haengen von der gewaehlten Groesse der virtual machine ab
     (normal/plus, siehe AQUATICY_VM_SIZE) -- ein Werkzeugtext mit falschen
     Zahlen waere schlimmer als gar keiner, das Modell plant damit, wie viel
     es sich leisten kann.
@@ -1383,7 +1383,7 @@ ADDON_TOOLS: dict[str, str] = {
 
 
 def addon_schemas_for(settings: Any, pro: bool = True) -> list[dict[str, Any]]:
-    """Die Werkzeuge der eingeschalteten Add-ons, die ohne Werkstatt auskommen."""
+    """Die Werkzeuge der eingeschalteten Add-ons, die ohne virtual machine auskommen."""
     from aquaticy import addons
 
     if not getattr(settings, "data_dir", None):
@@ -1489,7 +1489,7 @@ class ToolStats:
     storage_reads: int = 0
     storage_writes: int = 0
     settings_changed: int = 0
-    #: Aufrufe in der Werkstatt -- ausfuehren, schreiben, lesen.
+    #: Aufrufe in der virtual machine -- ausfuehren, schreiben, lesen.
     vm_calls: int = 0
     addon_calls: int = 0
     images_created: int = 0
@@ -1598,7 +1598,7 @@ class Toolbox:
         self._google_client: Any = None
         #: Ebenso das Lager -- ohne eingetragene Adresse wird nichts gebaut.
         self._storage_client: Any = None
-        #: Und die Werkstatt: sie entsteht erst, wenn wirklich Code laufen soll.
+        #: Und die virtual machine: sie entsteht erst, wenn wirklich Code laufen soll.
         self._sandbox_box: Any = None
         #: Wird gerufen, wenn sich eine Einstellung geaendert hat. Die
         #: Oberflaeche baut daraufhin den Agenten fuer die naechste Frage neu.
@@ -2326,9 +2326,9 @@ class Toolbox:
         }
 
     # -- Dispatch ---------------------------------------------------------
-    # -- Werkzeug: die Werkstatt ------------------------------------------
+    # -- Werkzeug: die virtual machine ------------------------------------------
     def _sandbox(self) -> Any:
-        """Die gemeinsame Werkstatt -- gebaut beim ersten Zugriff."""
+        """Die gemeinsame virtual machine -- gebaut beim ersten Zugriff."""
         from aquaticy import sandbox as werkstatt
 
         if self._sandbox_box is None:
@@ -2338,12 +2338,12 @@ class Toolbox:
         return self._sandbox_box
 
     def _emit_pair(self, event: str, payload: dict[str, Any]) -> None:
-        """Die Werkstatt meldet als (Name, Nutzlast) -- der Rest als Schlagworte."""
+        """Die virtual machine meldet als (Name, Nutzlast) -- der Rest als Schlagworte."""
         if self.on_event:
             self.on_event(event, payload)
 
     def vm_run(self, command: str, timeout: int = 0) -> dict[str, Any]:
-        """Fuehrt einen Befehl in der Werkstatt aus."""
+        """Fuehrt einen Befehl in der virtual machine aus."""
         from aquaticy.sandbox import COMMAND_TIMEOUT, SandboxUnavailable
 
         try:
@@ -2354,12 +2354,12 @@ class Toolbox:
         except ValueError as exc:
             return {"error": str(exc)}
         except Exception as exc:  # pragma: no cover - Laufzeit meldet Unerwartetes
-            return {"error": f"Die Werkstatt antwortet nicht: {exc}"}
+            return {"error": f"Die virtual machine antwortet nicht: {exc}"}
         self.stats.vm_calls += 1
         return result.as_dict()
 
     def vm_write(self, path: str, text: str) -> dict[str, Any]:
-        """Legt eine Datei in der Werkstatt an."""
+        """Legt eine Datei in der virtual machine an."""
         from aquaticy.sandbox import SandboxUnavailable
 
         try:
@@ -2369,12 +2369,12 @@ class Toolbox:
         except ValueError as exc:
             return {"error": str(exc)}
         except Exception as exc:  # pragma: no cover
-            return {"error": f"Die Werkstatt antwortet nicht: {exc}"}
+            return {"error": f"Die virtual machine antwortet nicht: {exc}"}
         self.stats.vm_calls += 1
         return answer
 
     def vm_read(self, path: str) -> dict[str, Any]:
-        """Liest eine Datei aus der Werkstatt."""
+        """Liest eine Datei aus der virtual machine."""
         from aquaticy.sandbox import SandboxUnavailable
 
         try:
@@ -2384,12 +2384,12 @@ class Toolbox:
         except ValueError as exc:
             return {"error": str(exc)}
         except Exception as exc:  # pragma: no cover
-            return {"error": f"Die Werkstatt antwortet nicht: {exc}"}
+            return {"error": f"Die virtual machine antwortet nicht: {exc}"}
         self.stats.vm_calls += 1
         return answer
 
     def vm_files(self, path: str = "") -> dict[str, Any]:
-        """Listet auf, was in der Werkstatt liegt."""
+        """Listet auf, was in der virtual machine liegt."""
         from aquaticy.sandbox import WORKDIR, SandboxUnavailable
 
         try:
@@ -2399,7 +2399,7 @@ class Toolbox:
         except ValueError as exc:
             return {"error": str(exc)}
         except Exception as exc:  # pragma: no cover
-            return {"error": f"Die Werkstatt antwortet nicht: {exc}"}
+            return {"error": f"Die virtual machine antwortet nicht: {exc}"}
         self.stats.vm_calls += 1
         return {"files": dateien, "count": len(dateien)}
 
@@ -2407,7 +2407,7 @@ class Toolbox:
         """Eine Handlung im User mode (siehe aquaticy/desktop.py).
 
         Jede Pruefung -- Rueckfrage, Ablehnung, Zahlungsdaten -- steckt in
-        `Desktop`. Hier wird nur verbunden: Werkstatt, Rueckfrage, Anzeige,
+        `Desktop`. Hier wird nur verbunden: virtual machine, Rueckfrage, Anzeige,
         und das Bildschirmfoto wandert in den Chat, nie in den Verlauf des
         Modells.
         """
@@ -2426,9 +2426,9 @@ class Toolbox:
         except (SandboxUnavailable, DesktopError, ValueError) as exc:
             return {"error": str(exc)}
         except subprocess.TimeoutExpired:
-            return {"error": "Die Werkstatt hat nicht rechtzeitig geantwortet."}
+            return {"error": "Die virtual machine hat nicht rechtzeitig geantwortet."}
         except Exception as exc:  # pragma: no cover - Laufzeit meldet Unerwartetes
-            return {"error": f"Die Werkstatt antwortet nicht: {exc}"}
+            return {"error": f"Die virtual machine antwortet nicht: {exc}"}
         self.stats.vm_calls += 1
         bild = answer.pop("_bild", b"") if isinstance(answer, dict) else b""
         if bild:
@@ -2444,7 +2444,7 @@ class Toolbox:
                         "kind": "desktop",
                         "media_id": media_id,
                         "mime_type": "image/jpeg",
-                        "title": "Bildschirm der Werkstatt",
+                        "title": "Bildschirm der virtual machine",
                         "captured_at": datetime.now(UTC).isoformat(timespec="seconds"),
                     }
                 )
@@ -2518,7 +2518,8 @@ class Toolbox:
         if not addons.active(self.settings, erforderlich):
             return {"error": (
                 f"Das Add-on '{addons.CATALOG[erforderlich].name}' ist nicht installiert oder "
-                "ausgeschaltet. Das entscheidet der Nutzer: Einstellungen -> Werkstatt -> Add-ons."
+                "ausgeschaltet. Das entscheidet der Nutzer: Einstellungen -> virtual "
+                "machine -> Add-ons."
             )}
         self.stats.addon_calls += 1
         rechte = addons.rights_of(self.settings, erforderlich)
@@ -2581,10 +2582,10 @@ class Toolbox:
         )
 
     def blender_run(self, script: str, filename: str = "", timeout: int = 0) -> dict[str, Any]:
-        """Schreibt ein bpy-Skript in die Werkstatt und laesst Blender es headless laufen.
+        """Schreibt ein bpy-Skript in die virtual machine und laesst Blender es headless laufen.
 
         Zwei Schritte in einem: die Datei muss existieren, bevor Blender sie
-        oeffnen kann. Fehlt Blender im Werkstatt-Abbild, kommt das als ganz
+        oeffnen kann. Fehlt Blender im Abbild der virtual machine, kommt das als ganz
         gewoehnlicher Fehler zurueck ("command not found") -- kein Sonderfall.
         """
         import shlex
@@ -2618,7 +2619,7 @@ class Toolbox:
         except ValueError as exc:
             return {"error": str(exc)}
         except Exception as exc:  # pragma: no cover
-            return {"error": f"Die Werkstatt antwortet nicht: {exc}"}
+            return {"error": f"Die virtual machine antwortet nicht: {exc}"}
         self.stats.vm_calls += 1
         payload = result.as_dict()
         payload["script"] = pfad
@@ -2640,7 +2641,7 @@ class Toolbox:
     def call(self, name: str, arguments: dict[str, Any]) -> dict[str, Any]:
         """Fuehrt den Tool-Call *name* aus -- und bucht, was er auf dem Server kostet.
 
-        Serverarbeit (Werkstatt, Seitenabrufe, Suchen, User mode) zaehlt ins
+        Serverarbeit (virtual machine, Seitenabrufe, Suchen, User mode) zaehlt ins
         Kontingent eines normalen Kontos, egal mit wessen Schluessel das Modell
         laeuft (aquaticy/metering.py, seit 9.5.14 Seashell). Ist nichts mehr
         uebrig, lehnt das Werkzeug ab -- das Modell antwortet dann ohne.
@@ -2816,7 +2817,7 @@ class Toolbox:
         if self.guard is not None and name in SENSITIVE_TOOLS:
             verdict = self.guard.check_call(name, arguments)
             if verdict.abuse:
-                # Werkstatt-Wächter (9.5.24): Schadsoftware oder Angriffshilfe
+                # Wächter der virtual machine (9.5.24): Schadsoftware oder Angriffshilfe
                 # wird gestoppt, bevor sie läuft -- und Ai-guard erfährt davon
                 # (härtere Sperre, aquaticy/aiguard.py).
                 from aquaticy.aiguard import normalize_category
@@ -3072,7 +3073,7 @@ class Toolbox:
             return {
                 "error": (
                     "Der User mode ist aus. Einschalten kann ihn nur der Nutzer in den "
-                    "Einstellungen unter 'Werkstatt'."
+                    "Einstellungen unter 'virtual machine'."
                 )
             }
         if name == "desktop_look":
@@ -3281,7 +3282,7 @@ class Toolbox:
         """Sucht Orte in OpenStreetMap statt in einer Suchmaschine.
 
         Das haerteste Suchproblem ist die kleine Sache um die Ecke: der
-        Fahrradladen in der Nebenstrasse, die Werkstatt ohne Website. Eine
+        Fahrradladen in der Nebenstrasse, die virtual machine ohne Website. Eine
         Suchmaschine kennt sie nicht oder erst auf Seite vier -- in der Karte
         stehen sie, mit Adresse, Telefon und, wenn es eine gibt, der Website.
 

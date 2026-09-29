@@ -182,7 +182,7 @@ def test_every_page_and_endpoint(tour: Tour, tmp_path: Path) -> None:
     assert tour("DELETE", f"/api/jobs?id={nummer}")[1]["ok"] is True
     assert tour("DELETE", "/api/jobs?id=x")[0] == 400
 
-    # -- Add-ons ohne Werkstatt -----------------------------------------------
+    # -- Add-ons ohne virtual machine -----------------------------------------------
     katalog = {a["id"] for a in tour("GET", "/api/addons")[1]["addons"]}
     assert {"github", "signal", "whatsapp", "telegram", "wetter", "feeds", "blender"} <= katalog
     for kennung in ("wetter", "feeds", "github"):
@@ -206,7 +206,7 @@ def test_every_page_and_endpoint(tour: Tour, tmp_path: Path) -> None:
         status, stand = tour("POST", "/api/addons", {"action": "uninstall", "id": kennung})
         assert status == 200 and kennung not in stand["active"], kennung
 
-    # -- Werkstatt-Eingabe, Home Assistant, Lager, Google ---------------------
+    # -- virtual-machine-Eingabe, Home Assistant, Lager, Google ---------------------
     status, _ = tour("POST", "/api/werkstatt/eingabe", {"art": "type", "text": "x"})
     assert status == (400 if ultra else 403)
     status, antwort = tour("POST", "/api/ha", {"url": "http://127.0.0.1:1", "token": "t"})

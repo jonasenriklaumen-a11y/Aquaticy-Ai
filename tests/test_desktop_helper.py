@@ -1,6 +1,6 @@
 """Tests fuer die Hilfsprogramme im Desktop-Abbild (docker/desktop/).
 
-Sie laufen sonst nur in der Werkstatt. Hier wird geprueft, was ohne Bildschirm
+Sie laufen sonst nur in der virtual machine. Hier wird geprueft, was ohne Bildschirm
 pruefbar ist: dass aus Argumenten nie etwas anderes wird als das Erwartete,
 dass Sonderzeichen vorab eine Taste bekommen und dass der Browser sich ehrlich
 zu erkennen gibt.

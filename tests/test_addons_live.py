@@ -1,9 +1,9 @@
-"""Add-ons in einer echten Werkstatt -- nur, wo es Docker und das Desktop-Abbild gibt.
+"""Add-ons in einer echten virtual machine -- nur, wo es Docker und das Desktop-Abbild gibt.
 
 Die Hersteller-Server sind hier nicht erreichbar, also spielt ein Server IN
-der Installations-Werkstatt Blender.org (127.0.0.1 ist dort der Behaelter
+der Installations-virtual machine Blender.org (127.0.0.1 ist dort der Behaelter
 selbst -- das Heimnetz bleibt gesperrt). Geprueft wird der ganze Weg:
-Datentraeger anlegen, abgesperrt installieren, Wegwerf-Werkstatt weg,
+Datentraeger anlegen, abgesperrt installieren, Wegwerf-virtual machine weg,
 Datentraeger bleibt, im Desktop starten, deinstallieren.
 """
 
@@ -91,7 +91,7 @@ def test_install_runs_locked_and_leaves_only_the_volume(volume: str) -> None:
     finally:
         box.stop("Test")
     assert _docker("ps", "-a", "--filter", f"name={name}", "--format", "{{.Names}}"
-                   ).stdout.strip() == "", "die Wegwerf-Werkstatt ist weg"
+                   ).stdout.strip() == "", "die Wegwerf-virtual machine ist weg"
     werkstatt.sweep()
     assert _docker("volume", "inspect", volume).returncode == 0, "der Datentraeger bleibt"
 

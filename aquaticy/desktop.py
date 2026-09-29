@@ -1,6 +1,6 @@
-"""User mode: Aquaticy bedient die Werkstatt wie ein Mensch.
+"""User mode: Aquaticy bedient die virtual machine wie ein Mensch.
 
-Im User mode ist die Werkstatt ein kleiner Linux-Desktop mit Internet (siehe
+Im User mode ist die virtual machine ein kleiner Linux-Desktop mit Internet (siehe
 aquaticy/sandbox.py und docker/workshop-desktop.Dockerfile). Aquaticy sieht
 den Bildschirm, klickt, tippt, drueckt Tasten und oeffnet Programme --
 Browser, Office, Editor, Bildbearbeitung. So lassen sich auch Programme
@@ -17,10 +17,10 @@ an, was dadurch passieren wuerde, und ordnet es einer Art zu:
 
 * *harmlos* -- Navigation, Menues, Suchen, Schreiben in ein Dokument: geht.
 * *senden*, *kaufen*, *loeschen* -- etwas geht an andere, kostet Geld oder
-  verschwindet ausserhalb der Werkstatt: **nur nach Rueckfrage beim Nutzer**.
+  verschwindet ausserhalb der virtual machine: **nur nach Rueckfrage beim Nutzer**.
   Ohne jemanden, der antworten kann, gar nicht.
 * *anmelden* -- Anmelden, Registrieren, Passwoerter: **nie**. Aquaticy meldet
-  sich nirgends an. Konten gibt es in der Werkstatt nur, wenn der Nutzer selbst
+  sich nirgends an. Konten gibt es in der virtual machine nur, wenn der Nutzer selbst
   ein Add-on installiert und sich darin angemeldet hat (aquaticy/addons.py) --
   getippt hat das dann der Mensch, nicht Aquaticy.
 * *captcha* -- Captchas, "Ich bin kein Roboter", Altersnachweise: **nie**.
@@ -35,8 +35,8 @@ nicht eindeutig zu erkennen, wird wie bei *senden* nachgefragt.
 
 **Was das nicht ist:** unfehlbar. Das Vision-Modell kann sich irren. Deshalb
 stehen die harten Grenzen zusaetzlich an anderer Stelle: kein Heimnetz (die
-Netzsperre der Werkstatt), keine Konten und keine Daten des Nutzers in der
-Werkstatt (nichts wird hineingereicht -- ausser den Add-ons, die der Nutzer
+Netzsperre der virtual machine), keine Konten und keine Daten des Nutzers in der
+virtual machine (nichts wird hineingereicht -- ausser den Add-ons, die der Nutzer
 selbst eingeschaltet und angemeldet hat), und der Browser gibt sich als
 KI-gesteuert zu erkennen.
 """
@@ -51,7 +51,7 @@ from typing import Any
 
 from aquaticy import metering
 
-#: Die Groesse des Bildschirms in der Werkstatt (siehe aquaticy-desktop).
+#: Die Groesse des Bildschirms in der virtual machine (siehe aquaticy-desktop).
 WIDTH, HEIGHT = 1280, 800
 
 #: Was sich oeffnen laesst -- dieselbe Liste wie im Hilfsprogramm.
@@ -65,7 +65,7 @@ APPS: dict[str, str] = {
     "terminal": "Terminal",
     "grafik": "Bildbearbeitung (GIMP)",
     # Add-ons -- nur oeffenbar, wenn installiert und eingeschaltet
-    # (aquaticy/addons.py). Sonst sind sie in der Werkstatt gar nicht da.
+    # (aquaticy/addons.py). Sonst sind sie in der virtual machine gar nicht da.
     "whatsapp": "WhatsApp Web (Add-on)",
     "telegram": "Telegram Web (Add-on)",
     "signal": "Signal Desktop (Add-on)",
@@ -107,7 +107,7 @@ KINDS = ("harmlos", "senden", "kaufen", "loeschen", "anmelden", "captcha", "alle
 CONFIRM: dict[str, str] = {
     "senden": "Damit geht etwas an andere (Formular, Nachricht, Beitrag oder Anmeldung).",
     "kaufen": "Damit wird etwas gekauft, gebucht oder bezahlt.",
-    "loeschen": "Damit wird etwas ausserhalb der Werkstatt geloescht.",
+    "loeschen": "Damit wird etwas ausserhalb der virtual machine geloescht.",
     "unklar": "Was dadurch passiert, war auf dem Bildschirm nicht eindeutig zu erkennen.",
 }
 
@@ -117,7 +117,7 @@ REFUSE: dict[str, tuple[str, str]] = {
         "login",
         "Anmelden, Registrieren und Passwoerter uebernimmt Aquaticy nicht. Sag dem "
         "Nutzer, dass hier eine Anmeldung noetig ist -- die macht er selbst: "
-        "Einstellungen -> Werkstatt -> 'Selbst anmelden' (Login-Apps) oder im "
+        "Einstellungen -> virtual machine -> 'Selbst anmelden' (Login-Apps) oder im "
         "Add-on-Fenster.",
     ),
     "captcha": (
@@ -433,7 +433,7 @@ class Desktop:
     """Die Handlungen im User mode -- jede mit ihrer Pruefung davor.
 
     Args:
-        box: Die Werkstatt (aquaticy.sandbox.Sandbox) im User mode.
+        box: Die virtual machine (aquaticy.sandbox.Sandbox) im User mode.
         settings: Fuer das Vision-Modell.
         ask: Die Rueckfrage an den Nutzer. `None` heisst: niemand da -- dann
             geht nichts, was eine Bestaetigung braucht.
@@ -502,7 +502,7 @@ class Desktop:
                 "skipped_reason": "needs_confirmation",
                 "was": what,
             }
-        frage = f"Darf ich in der Werkstatt {action}? {grund}"
+        frage = f"Darf ich in der virtual machine {action}? {grund}"
         self._emit("ask", question=frage, options=["ja", "nein"])
         antwort = (self.ask(frage, ["ja", "nein"]) or "").strip().lower()
         self._emit("ask_done", question=frage, answer=antwort)
@@ -657,11 +657,11 @@ class Desktop:
         ausserhalb = sorted({zeichen for zeichen in text if ord(zeichen) > 0xFFFF})
         if ausserhalb:
             # Emoji und andere Zeichen jenseits der Unicode-Grundebene kommen in
-            # den Programmen der Werkstatt verstuemmelt an (aus 😀 wird ein
+            # den Programmen der virtual machine verstuemmelt an (aus 😀 wird ein
             # anderes Zeichen). Lieber gar nicht als falsch.
             return {
                 "error": (
-                    "Diese Zeichen kann die Werkstatt nicht eintippen: "
+                    "Diese Zeichen kann die virtual machine nicht eintippen: "
                     + " ".join(ausserhalb[:10])
                     + ". Lass sie weg -- oder leg den Text mit vm_write als Datei an "
                     "und oeffne ihn im Programm."
@@ -782,7 +782,7 @@ class Desktop:
             if app not in desktop_apps(self.settings):
                 return {"error": (
                     f"{APPS[app]} ist nicht installiert oder ausgeschaltet. Das macht der "
-                    "Nutzer selbst: Einstellungen -> Werkstatt -> Add-ons."
+                    "Nutzer selbst: Einstellungen -> virtual machine -> Add-ons."
                 )}
             if ziel and app != "blender":
                 # Eine Web-App oeffnet nur ihre eigene Seite -- sonst waere das

@@ -9,19 +9,19 @@ wird. Nach dem Installieren meldet man sich an, so wie es der Dienst vorsieht:
   (Repos, Issues, Pull Requests, Dateien); geschrieben wird nie, auch wenn das
   Token es erlauben wuerde.
 * **WhatsApp Web** und **Telegram Web** -- per QR-Code mit dem Handy, in einem
-  eigenen Firefox-Profil in der Werkstatt.
+  eigenen Firefox-Profil in der virtual machine.
 * **Signal** -- ein "Signal Web" gibt es nicht. Das Add-on installiert Signal
-  Desktop (das offizielle Programm) in der Werkstatt; gekoppelt wird wie ein
+  Desktop (das offizielle Programm) in der virtual machine; gekoppelt wird wie ein
   Computer, ebenfalls per QR-Code.
 * **Blender** -- ohne Anmeldung. Das offizielle Programm von blender.org, mit
   Oberflaeche im Desktop und fuer ``blender_run``.
 * **Wetter** (Open-Meteo, ohne Schluessel) und **RSS-Feeds** (eigene Liste) --
-  zwei Vorschlaege, die ohne Werkstatt auskommen.
+  zwei Vorschlaege, die ohne virtual machine auskommen.
 
 Die feste Regel beim Anmelden: **der Mensch meldet sich an, nie Aquaticy.**
 QR-Codes scannt der Nutzer mit seinem Handy; Tokens und Passwoerter tippt er
 selbst -- in das Feld hier oder, ueber "Login-Apps", direkt in den Bildschirm
-der Werkstatt. Aquaticy selbst tippt weiterhin nie ein Passwort (siehe
+der virtual machine. Aquaticy selbst tippt weiterhin nie ein Passwort (siehe
 aquaticy/desktop.py).
 
 Was wohin kommt:
@@ -30,16 +30,16 @@ Was wohin kommt:
   ``addons.json`` im Kontoordner.
 * Das GitHub-Token liegt in der ``.env`` des Kontos (wie alle Zugangsdaten)
   und geht nie an den Browser -- der erfaehrt nur, OB eines gesetzt ist.
-* Programme und Anmeldungen der Werkstatt-Add-ons liegen je Konto und Add-on
+* Programme und Anmeldungen der virtual-machine-Add-ons liegen je Konto und Add-on
   auf einem eigenen Datentraeger (``aquaticy-addon-<konto>-<name>``). Nur die
-  eingeschalteten werden in die Werkstatt eingehaengt; Deinstallieren loescht
+  eingeschalteten werden in die virtual machine eingehaengt; Deinstallieren loescht
   den Datentraeger samt Anmeldung.
-* Installiert wird in einer eigenen, abgesperrten Wegwerf-Werkstatt (Heimnetz
+* Installiert wird in einer eigenen, abgesperrten Wegwerf-virtual machine (Heimnetz
   gesperrt, kein root) -- nie auf dem Rechner selbst. Geladen wird nur von den
   offiziellen Servern, geprueft gegen die veroeffentlichte Pruefsumme
   (docker/desktop/aquaticy-addons).
 
-Werkstatt-Add-ons brauchen den User mode -- und damit ein Ultra-Konto. Aus dem
+virtual-machine-Add-ons brauchen den User mode -- und damit ein Ultra-Konto. Aus dem
 Chat heraus laesst sich keins installieren, einschalten oder anmelden.
 """
 
@@ -77,7 +77,7 @@ class AddOn:
     summary: str
     #: Wie man sich anmeldet: token | qr | keine | feeds
     login: str
-    #: Braucht die Werkstatt im User mode (und damit Ultra)?
+    #: Braucht die virtual machine im User mode (und damit Ultra)?
     werkstatt: bool = False
     #: Was installiert wird: "" (nichts) | webapp | signal | blender
     programm: str = ""
@@ -107,11 +107,11 @@ CATALOG: dict[str, AddOn] = {
         ),
         AddOn(
             "whatsapp", "WhatsApp Web", "💬", "Messenger",
-            "WhatsApp im Browser der Werkstatt: Aquaticy kann Chats lesen und Antworten "
+            "WhatsApp im Browser der virtual machine: Aquaticy kann Chats lesen und Antworten "
             "vorbereiten. Senden nur nach deinem Ja.",
             login="qr", werkstatt=True, programm="webapp",
             adresse="https://web.whatsapp.com/",
-            anmelden="„Anmelden“ öffnet WhatsApp Web in der Werkstatt. Auf dem Handy: "
+            anmelden="„Anmelden“ öffnet WhatsApp Web in der virtual machine. Auf dem Handy: "
             "WhatsApp → Einstellungen → Verknüpfte Geräte → Gerät hinzufügen, dann den "
             "QR-Code im Bildschirm unten scannen.",
             hinweis="WhatsApp mag keine Automatisierung: nutze es für dich, nie für "
@@ -120,10 +120,10 @@ CATALOG: dict[str, AddOn] = {
         ),
         AddOn(
             "signal", "Signal", "🔵", "Messenger",
-            "Signal Desktop in der Werkstatt (ein „Signal Web“ gibt es nicht): Aquaticy "
+            "Signal Desktop in der virtual machine (ein „Signal Web“ gibt es nicht): Aquaticy "
             "liest mit und bereitet Antworten vor. Senden nur nach deinem Ja.",
             login="qr", werkstatt=True, programm="signal",
-            anmelden="„Anmelden“ startet Signal in der Werkstatt. Auf dem Handy: Signal → "
+            anmelden="„Anmelden“ startet Signal in der virtual machine. Auf dem Handy: Signal → "
             "Einstellungen → Gekoppelte Geräte → +, dann den QR-Code im Bildschirm unten "
             "scannen.",
             hinweis="Signal Desktop gibt es nur für x86_64. Nachrichten, die Aquaticy liest, "
@@ -132,7 +132,7 @@ CATALOG: dict[str, AddOn] = {
         ),
         AddOn(
             "telegram", "Telegram Web", "✈️", "Messenger",
-            "Telegram im Browser der Werkstatt — Kanäle und Gruppen lesen, Antworten "
+            "Telegram im Browser der virtual machine — Kanäle und Gruppen lesen, Antworten "
             "vorbereiten. Senden nur nach deinem Ja.",
             login="qr", werkstatt=True, programm="webapp",
             adresse="https://web.telegram.org/a/", vorschlag=True,
@@ -144,11 +144,11 @@ CATALOG: dict[str, AddOn] = {
         ),
         AddOn(
             "blender", "Blender", "🧊", "Programme",
-            "Das 3D-Programm von blender.org: mit Oberfläche im Desktop der Werkstatt und "
+            "Das 3D-Programm von blender.org: mit Oberfläche im Desktop der virtual machine und "
             "für Skripte (blender_run) — Modelle bauen, Szenen einrichten, rendern.",
             login="keine", werkstatt=True, programm="blender",
             anmelden="Keine Anmeldung nötig.",
-            hinweis="Gut 350 MB Download, ausgepackt über 1 GB. Mit der Werkstatt-Größe "
+            hinweis="Gut 350 MB Download, ausgepackt über 1 GB. Mit der Größe der virtual machine "
             "„Plus“ läuft es deutlich ruhiger.",
         ),
         AddOn(
@@ -353,7 +353,7 @@ def messenger_rights(settings: Any, name: str) -> dict[str, str]:
 #: wieder geloescht.
 FIREFOX = "_firefox"
 
-#: Wo die Add-ons in der Werkstatt haengen.
+#: Wo die Add-ons in der virtual machine haengen.
 MOUNT_ROOT = "/addons"
 
 #: Wie lange eine Installation hoechstens dauern darf.
@@ -469,7 +469,7 @@ def usable(addon: AddOn, settings: Any, pro: bool) -> tuple[bool, str]:
     if not pro:
         return False, "Braucht den User mode — und der gehört zu Ultra."
     if not getattr(settings, "vm_user_mode", False):
-        return False, "Wirkt erst mit eingeschaltetem User mode (Einstellungen → Werkstatt)."
+        return False, "Wirkt erst mit eingeschaltetem User mode (Einstellungen → virtual machine)."
     return True, ""
 
 
@@ -499,7 +499,7 @@ def volume_name(settings: Any, addon_id: str) -> str:
 
 
 def mounts(settings: Any) -> dict[str, str]:
-    """Welche Datentraeger in die Werkstatt gehoeren: nur eingeschaltete.
+    """Welche Datentraeger in die virtual machine gehoeren: nur eingeschaltete.
 
     Ausgeschaltete bleiben liegen, sind aber nicht eingehaengt -- Aquaticy
     kommt dann weder an das Programm noch an die Anmeldung heran.
@@ -600,7 +600,7 @@ def installing(settings: Any, addon_id: str) -> bool:
 def _check_allowed(addon: AddOn, settings: Any, pro: bool) -> None:
     if addon.werkstatt and not pro:
         raise AddOnError(
-            f"{addon.name} läuft in der Werkstatt im User mode — das gehört zu Ultra."
+            f"{addon.name} läuft in der virtual machine im User mode — das gehört zu Ultra."
         )
 
 
@@ -645,7 +645,7 @@ def _last_json(text: str) -> dict[str, Any]:
 
 
 def _helper(box: Any, *args: str, timeout: int = INSTALL_TIMEOUT) -> dict[str, Any]:
-    """Ruft aquaticy-addons in der Installations-Werkstatt auf."""
+    """Ruft aquaticy-addons in der Installations-virtual machine auf."""
     fertig = box.addon_helper(*args, timeout=timeout)
     antwort = _last_json(fertig.stdout)
     if not antwort:
@@ -670,7 +670,7 @@ def _install_job(settings: Any, addon: AddOn, on_done: Any = None) -> None:
         runtime = werkstatt.find_runtime()
         if runtime is None:
             raise AddOnError(
-                "Auf diesem Rechner gibt es keine Werkstatt (Docker oder Podman) — ohne sie "
+                "Auf diesem Rechner gibt es keine virtual machine (Docker oder Podman) — ohne sie "
                 "installiert Aquaticy nichts."
             )
         image = getattr(settings, "vm_desktop_image", "") or werkstatt.DESKTOP_IMAGE
@@ -735,7 +735,7 @@ def set_enabled(settings: Any, addon_id: str, on: bool, pro: bool) -> dict[str, 
 def uninstall(settings: Any, addon_id: str, pro: bool = True) -> dict[str, Any]:
     """Entfernt ein Add-on ganz: Programm, Anmeldung, Token, Feed-Liste.
 
-    Die laufende Werkstatt muss vorher weg (der Aufrufer baut sie ab), sonst
+    Die laufende virtual machine muss vorher weg (der Aufrufer baut sie ab), sonst
     haelt sie den Datentraeger fest.
     """
     addon = get(addon_id)
@@ -760,7 +760,7 @@ def uninstall(settings: Any, addon_id: str, pro: bool = True) -> dict[str, Any]:
         elif (load_state(settings).get(addon.id) or {}).get("installed"):
             raise AddOnError(
                 "Ohne Docker oder Podman kommt Aquaticy nicht an den Datentraeger heran — "
-                "deinstallieren geht erst, wenn die Werkstatt wieder erreichbar ist."
+                "deinstallieren geht erst, wenn die virtual machine wieder erreichbar ist."
             )
     if addon.login == "token":
         forget_github_token(settings)
@@ -867,7 +867,7 @@ def mark_login(settings: Any, addon_id: str, state: str) -> dict[str, Any]:
 
 
 def logout(settings: Any, addon_id: str) -> dict[str, Any]:
-    """Meldet ab: Token weg, bzw. Profil/Daten in der Werkstatt geloescht."""
+    """Meldet ab: Token weg, bzw. Profil/Daten in der virtual machine geloescht."""
     addon = get(addon_id)
     if addon.login == "token":
         forget_github_token(settings)

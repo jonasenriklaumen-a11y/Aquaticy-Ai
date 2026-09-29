@@ -2975,13 +2975,13 @@ def test_the_web_switch_reaches_the_agent(
 
 
 def test_the_workshop_switch_belongs_to_the_code_mode() -> None:
-    """Web und Gegenpruefen gehoeren zur Recherche, die Werkstatt zum Code."""
+    """Web und Gegenpruefen gehoeren zur Recherche, die virtual machine zum Code."""
     html = web.UI_FILE.read_text(encoding="utf-8")
     picker = html[html.index('id="picker-models"') :]
     picker = picker[: picker.index("picker-foot")]
     assert 'id="werkstatt"' in picker
     assert "Code wirklich ausprobieren" in picker
-    # Der Werkstatt-Schalter steht im Code-Modus, die beiden anderen daneben.
+    # Der virtual-machine-Schalter steht im Code-Modus, die beiden anderen daneben.
     werkstatt = picker[picker.index('id="werkstatt"') - 200 : picker.index('id="werkstatt"')]
     assert "only-code" in werkstatt
     for schalter in ('id="online"', 'id="recheck"'):
@@ -3004,8 +3004,8 @@ def test_the_code_mode_always_keeps_the_web(
     """Der Web-Schalter steht nur im Standardmodus -- also darf ein "aus" von
     dort das Nachschlagen im Code-Modus nicht heimlich mitnehmen.
 
-    Die Werkstatt hat kein Netz; der Agent davor schon. Genau so soll es sein:
-    Signatur nachschlagen, Code in der Werkstatt ausprobieren.
+    Die virtual machine hat kein Netz; der Agent davor schon. Genau so soll es sein:
+    Signatur nachschlagen, Code in der virtual machine ausprobieren.
     """
     html = web.UI_FILE.read_text(encoding="utf-8")
     body = html[html.index("async function ask(text){") :]
@@ -3206,7 +3206,7 @@ def test_a_job_without_a_question_is_refused(client) -> None:
 
 
 def test_the_workshop_answers_even_when_it_is_not_running(client) -> None:
-    """Keine Werkstatt ist keine Stoerung -- dann liegt eben nichts darin."""
+    """Keine virtual machine ist keine Stoerung -- dann liegt eben nichts darin."""
     status, data = client("GET", "/api/werkstatt")
     assert status == 200
     payload = json.loads(data)
@@ -3215,7 +3215,7 @@ def test_the_workshop_answers_even_when_it_is_not_running(client) -> None:
 
 
 def test_a_workshop_file_is_never_served_as_html(client) -> None:
-    """Sonst liefe eine Datei aus der Werkstatt unter der Adresse von Aquaticy."""
+    """Sonst liefe eine Datei aus der virtual machine unter der Adresse von Aquaticy."""
     html = web.UI_FILE.read_text(encoding="utf-8")
     assert "/api/werkstatt/datei" in html
     quelle = Path("aquaticy/web.py").read_text(encoding="utf-8")
@@ -3292,11 +3292,11 @@ def test_an_attachment_lands_in_the_workshop_of_this_turn(
     """
     agent = SimpleNamespace(mode="normal", sandbox=False, workshop_on=False)
 
-    # Erste Frage: Code-Modus mit Werkstatt kommt neu herein.
+    # Erste Frage: Code-Modus mit virtual machine kommt neu herein.
     assert web.ChatSession._workshop_wanted(agent, "code", True) is True
-    # Ohne Werkstatt nicht.
+    # Ohne virtual machine nicht.
     assert web.ChatSession._workshop_wanted(agent, "code", False) is False
-    # Und im Standardmodus auch dann nicht, wenn die Werkstatt anstünde.
+    # Und im Standardmodus auch dann nicht, wenn die virtual machine anstünde.
     assert web.ChatSession._workshop_wanted(agent, "normal", True) is False
 
     # Nichts mitgeschickt heißt: der Stand des Agenten gilt weiter.
@@ -3319,7 +3319,7 @@ def test_without_the_workshop_an_attachment_is_not_copied_anywhere(
         workshop=False,
     )
     assert "Hallo" in text
-    assert versuche == [], "ohne Werkstatt wird nichts hineingelegt"
+    assert versuche == [], "ohne virtual machine wird nichts hineingelegt"
 
 
 # ---------------------------------------------------------------------------
@@ -3540,7 +3540,7 @@ def test_normal_account_cannot_select_plus_workshop(
     session.account = web.Account("normal", "normal@example.org", "normal", 0)
     status, data = client("POST", "/api/config", {"AQUATICY_VM_SIZE": "plus"})
     assert status == 400
-    # Die große Werkstatt gehört seit 9.5.17 zu Ultra.
+    # Die große virtual machine gehört seit 9.5.17 zu Ultra.
     assert "Ultra" in json.loads(data)["error"]
     assert client("POST", "/api/config", {"AQUATICY_VM_SIZE": "normal"})[0] == 200
 
@@ -3724,7 +3724,7 @@ def test_the_recheck_explains_itself_per_mode() -> None:
     stelle = html.index('id="recheck"')
     label = html[html.rfind("<label", 0, stelle) :]
     label = label[: label.index("</label>")]
-    assert "only-normal" in label, "im Code-Modus zaehlt die Werkstatt"
+    assert "only-normal" in label, "im Code-Modus zaehlt die virtual machine"
     assert '"why only-standard"' in label and '"why only-pro"' in label
     assert "Vier Prüfer" in label
     assert "body.pro-mode .only-standard{display:none}" in html
@@ -4183,7 +4183,7 @@ def test_the_header_comes_from_the_server_and_follows_the_switches(
     assert kopf["model"] == "mistral/mistral-large-latest" and "strukturiert" in kopf["status"]
     client("POST", "/api/prefs", {"mode": "code", "sandbox": True})
     kopf = json.loads(client("GET", "/api/header")[1])
-    assert kopf["model"] == "x/code" and "Werkstatt" in kopf["status"]
+    assert kopf["model"] == "x/code" and "virtual machine" in kopf["status"]
     assert json.loads(client("GET", "/api/config")[1])["header"]["model"] == "x/code"
 
 

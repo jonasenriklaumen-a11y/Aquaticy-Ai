@@ -120,7 +120,7 @@ class FakeAgent:
             self.on_event("answer_chunk", {"text": absage})
             self.on_event("done", {"tool_calls": 0, "hit_limit": False})
             return type("R", (), {"answer": absage, "stopped": False})()
-        # Der User mode: eine Werkstatt als Desktop mit Internet. Die Attrappe
+        # Der User mode: eine virtual machine als Desktop mit Internet. Die Attrappe
         # meldet, was die echte meldet -- Sperre, Desktop, Handgriffe, eine
         # Ablehnung -- und legt das Bildschirmfoto in den Chat.
         if "usermode-probe" in text:
@@ -137,7 +137,7 @@ class FakeAgent:
             self.on_event("answer_chunk", {"text": antwort})
             self.on_event("done", {"tool_calls": 4, "hit_limit": False, "visuals": [
                 {"kind": "desktop", "media_id": self.bildschirm,
-                 "title": "Bildschirm der Werkstatt"}]})
+                 "title": "Bildschirm der virtual machine"}]})
             return type("R", (), {"answer": antwort, "stopped": False})()
         if "bild-probe" in text:
             # Automatische Modellwahl + ein erstelltes Bild (9.5.10).
@@ -492,7 +492,7 @@ def normales_konto(browser: Any, port: int, log: Protokoll, fehler: list[str]) -
     pg.click("#btn-settings")
     pg.wait_for_selector("#overlay.open", state="visible")
     pg.wait_for_timeout(700)
-    pg.click('#secnav button:has-text("Werkstatt")')
+    pg.click('#secnav button:has-text("virtual machine")')
     pg.wait_for_timeout(700)
     log.pruefe(pg.is_enabled("#usermode") and not pg.is_checked("#usermode"),
                "User mode: der Schalter ist aus und nicht ausgegraut")
@@ -545,10 +545,10 @@ def normales_konto(browser: Any, port: int, log: Protokoll, fehler: list[str]) -
         }"""
     )
     log.pruefe(not antwort.get("ok") and "Ultra" in str(antwort.get("error", "")),
-               "am Fenster vorbei lehnt der Server Werkstatt-Add-ons ab")
+               "am Fenster vorbei lehnt der Server virtual-machine-Add-ons ab")
     pg.locator('.addon[data-id="feeds"] button', has_text="Installieren").click()
     pg.wait_for_selector('.addon[data-id="feeds"] textarea', timeout=10_000)
-    log.pruefe(True, "Add-ons ohne Werkstatt (RSS-Feeds) gehen auch mit dem normalen Konto")
+    log.pruefe(True, "Add-ons ohne virtual machine (RSS-Feeds) gehen auch mit dem normalen Konto")
     antwort = pg.evaluate(
         """async () => {
           const r = await fetch("/api/config", {method: "POST",
@@ -803,7 +803,7 @@ def rundgang(pg: Any, log: Protokoll, agent: FakeAgent, bilder: Path | None,
         )
 
     if dran("werkstatt"):
-        log.abschnitt("4a. Werkstatt im Code-Modus")
+        log.abschnitt("4a. virtual machine im Code-Modus")
         pg.click('#modes .mode[data-mode="code"]')
         pg.wait_for_timeout(300)
         pg.click("#btn-model")
@@ -815,7 +815,7 @@ def rundgang(pg: Any, log: Protokoll, agent: FakeAgent, bilder: Path | None,
         pg.check("#werkstatt")
         pg.keyboard.press("Escape")
         pg.wait_for_timeout(400)
-        log.pruefe("Werkstatt" in pg.inner_text("#status"), "die Kopfzeile sagt es")
+        log.pruefe("virtual machine" in pg.inner_text("#status"), "die Kopfzeile sagt es")
         pg.fill("#input", "Schreib ein Skript und führ es aus")
         pg.click("#send")
         pg.wait_for_timeout(1200)
@@ -824,7 +824,7 @@ def rundgang(pg: Any, log: Protokoll, agent: FakeAgent, bilder: Path | None,
         log.pruefe(letzte["web"] is True,
                    "und nachschlagen darf er weiterhin — nur die Maschine hat kein Netz")
         schritte = pg.inner_text(".steps >> nth=-1")
-        log.pruefe("[Werkstatt]" in schritte, "die Werkstatt meldet sich")
+        log.pruefe("[virtual machine]" in schritte, "die virtual machine meldet sich")
         log.pruefe("lief durch" in schritte, "und sagt, was herauskam")
         foto("04a-werkstatt")
         pg.click('#modes .mode[data-mode="normal"]')
@@ -890,7 +890,7 @@ def rundgang(pg: Any, log: Protokoll, agent: FakeAgent, bilder: Path | None,
         log.pruefe(pg.is_visible("#online") and pg.is_visible("#denken")
                    and pg.is_visible("#structure"),
                    "alles andere aus dem Standardmodus steht bereit")
-        log.pruefe(not pg.is_visible("#werkstatt"), "die Werkstatt bleibt beim Code")
+        log.pruefe(not pg.is_visible("#werkstatt"), "die virtual machine bleibt beim Code")
         pg.keyboard.press("Escape")
         pg.wait_for_timeout(400)
         log.pruefe("Pro" in pg.inner_text("#status"), "die Kopfzeile sagt es")
@@ -1113,7 +1113,7 @@ def rundgang(pg: Any, log: Protokoll, agent: FakeAgent, bilder: Path | None,
 
     if dran("usermode"):
         log.abschnitt("6b. User mode")
-        # Ein echtes JPEG, gespeichert wie jedes Bildschirmfoto der Werkstatt:
+        # Ein echtes JPEG, gespeichert wie jedes Bildschirmfoto der virtual machine:
         # die Oberflaeche soll es aus dem Speicher des Kontos laden.
         from aquaticy.media import save_snapshot
 
@@ -1142,7 +1142,7 @@ def rundgang(pg: Any, log: Protokoll, agent: FakeAgent, bilder: Path | None,
             pg.locator(".steps >> nth=-1").locator("img.shot").count() == 1,
             "das Bildschirmfoto steht klein beim Schritt",
         )
-        karte = pg.locator(".result-card.visual").filter(has_text="Bildschirm der Werkstatt")
+        karte = pg.locator(".result-card.visual").filter(has_text="Bildschirm der virtual machine")
         log.pruefe(karte.count() == 1, "und gross unter der Antwort")
         log.pruefe(
             karte.locator("img").count() == 1
@@ -1179,7 +1179,7 @@ def rundgang(pg: Any, log: Protokoll, agent: FakeAgent, bilder: Path | None,
         pg.click("#btn-settings")
         pg.wait_for_selector("#overlay.open", state="visible")
         pg.wait_for_timeout(700)
-        pg.click('#secnav button:has-text("Werkstatt")')
+        pg.click('#secnav button:has-text("virtual machine")')
         pg.wait_for_timeout(700)
         neben = pg.evaluate("""() => {
           const s = document.querySelector('#usermode').getBoundingClientRect();
@@ -1253,7 +1253,8 @@ def rundgang(pg: Any, log: Protokoll, agent: FakeAgent, bilder: Path | None,
         pg.wait_for_selector("#screenbox.open", state="visible")
         pg.wait_for_timeout(900)
         log.pruefe("läuft gerade nicht" in pg.inner_text("#screen-leer"),
-                   "Login-Apps: ohne Werkstatt ein ehrlicher Hinweis statt eines kaputten Bildes")
+                   "Login-Apps: ohne virtual machine ein ehrlicher Hinweis statt eines "
+                   "kaputten Bildes")
         log.pruefe(pg.get_attribute("#screen-text", "type") == "password",
                    "das Tippfeld zeigt Passwoerter nicht")
         pg.click("#screen-close")
@@ -1317,10 +1318,10 @@ def rundgang(pg: Any, log: Protokoll, agent: FakeAgent, bilder: Path | None,
             "Mitlesen schaltet sich ein",
         )
         pg.uncheck("#showtrace")
-        # Werkstatt: der User mode -- ein Schalter mit Erklaerung.
+        # virtual machine: der User mode -- ein Schalter mit Erklaerung.
         log.pruefe(
             pg.locator('#workshop-settings [name="AQUATICY_VM_USER_MODE"]').count() == 1,
-            "der User mode steht bei der Werkstatt",
+            "der User mode steht bei der virtual machine",
         )
         log.pruefe(not pg.is_checked("#usermode"), "und ist ab Werk aus")
         log.pruefe("Bilder" in pg.inner_text("#usermode-note"),
@@ -1891,8 +1892,8 @@ def rundgang(pg: Any, log: Protokoll, agent: FakeAgent, bilder: Path | None,
         pg.wait_for_timeout(500)
 
     if dran("werkstatt2"):
-        log.abschnitt("17. Werkstatt: Dateien")
-        # Die Modusknoepfe liegen in der Kopfzeile, der Werkstatt-Schalter in
+        log.abschnitt("17. virtual machine: Dateien")
+        # Die Modusknoepfe liegen in der Kopfzeile, der virtual-machine-Schalter in
         # der Modellauswahl. Waehrend die offen ist, liegt eine Sperrflaeche
         # ueber der Kopfzeile -- also erst umschalten, dann aufklappen.
         pg.click('#modes .mode[data-mode="code"]')
@@ -1910,7 +1911,7 @@ def rundgang(pg: Any, log: Protokoll, agent: FakeAgent, bilder: Path | None,
         pg.wait_for_timeout(800)
         log.pruefe(
             pg.locator("#vmliste .merk-leer").count() == 1,
-            "ohne laufende Werkstatt wird das gesagt, statt eine leere Liste zu zeigen",
+            "ohne laufende virtual machine wird das gesagt, statt eine leere Liste zu zeigen",
         )
         pg.keyboard.press("Escape")
         pg.wait_for_timeout(500)

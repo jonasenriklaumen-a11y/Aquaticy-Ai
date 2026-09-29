@@ -2,7 +2,7 @@
 
 Keiner dieser Tests spricht mit GitHub, Open-Meteo oder einem Feed im Netz:
 die Antworten kommen aus einem httpx.MockTransport, der gleichzeitig
-mitschreibt, WAS gefragt wurde (nur GET? welcher Server?). Die Werkstatt ist
+mitschreibt, WAS gefragt wurde (nur GET? welcher Server?). Die virtual machine ist
 gestellt; der echte Behaelter kommt in test_addons_live.py dran.
 """
 
@@ -59,7 +59,7 @@ def test_the_catalogue_has_what_was_asked_for_plus_suggestions() -> None:
         if addon.programm == "webapp":
             assert addon.adresse.startswith("https://")
         if addon.login == "qr":
-            assert addon.werkstatt, "QR-Anmeldungen laufen in der Werkstatt"
+            assert addon.werkstatt, "QR-Anmeldungen laufen in der virtual machine"
 
 
 def test_signal_says_honestly_that_there_is_no_signal_web() -> None:
@@ -177,7 +177,7 @@ def test_the_state_file_ignores_what_it_does_not_know(konto: Settings) -> None:
     assert addons.load_state(konto) == {}
 
 
-# -- Installation in der Wegwerf-Werkstatt (gestellt) ----------------------------
+# -- Installation in der Wegwerf-virtual machine (gestellt) ----------------------------
 class FakeBox:
     """Nimmt die Aufrufe des Installers entgegen und antwortet wie aquaticy-addons."""
 
@@ -229,7 +229,7 @@ def test_a_web_app_loads_firefox_first_then_its_profile(
     addons.install(_pro(konto), "whatsapp", pro=True, wait=True,
                    on_done=lambda: fertig.append(True))
     box = FakeBox.letzte
-    assert box is not None and box.gestoppt, "die Wegwerf-Werkstatt ist wieder weg"
+    assert box is not None and box.gestoppt, "die Wegwerf-virtual machine ist wieder weg"
     assert box.kwargs["user_mode"] and box.kwargs["headless"]
     assert set(box.kwargs["addon_mounts"].values()) == {"/addons/whatsapp", "/addons/_firefox"}
     befehle = [a[:2] for a in box.aufrufe]
@@ -677,7 +677,7 @@ def test_a_busy_session_keeps_its_workshop(tmp_path: Path, monkeypatch: pytest.M
     assert status == 409 and addons.load_state(sitzung.settings())["blender"]["enabled"]
 
 
-class Werkstatt:
+class FakeVm:
     alive = True
     user_mode = True
 
@@ -697,7 +697,7 @@ def test_the_human_types_directly_into_the_workshop(
     from aquaticy import web
 
     _sitzung(tmp_path, monkeypatch, "ultra")
-    box = Werkstatt()
+    box = FakeVm()
     monkeypatch.setattr(werkstatt, "shared", lambda settings: box)
     assert web.workshop_input({"art": "click", "x": 640, "y": 400, "double": True})[1] == 200
     passwort = "Geheim!Passwort-123 äöü"
@@ -707,8 +707,8 @@ def test_the_human_types_directly_into_the_workshop(
         (("click", "640", "400", "--double"), None, False),
         (("type",), passwort.encode(), False),
         (("key", "Return"), None, False),
-    ], "nur an die laufende Werkstatt, nichts startet"
-    # Das Passwort geht an die Werkstatt -- und sonst nirgendwohin.
+    ], "nur an die laufende virtual machine, nichts startet"
+    # Das Passwort geht an die virtual machine -- und sonst nirgendwohin.
     for datei in (tmp_path / "konto-pro").rglob("*"):
         if datei.is_file():
             assert passwort.encode() not in datei.read_bytes(), datei
@@ -731,7 +731,7 @@ def test_wrong_input_never_reaches_the_workshop(
     from aquaticy import web
 
     _sitzung(tmp_path, monkeypatch, "ultra")
-    box = Werkstatt()
+    box = FakeVm()
     monkeypatch.setattr(werkstatt, "shared", lambda settings: box)
     assert web.workshop_input(eingabe)[1] == 400
     assert box.aufrufe == []
@@ -743,7 +743,7 @@ def test_direct_input_is_ultra_and_user_mode_only(
     from aquaticy import sandbox as werkstatt
     from aquaticy import web
 
-    box = Werkstatt()
+    box = FakeVm()
     monkeypatch.setattr(werkstatt, "shared", lambda settings: box)
     _sitzung(tmp_path, monkeypatch, "normal")
     assert web.workshop_input({"art": "key", "key": "Return"})[1] == 403
@@ -762,7 +762,7 @@ def test_opening_a_page_is_the_one_input_that_may_start_the_workshop(
     from aquaticy import web
 
     _sitzung(tmp_path, monkeypatch, "ultra")
-    box = Werkstatt()
+    box = FakeVm()
     box.alive = False
     monkeypatch.setattr(werkstatt, "shared", lambda settings: box)
     assert web.workshop_input({"art": "key", "key": "Return"})[1] == 404
@@ -785,7 +785,7 @@ def test_the_ui_has_the_addon_window_and_login_apps() -> None:
 
 
 def test_the_login_screen_asks_quietly(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    """Ohne Werkstatt: 204 statt 404 -- sonst fuellt das Nachfragen die Konsole."""
+    """Ohne virtual machine: 204 statt 404 -- sonst fuellt das Nachfragen die Konsole."""
     from aquaticy import sandbox as werkstatt
     from aquaticy import web
     from tests.test_desktop import _hole
@@ -793,7 +793,7 @@ def test_the_login_screen_asks_quietly(tmp_path: Path, monkeypatch: pytest.Monke
     sitzung = web.ChatSession()
     sitzung._settings = Settings(data_dir=tmp_path / "d", vm_user_mode=True)
     monkeypatch.setattr(web, "SESSION", sitzung)
-    box = Werkstatt()
+    box = FakeVm()
     box.alive = False
     monkeypatch.setattr(werkstatt, "shared", lambda settings: box)
     assert _hole("/api/werkstatt/bildschirm?leise=1&t=1", sitzung)[0] == 204

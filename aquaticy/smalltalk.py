@@ -89,7 +89,7 @@ ARTEN: tuple[Art, ...] = (
             "Gemacht hat mich Jonas. Ich bin Aquaticy und helfe dir gern weiter.",
             "Jonas ist mein Entwickler. Er hat mir beigebracht, im Web zu suchen und Quellen zu "
             "nennen.",
-            "Ich bin Aquaticy, eine KI aus der Werkstatt von Jonas. Was steht bei dir an?",
+            "Ich bin Aquaticy, eine KI aus der virtual machine von Jonas. Was steht bei dir an?",
             "Mich hat Jonas programmiert. Als Aquaticy recherchiere, schreibe und programmiere "
             "ich für dich.",
             "Entwickelt wurde ich von Jonas. Ich bin Aquaticy — dein Helfer für Fragen, Texte "
@@ -536,7 +536,8 @@ ARTEN: tuple[Art, ...] = (
            r"(?:eigentlich|zu\s+hause|zuhause)|wo\s+ist\s+dein\s+zuhause"),
         (
             "Ich lebe auf dem Rechner, auf dem Aquaticy läuft — ein Zuhause aus Code, sozusagen.",
-            "Ich komme aus der Werkstatt von Jonas und wohne auf einem Server. Sehr gemütlich!",
+            "Ich komme aus der virtual machine von Jonas und wohne auf einem Server. "
+            "Sehr gemütlich!",
             "Mein Zuhause ist der Computer, auf dem Aquaticy installiert ist.",
             "Ich bin Software und lebe dort, wo Aquaticy läuft. Einen festen Wohnort habe ich "
             "nicht.",

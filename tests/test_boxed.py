@@ -56,7 +56,7 @@ def test_a_box_without_a_marker_is_found_in_the_control_group(
 
 
 def test_the_inner_box_needs_a_runtime(monkeypatch: pytest.MonkeyPatch) -> None:
-    """Ohne Laufzeit drinnen gibt es keine Werkstatt -- und das wird gesagt."""
+    """Ohne Laufzeit drinnen gibt es keine virtual machine -- und das wird gesagt."""
     monkeypatch.setattr(boxed.Path, "exists", _existiert("/run/.containerenv"))
     ohne = boxed.posture()
     assert ohne.workshop_possible is False

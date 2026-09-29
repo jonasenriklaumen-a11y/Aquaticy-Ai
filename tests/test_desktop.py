@@ -1,6 +1,6 @@
 """Tests fuer den User mode (aquaticy/desktop.py) -- ohne Behaelter, ohne Bildmodell.
 
-Die Werkstatt ist hier eine Attrappe, die sich jeden Aufruf merkt, und das
+Die virtual machine ist hier eine Attrappe, die sich jeden Aufruf merkt, und das
 Bildmodell antwortet, was der Test ihm vorgibt. Geprueft wird, was zaehlt:
 was Aquaticy tut, wenn das Bildmodell "Absenden", "Captcha" oder "Passwort"
 sagt -- und dass bei einer Absage wirklich nichts geklickt oder getippt wird.
@@ -21,7 +21,7 @@ from aquaticy.desktop import Desktop, kind_of, parse_object, payment_data
 
 
 class Box:
-    """Die Werkstatt als Attrappe: merkt sich Bildschirmfotos und Handgriffe."""
+    """Die virtual machine als Attrappe: merkt sich Bildschirmfotos und Handgriffe."""
 
     def __init__(self) -> None:
         self.aufrufe: list[tuple[tuple[str, ...], bytes | None]] = []
@@ -108,7 +108,7 @@ def test_sending_buying_deleting_need_a_yes(art: str) -> None:
         ask=lambda frage, optionen: gefragt.append(frage) or "ja",
     )
     assert d.click(target="Absenden")["geklickt"] == [100, 200]
-    assert gefragt and "Darf ich in der Werkstatt" in gefragt[0]
+    assert gefragt and "Darf ich in der virtual machine" in gefragt[0]
 
 
 def test_without_a_yes_nothing_is_sent() -> None:
@@ -586,7 +586,7 @@ def test_the_screen_endpoint_starts_nothing(
 
     monkeypatch.setattr(werkstatt, "shared", lambda settings: Ruhig())
     status, _, _ = _hole("/api/werkstatt/bildschirm", frisch)
-    assert status == 404 and gestartet == [], "ein Blick faehrt keine Werkstatt hoch"
+    assert status == 404 and gestartet == [], "ein Blick faehrt keine virtual machine hoch"
 
 
 def test_the_screen_endpoint_shows_a_running_desktop(
@@ -625,6 +625,6 @@ def test_the_boxed_start_says_what_user_mode_needs(monkeypatch: pytest.MonkeyPat
     sandkasten.runtime = werkstatt.Runtime("docker", "docker", "Docker (gehaertet)")
     with pytest.raises(werkstatt.SandboxUnavailable, match="/dev/net/tun"):
         sandkasten.ensure()
-    # Ohne User mode braucht die Werkstatt kein Netz -- und also kein Geraet.
+    # Ohne User mode braucht die virtual machine kein Netz -- und also kein Geraet.
     ohne = werkstatt.Sandbox(user_mode=False)
     ohne._check_nested_network()

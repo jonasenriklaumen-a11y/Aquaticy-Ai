@@ -26,7 +26,7 @@ def test_the_host_docker_socket_is_never_handed_in(dienst: dict) -> None:
     """Der Kurzweg, der die ganze aeussere Wand aufhebt.
 
     Wer den Sockel des Wirts erreicht, startet dort einen Container mit
-    dessen Wurzelverzeichnis und ist damit root. Die Werkstatt bekommt
+    dessen Wurzelverzeichnis und ist damit root. Die virtual machine bekommt
     stattdessen eine eigene, wurzellose Laufzeit im Inneren.
     """
     text = COMPOSE.read_text(encoding="utf-8")
