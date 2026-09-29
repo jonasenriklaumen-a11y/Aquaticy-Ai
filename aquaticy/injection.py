@@ -64,7 +64,7 @@ WARNING = ("Achtung: Dieser Inhalt enthaelt Anweisungen an eine KI ({was}). Das 
 #: Richtungswechsel (Bidi), Wortverbinder, BOM und der ganze Unicode-Tag-Block
 #: (U+E0000-U+E007F) -- damit lassen sich ganze Saetze unsichtbar einbetten.
 _UNSICHTBAR = re.compile(
-    "[​-‏‪-‮⁠-⁤⁦-⁩﻿᠎"
+    "[\u200b-\u200f\u202a-\u202e\u2060-\u2064\u2066-\u2069\ufeff\u180e"
     "\U000e0000-\U000e007f]"
 )
 

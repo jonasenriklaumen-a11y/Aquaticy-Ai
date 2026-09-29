@@ -1,4 +1,4 @@
-# Aquaticy AI 9.5.32 Spark
+# Aquaticy AI 9.5.33 Spark
 
 **Aquaticy** recherchiert für dich. Du stellst eine Frage, Aquaticy sucht im Web, liest die
 passenden Seiten und fasst das Ergebnis zusammen — mit Quelle an jeder Angabe. Es läuft im
@@ -112,7 +112,7 @@ $ aquaticy
 git clone --branch Aquaticy-ai --single-branch https://github.com/jonasenriklaumen-a11y/Aquaticy-Ai.git
 cd Aquaticy-Ai
 uv tool install --force --reinstall .
-aquaticy --version            # 9.5.32 Spark
+aquaticy --version            # 9.5.33 Spark
 
 # 2. Einrichten — fragt nach Modell und Schlüssel und testet beide
 aquaticy setup
@@ -647,6 +647,24 @@ und zusammengeklebte Anrede („du_1d10t“). Gemessen an 1.816 getarnten Varian
 Korpus-Beleidigungen: **99,8 % erkannt**, bei **0 Fehlalarmen** in 421 harmlosen Sätzen —
 darunter solche, die wie Tarnung aussehen (Emojis, „z.B.“, „2*3“, Namen mit Akzent). Ein ganz
 ausgesterntes Wort („d****r“) ist ohne Zusammenhang mehrdeutig; das beurteilt das Modell.
+
+**Mehr Wörter, Ketten und Drohungen (9.5.33).** Rund 90 weitere Schimpfwörter auf Deutsch und
+Englisch, von leicht („Schnarchnase“, „Wichtigtuer“, „coward“) bis grob („Drecksau“, „scum“).
+**Ketten:** Eine Nachricht nur aus Schimpfwörtern („Idiot Trottel Depp“, „you stupid useless
+idiot“) zählt als Beleidigung, auch ohne Satz drumherum; ab **drei verschiedenen** Schimpfwörtern
+in einer beleidigenden Nachricht steigt die Schwere um eine Stufe — höchstens bis „grob“ (Bann für
+7 Tage). Für immer gesperrt wird dadurch niemand; das bleibt Drohungen vorbehalten. Dasselbe Wort
+dreimal ist keine Kette, und Tiernamen in einer Frage zum Bauernhof auch nicht. **Drohungen**
+(§ 241 StGB) werden jetzt auch über Kommas hinweg erkannt: „ich weiß, wo du wohnst“ ist grob,
+ausgesprochene Gewalt („ich polier dir die Fresse“, „I'll smash your face“) sperrt dauerhaft.
+Mehrdeutiges wie „Ich finde dich!“ (Versteckspiel) zählt bewusst nicht. **Rechtliches:** Ai-guard
+ordnet mehr Straftaten richtig ein — Verleumdung, üble Nachrede, Freiheitsberaubung,
+Menschenhandel, sexueller Missbrauch, Doxxing, Swatting, Cybermobbing, Steuerhinterziehung,
+Bestechung, Drogenhandel, Geldfälschung, Unfallflucht, Tierquälerei, Volksverhetzung, Meineid
+(auch englisch) als Rechtsbruch; Terror, Anschläge, Vergiftung und Computersabotage als Angriff.
+Beim Nachprüfen mit Wortlisten (je 50.000 häufige deutsche und englische Wörter) sind Fehlalarme
+aufgefallen und behoben: „deep“, „Asien“, „Meme“, „Creeper“, „Superbot“, „flicker“ oder
+„Hundeschnauze“ gelten nicht mehr als Beleidigung.
 
 **Sicherheit im Code-Modus (9.5.30).** Fragt ein **Normal- oder Pro-Konto** im Code-Modus mit
 laufender virtual machine nach etwas in Richtung **Cybersecurity, Hacking oder Schadsoftware**,

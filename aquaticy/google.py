@@ -720,4 +720,4 @@ def _strip_tags(html: str) -> str:
 def _unescape(text: str) -> str:
     from html import unescape
 
-    return unescape(text).replace("‌", "").replace("\xa0", " ").strip()
+    return unescape(text).replace("\u200c", "").replace("\xa0", " ").strip()

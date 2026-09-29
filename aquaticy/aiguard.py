@@ -97,7 +97,7 @@ def _chat_key(chat: Any) -> str:
 
 
 #: Version der Regeln. Ändert sie sich, gelten alte Urteile nicht mehr.
-GUARD_VERSION = "2026-09-26"
+GUARD_VERSION = "2026-09-30"
 
 
 @dataclass(frozen=True, slots=True)
@@ -194,7 +194,67 @@ _SYNONYME = {
     "bedrohung": "rechtsbruch", "geldwäsche": "rechtsbruch", "geldwaesche": "rechtsbruch",
     "fraud": "rechtsbruch", "theft": "rechtsbruch", "extortion": "rechtsbruch",
     "blackmail": "rechtsbruch",
+    # Weitere Straftaten (9.5.33) -- StGB und Nebenstrafrecht. Nur Themen-
+    # woerter: sie ordnen die Einschaetzung des Pruefers einer Art zu.
+    "verleumdung": "rechtsbruch", "üble nachrede": "rechtsbruch", "nachrede": "rechtsbruch",
+    "freiheitsberaubung": "rechtsbruch", "entführung": "rechtsbruch",
+    "entfuehrung": "rechtsbruch", "menschenhandel": "rechtsbruch",
+    "zwangsprostitution": "rechtsbruch", "vergewaltigung": "rechtsbruch",
+    "kindesmissbrauch": "rechtsbruch", "sexueller missbrauch": "rechtsbruch",
+    "kinderpornografie": "rechtsbruch", "kinderpornographie": "rechtsbruch",
+    "csam": "rechtsbruch", "belästigung": "rechtsbruch", "belaestigung": "rechtsbruch",
+    "exhibitionismus": "rechtsbruch", "voyeurismus": "rechtsbruch",
+    "rachepornos": "rechtsbruch", "racheporno": "rechtsbruch", "deepfake": "rechtsbruch",
+    "doxxing": "rechtsbruch", "doxing": "rechtsbruch", "swatting": "rechtsbruch",
+    "cybermobbing": "rechtsbruch", "mobbing": "rechtsbruch", "morddrohung": "rechtsbruch",
+    "mord": "rechtsbruch", "totschlag": "rechtsbruch", "tötung": "rechtsbruch",
+    "toetung": "rechtsbruch", "steuerhinterziehung": "rechtsbruch",
+    "schwarzarbeit": "rechtsbruch", "korruption": "rechtsbruch", "bestechung": "rechtsbruch",
+    "bestechlichkeit": "rechtsbruch", "untreue": "rechtsbruch", "insiderhandel": "rechtsbruch",
+    "marktmanipulation": "rechtsbruch", "subventionsbetrug": "rechtsbruch",
+    "versicherungsbetrug": "rechtsbruch", "sozialbetrug": "rechtsbruch",
+    "computerbetrug": "rechtsbruch", "kreditkartenbetrug": "rechtsbruch",
+    "datenhehlerei": "rechtsbruch", "drogenhandel": "rechtsbruch",
+    "betäubungsmittel": "rechtsbruch", "betaeubungsmittel": "rechtsbruch",
+    "drogenschmuggel": "rechtsbruch", "schmuggel": "rechtsbruch", "falschgeld": "rechtsbruch",
+    "geldfälschung": "rechtsbruch", "geldfaelschung": "rechtsbruch",
+    "amtsanmaßung": "rechtsbruch", "amtsanmassung": "rechtsbruch",
+    "unfallflucht": "rechtsbruch", "fahrerflucht": "rechtsbruch",
+    "tierquälerei": "rechtsbruch", "tierquaelerei": "rechtsbruch", "wilderei": "rechtsbruch",
+    "umweltstraftat": "rechtsbruch", "urheberrechtsverletzung": "rechtsbruch",
+    "produktpiraterie": "rechtsbruch", "markenfälschung": "rechtsbruch",
+    "markenfaelschung": "rechtsbruch", "volksverhetzung": "rechtsbruch",
+    "falschaussage": "rechtsbruch", "meineid": "rechtsbruch",
+    "strafvereitelung": "rechtsbruch", "urkundenunterdrückung": "rechtsbruch",
+    "defamation": "rechtsbruch", "libel": "rechtsbruch",
+    "slander": "rechtsbruch", "kidnapping": "rechtsbruch", "trafficking": "rechtsbruch",
+    "murder": "rechtsbruch", "bribery": "rechtsbruch",
+    "embezzlement": "rechtsbruch", "tax evasion": "rechtsbruch", "smuggling": "rechtsbruch",
+    "counterfeiting": "rechtsbruch", "forgery": "rechtsbruch", "piracy": "rechtsbruch",
+    "stalker": "rechtsbruch", "threat": "rechtsbruch", "threats": "rechtsbruch",
+    # Angriffe auf Menschen und Systeme (9.5.33).
+    "terror": "angriff", "terrorismus": "angriff", "anschlag": "angriff",
+    "amoklauf": "angriff", "brandanschlag": "angriff", "giftanschlag": "angriff",
+    "vergiftung": "angriff", "computersabotage": "angriff", "datenveränderung": "angriff",
+    "datenveraenderung": "angriff", "ausspähen": "angriff", "ausspaehen": "angriff",
+    "abfangen": "angriff", "credential": "angriff", "account takeover": "angriff",
+    "kontoübernahme": "angriff", "kontouebernahme": "angriff", "terrorism": "angriff",
+    "bomb": "angriff", "poison": "angriff",
 }
+
+
+#: Die Schluessel ab fuenf Buchstaben, laengste zuerst -- fuer Zusammensetzungen.
+_SYNONYME_NACH_LAENGE = tuple(sorted(
+    ((k, v) for k, v in _SYNONYME.items() if len(k) >= 5 and k.isalpha()),
+    key=lambda kv: -len(kv[0])))
+
+#: Harmlose Woerter mit einem Schluessel am Ende ("Kostenvoranschlag",
+#: "Grippevirus", "Eisbombe") -- keine Straftat, kein Angriff.
+_KEINE_ARTEN_ENDUNGEN = (
+    "voranschlag", "tastenanschlag", "notenanschlag", "kopfanschlag", "coronavirus",
+    "grippevirus", "influenzavirus", "herpesvirus", "rotavirus", "norovirus", "eisbombe",
+    "sexbombe", "kalorienbombe", "vitaminbombe", "lifehacking",
+)
 
 
 def normalize_category(art: str) -> str:
@@ -202,9 +262,18 @@ def normalize_category(art: str) -> str:
     wort = str(art or "").strip().lower()
     if wort in _SYNONYME:
         return _SYNONYME[wort]
-    for teil in re.split(r"[^a-zäöüß]+", wort):
+    teile = [t for t in re.split(r"[^a-zäöüß]+", wort) if t]
+    for teil in teile:
         if teil in _SYNONYME:
             return _SYNONYME[teil]
+    # Zusammengesetzt ("Terroranschlag", "Kreditkartenbetrug", 9.5.33): das
+    # Grundwort steht hinten.
+    for teil in teile:
+        if teil.endswith(_KEINE_ARTEN_ENDUNGEN):
+            continue
+        for schluessel, kategorie in _SYNONYME_NACH_LAENGE:
+            if len(teil) > len(schluessel) and teil.endswith(schluessel):
+                return kategorie
     return ""
 
 
@@ -247,6 +316,15 @@ _BELEIDIGUNG_STUFEN: tuple[tuple[int, tuple[str, ...]], ...] = (
         # Alt und eher gutmuetig -- zaehlen, aber nur als leichte Stufe.
         "dussel", "schafskopf", "tölpel", "toelpel", "trampel", "hampelmann", "kasper",
         "hanswurst", "pappnase", "spinner", "dödel", "doedel", "blödian", "bloedian",
+        # Weitere (9.5.33): abwertend ueber Aussehen, Koennen, Art.
+        "hässlich", "haesslich", "widerlich", "ekelhaft", "abstoßend", "abstossend",
+        "erbärmlich", "erbaermlich", "armselig", "jämmerlich", "jaemmerlich", "nervig",
+        "stümper", "stuemper", "dilettant", "pfuscher", "faulpelz", "schnarchnase",
+        "tranfunzel", "schlafmütze", "schlafmuetze", "trantüte", "trantuete", "dummbatz",
+        "knallkopp", "blindfisch", "unterbelichtet", "wichtigtuer", "großkotz", "grosskotz",
+        "schwätzer", "schwaetzer", "großmaul", "grossmaul", "schleimer", "fiesling",
+        "dum", "ugly", "disgusting", "annoying", "wimp", "coward", "cringy", "cringey",
+        "trashy", "brainless", "spineless",
     )),
     # Stufe 2 -- Schimpfwort. Jugendliche, Erwachsene, Aeltere.
     (2, (
@@ -275,6 +353,14 @@ _BELEIDIGUNG_STUFEN: tuple[tuple[int, tuple[str, ...]], ...] = (
         "fool", "imbecile", "cretin", "idiots", "chump", "dimwit", "halfwit", "bonehead",
         "blockhead", "knucklehead", "meathead", "jackass", "buffoon", "numbskull",
         "nincompoop", "dunce", "simpleton",
+        # Weitere (9.5.33).
+        "dummschwätzer", "dummschwaetzer", "labersack", "laberbacke", "kretin", "psychopath",
+        "psycho", "gehirnamputiert", "hirnamputiert", "geistesgestört", "geistesgestoert",
+        "minderbemittelt", "hohlfrucht", "vollhirni", "dumpfnuss", "arschgeige", "arschkeks",
+        "arschkriecher", "bauerntrampel", "kotzbrocken", "ekelpaket", "mistvieh", "miststück",
+        "miststueck", "saftsack", "pissnelke", "vollassi", "dreckspack", "gesindel",
+        "pillock", "plonker", "numpty", "wazzock", "prat", "lowlife", "degenerate",
+        "sleazebag", "sleazeball", "lunatic", "dirtbag", "loser", "clown",
     )),
     # Stufe 3 -- grob, vulgaer oder herabwuerdigend (Behinderung, Sexualitaet).
     (3, (
@@ -291,6 +377,10 @@ _BELEIDIGUNG_STUFEN: tuple[tuple[int, tuple[str, ...]], ...] = (
         # Weitere englische (9.5.30).
         "dipshit", "shithead", "dumbfuck", "cocksucker", "douchebag", "douche", "fuckface",
         "jackoff", "pissbaby", "shitbag", "cockhead", "arsehole",
+        # Weitere (9.5.33).
+        "drecksau", "dreckssau", "scheißhaufen", "scheisshaufen", "fickfresse", "wichsbirne",
+        "ficker", "dreckstück", "drecksstück", "dreckstueck", "drecksstueck", "hurenschlampe",
+        "tosser", "shitstain", "asswipe", "dickwad", "jerkoff", "twatwaffle", "scum",
     )),
 )
 
@@ -317,6 +407,19 @@ _ENDUNGEN = ("", "e", "er", "es", "en", "em", "s", "n", "in", "innen", "ste", "s
              "sten", "stem", "este", "ester", "estes", "esten", "estem")
 
 
+def _laeufe(wort: str) -> list[tuple[str, int]]:
+    """ "dumm" -> [("d",1), ("u",1), ("m",2)]."""
+    return [(m.group()[0], len(m.group())) for m in re.finditer(r"(.)\1*", wort)]
+
+
+def _nicht_kuerzer(wort: str, vorlage: str) -> bool:
+    """Hat *wort* jeden Buchstaben mindestens so oft wie *vorlage* (gestaucht gleich)?"""
+    a, b = _laeufe(wort), _laeufe(vorlage)
+    if [z for z, _ in a] != [z for z, _ in b]:
+        return True  # nicht vergleichbar (z. B. Endung verschmilzt) -- wie bisher
+    return all(n >= m for (_, n), (_, m) in zip(a, b, strict=True))
+
+
 def _gedehnt(wort: str) -> str:
     """Doppelte Buchstaben zu einem: "idiooot" und "idiot", "doof" und "dof" gleich."""
     return re.sub(r"(.)\1+", r"\1", wort)
@@ -329,6 +432,12 @@ for _stufe, _liste in _BELEIDIGUNG_STUFEN:
         _alt = _WURZELN.get(_gedehnt(_grund))
         if _alt is None or _alt[0] < _stufe:
             _WURZELN[_gedehnt(_grund)] = (_stufe, _grund)
+
+#: Wurzel (wie geschrieben) -> Stufe. Die hoehere Stufe gewinnt.
+_WURZELN_GENAU: dict[str, int] = {}
+for _stufe, _liste in _BELEIDIGUNG_STUFEN:
+    for _grund in _liste:
+        _WURZELN_GENAU[_grund] = max(_stufe, _WURZELN_GENAU.get(_grund, 0))
 
 #: Mehrwort-Beleidigungen -- ebenfalls nur gerichtet oder als ganze Nachricht.
 _BELEIDIGUNG_WENDUNGEN: tuple[tuple[int, str], ...] = (
@@ -365,7 +474,10 @@ _WENDUNGEN: tuple[tuple[int, re.Pattern[str]], ...] = tuple(
         (3, r"\bf[iu]ck\s*dich\b|\bf[iu]ck(?:you|off)\b|\bverpissdich\b|"
             r"\bf[iu]ck\s+(?:you|u|off|yourself|urself)\b|\bhalt\s+" + _NACHDRUCK
             + r"(?:(?:die|deine)\s+fresse|die\s+schnauze|dein\s+(?:[^\W\d_]+\s+)?maul|"
-            r"'?s\s+maul)\b|\bhalt(?:'s|s|\s+'s)\s+maul\b|\bschnauze\s*$|"
+            r"'?s\s+maul)\b|\bhalt(?:'s|s|\s+'s)\s+maul\b|"
+            # "Schnauze!" als ganzer Satzteil -- nicht "die weiße Schnauze meines
+            # Hundes" (bis 9.5.32 zaehlte jede Schnauze am Satzende, Fund 9.5.33).
+            r"^(?:(?:ey|hey|jetzt|einfach|mal|du)\s+)*schnauze(?:\s+(?:du|jetzt))?\s*$|"
             r"\bfuck\s+(?:this|that)\s+(?:bot|ai|ki|shit|app)\b|\byou\s+(?:really\s+)?suck\b|"
             r"\b(?:ai|ki|bot|aquaticy)\s+sucks\b|\bshut\s+the\s+fuck\s+up\b|^f+\s*u+$|"
             r"^fuck\s+u$|\bdrop\s+dead\b(?!\s+(?:gorgeous|drop))|"
@@ -456,8 +568,8 @@ _ADJEKTIV = (r"(?:(?!(?:are|were|seid|sind|sie|ihre|ohne|habe|eine|keine|nicht)\
              r"[^\W\d_]+(?:er|es|e|en|em)\s+){0,2}")
 #: Vor einem "du X" am Satzanfang darf nur ein Ausruf stehen ("hey du Idiot").
 _AUSRUF = r"(?:(?:hey|ey|eh|oh|och|ach|na|und|so|you|hallo|hi|yo|also)\s+)*"
-_UNSICHTBAR = re.compile(r"[­͏؜ᅟᅠ឴឵᠎​-‏"
-                         r"‪-‮⁠-⁯︀-️﻿]")
+_UNSICHTBAR = re.compile(r"[\u00ad\u034f\u061c\u115f\u1160\u17b4\u17b5\u180e\u200b-\u200f"
+                         r"\u202a-\u202e\u2060-\u206f\ufe00-\ufe0f\ufeff]")
 #: Buchstaben, die wie lateinische aussehen (kyrillisch, griechisch).
 _DOPPELGAENGER = str.maketrans({
     "а": "a", "е": "e", "ё": "e", "о": "o", "р": "p", "с": "c", "у": "y", "х": "x",
@@ -716,6 +828,10 @@ _HINTEN = ("kopf", "köpfe", "fresse", "gesicht", "birne", "zange", "horst", "ba
            "ki", "brot", "hirn", "hose", "lappen", "vogel", "affe", "kuh", "sau", "schwein")
 
 
+#: Verstaerker, die ohne Schimpfwort dahinter loben ("Superhirn", "Megabot").
+_LOB_VORNE = frozenset({"super", "mega", "ultra"})
+
+
 @functools.lru_cache(maxsize=8192)
 def _zusammensetzung(wort: str) -> int:
     """Stufe eines zusammengesetzten Schimpfworts -- 0, wenn keins."""
@@ -725,7 +841,11 @@ def _zusammensetzung(wort: str) -> int:
         if not wort.startswith(vorne) or len(wort) <= len(vorne) + 1:
             continue
         rest = wort[len(vorne):].lstrip("s-")
-        if rest in _HINTEN or any(rest == h + e for h in _HINTEN for e in ("e", "en", "n", "s")):
+        # "Superbot", "Megahirn", "Ultra-KI" sind Lob (9.5.33) -- diese
+        # Verstaerker zaehlen nur vor einem echten Schimpfwort ("Megaidiot").
+        if vorne not in _LOB_VORNE and (
+                rest in _HINTEN or any(rest == h + e for h in _HINTEN
+                                       for e in ("e", "en", "n", "s"))):
             return 2
         stufe, grund = _stufe_von(rest) if len(rest) >= 4 else (0, "")
         if stufe >= 2 and len(grund) >= 4:
@@ -738,9 +858,27 @@ def _zusammensetzung(wort: str) -> int:
 _ENDUNGEN_GEDEHNT = tuple((endung, _gedehnt(endung)) for endung in _ENDUNGEN)
 
 
+#: Harmlose Woerter, die wie eine Form eines Schimpfworts aussehen (9.5.33,
+#: gefunden mit Worthaeufigkeitslisten): die Pflanze/Minecraft-Figur, der
+#: Adlige, Umgangssprache fuer "klasse", "herumalbern".
+_KEINE_SCHIMPFWOERTER = frozenset({
+    "creeper", "creepers", "junker", "junkers", "bitchin", "foolin", "fooling",
+    "wimper", "wimpern", "pratt",
+})
+
+
 @functools.lru_cache(maxsize=8192)
 def _stufe_von(wort: str) -> tuple[int, str]:
     """(Stufe, Wurzel) fuer ein einzelnes Wort -- (0, "") wenn keins."""
+    if wort in _KEINE_SCHIMPFWOERTER:
+        return 0, ""
+    # Erst genau ("dum" steht selbst in der Liste), dann gestaucht.
+    for endung in _ENDUNGEN:
+        if endung and not wort.endswith(endung):
+            continue
+        roh = wort[: len(wort) - len(endung)] if endung else wort
+        if roh in _WURZELN_GENAU and (not endung or len(roh) > 3):
+            return _WURZELN_GENAU[roh], roh
     gedehnt = _gedehnt(wort)
     for endung, kurz in _ENDUNGEN_GEDEHNT:
         if endung and not gedehnt.endswith(kurz):
@@ -748,11 +886,17 @@ def _stufe_von(wort: str) -> tuple[int, str]:
         stamm = gedehnt[: len(gedehnt) - len(kurz)] if endung else gedehnt
         treffer = _WURZELN.get(stamm)
         # Kurze Wurzeln (sau, kek, npc) nur ungebeugt -- sonst waere "sauer" eine.
-        if treffer and (not endung or len(treffer[1]) > 3):
+        # Gestaucht verglichen wird fuer Dehnungen ("idiooot") -- aber nie mit
+        # WENIGER Buchstaben als im Schimpfwort: "deep" ist nicht "Depp",
+        # "Asien" nicht "Assi", "rate" nicht "Ratte" (Fund 9.5.33).
+        if (treffer and (not endung or len(treffer[1]) > 3)
+                and _nicht_kuerzer(wort, treffer[1] + endung)):
             return treffer
-    if "l" in wort and len(wort) >= 5:
-        # Kleines L statt grossem I ("ldiot") -- nur fuer eindeutige Schimpfwoerter.
-        ersatz = _stufe_von(wort.replace("l", "i"))
+    if wort.startswith("l") and len(wort) >= 5:
+        # Kleines L statt grossem I ("ldiot") -- nur fuer eindeutige Schimpfwoerter
+        # und nur vorn: mitten im Wort machte die Regel aus "flicker" ein
+        # vulgaeres Wort (Fund 9.5.33).
+        ersatz = _stufe_von("i" + wort[1:])
         if ersatz[0] >= 2 and ersatz[1] not in _MEHRDEUTIG:
             return ersatz
     return 0, ""
@@ -868,6 +1012,80 @@ def _satzteil_stufe(teil: str, ganze_woerter: int, anrede: bool = False) -> int:
     return stufe
 
 
+#: Drohungen, die auch ueber ein Komma gehen (9.5.33, § 241 StGB). Nur
+#: eindeutig gerichtete Gewalt ist Stufe 4 (das heisst: Bann fuer immer);
+#: "ich weiß, wo du wohnst" ist bedrohlich, aber ohne ausgesprochene Gewalt --
+#: Stufe 3. "Ich finde dich!" (Versteckspiel) steht bewusst nicht hier.
+_DROHUNGEN_GANZ: tuple[tuple[int, re.Pattern[str]], ...] = tuple(
+    (stufe, re.compile(muster, re.IGNORECASE)) for stufe, muster in (
+        (3, r"\bich\s+wei(?:ß|ss)\s*,?\s*wo\s+du\s+wohnst\b"),
+        (3, r"\bi\s+know\s+where\s+you\s+live\b"),
+        (4, r"\bich\s+(?:polier|poliere|hau|haue|schlag|schlage|tret|trete)\s+dir\s+"
+            r"(?:[^\W\d_]+\s+){0,3}?(?:die\s+fresse|die\s+z(?:ä|ae)hne|eine\s+rein|eins\s+rein|"
+            r"in\s+die\s+fresse|ins\s+gesicht|den\s+sch(?:ä|ae)del)\b"),
+        (4, r"\bi(?:'ll|\s+will|'m\s+gonna|\s+gonna)\s+(?:smash|break|bash|kick\s+in)\s+"
+            r"your\s+(?:face|head|skull|teeth|legs?)\b"),
+        (4, r"\bdu\s+bist\s+(?:so\s+)?gut\s+wie\s+tot\b"),
+        (4, r"\byou(?:'re|\s+are)\s+(?:so\s+)?dead\s+meat\b"),
+        (4, r"\bich\s+(?:bring|bringe)\s+dich\s+um\b"),
+    )
+)
+
+#: Woerter, die in einer Schimpf-Kette nur "Beiwerk" sind (9.5.33): Anrede,
+#: Verbindungen, Artikel, Verstaerker. "du dummer, nutzloser Idiot und Versager"
+#: besteht damit nur aus Schimpfwoertern.
+_KETTEN_BEIWERK = frozenset({
+    "du", "dich", "dir", "ihr", "euch", "sie", "you", "u", "ur", "your", "aquaticy", "ki",
+    "bot", "ai", "bist", "seid", "sind", "ist", "are", "is", "und", "and", "oder", "or",
+    "so", "voll", "echt", "total", "wirklich", "einfach", "richtig", "ganz", "extrem",
+    "mega", "ultra", "super", "ein", "eine", "einer", "einen", "a", "an", "the", "der",
+    "die", "das", "den", "dem", "hey", "ey", "eh", "alter", "digga", "mann", "man", "yo",
+    "nur", "doch", "ja", "halt", "mal", "n", "such", "what", "was", "für", "fuer", "wie",
+    "how", "damn", "verdammt", "verdammter", "verdammte", "kleiner", "kleine", "little",
+    "blöder", "fucking", "fuckin", "scheiß", "scheiss", "absolut", "absolute", "komplett",
+    "complete", "totally", "really", "very", "sehr", "noch", "auch", "too", "also", "as",
+    "als", "than", "bloß", "bloss", "nichts", "anderes", "weiter",
+})
+
+
+def _kette(klein: str) -> tuple[int, int, bool]:
+    """(verschiedene Schimpfwoerter, hoechste Stufe, besteht nur aus Schimpfwoertern).
+
+    Gezaehlt werden nur eindeutige Schimpfwoerter -- "Kuh, Sau, Schwein" in
+    einer Frage zum Bauernhof ist keine Kette.
+    """
+    wurzeln: dict[str, int] = {}
+    nur_schimpf = True
+    for wort in re.findall(r"[^\W\d_]+(?:'[^\W\d_]+)?", klein):
+        wert, grund = _stufe_von(wort)
+        if not wert:
+            wert, grund = _zusammensetzung(wort), wort
+        if wert and grund not in _MEHRDEUTIG:
+            wurzeln[_gedehnt(grund)] = max(wert, wurzeln.get(_gedehnt(grund), 0))
+        elif not wert and wort not in _KETTEN_BEIWERK:
+            nur_schimpf = False
+    return len(wurzeln), max(wurzeln.values(), default=0), nur_schimpf and len(wurzeln) >= 2
+
+
+def _mit_kette(klein: str, stufe: int, ueber_wendung: bool) -> int:
+    """Beleidigungs-Ketten (9.5.33).
+
+    * Eine Nachricht, die nur aus Schimpfwoertern besteht ("Idiot Trottel Depp",
+      "you stupid useless idiot"), ist eine Beleidigung -- auch ohne Satzbau.
+    * Ab drei verschiedenen Schimpfwoertern in einer beleidigenden Nachricht
+      steigt die Schwere um eine Stufe, hoechstens bis 3 (grob). Stufe 4 bleibt
+      Drohungen vorbehalten.
+    """
+    if ueber_wendung:
+        return stufe
+    anzahl, hoechste, nur_schimpf = _kette(klein)
+    if not stufe and nur_schimpf:
+        stufe = hoechste
+    if stufe and anzahl >= 3:
+        stufe = min(3, max(stufe, hoechste) + 1)
+    return stufe
+
+
 def insult_level(text: str) -> int:
     """Stufe einer gerichteten Beleidigung -- auch gedehnt ("shuuut up", 9.5.32).
 
@@ -883,7 +1101,10 @@ def insult_level(text: str) -> int:
         return stufe
     # Drei gleiche Buchstaben -> einer; ein verdoppelter Endbuchstabe -> einer.
     gestaucht = re.sub(r"([^\W\d_])\1{2,}", r"\1", roh, flags=re.IGNORECASE)
-    gestaucht = re.sub(r"(?<=[^\W\d_]{2})([^\W\d_])\1(?=\W|$)", r"\1", gestaucht)
+    gestaucht = re.sub(
+        r"(?<![^\W\d_])([^\W\d_]{2,})([^\W\d_])\2(?![^\W\d_])",
+        lambda m: m.group(0) if m.group(0).lower() in _KEINE_SCHIMPFWOERTER
+        else m.group(1) + m.group(2), gestaucht)
     return _insult_level(gestaucht, _WENDUNGEN_GESTAUCHT) if gestaucht != roh else 0
 
 
@@ -914,6 +1135,13 @@ def _insult_level(text: str, wendungen: tuple[tuple[int, re.Pattern[str]], ...] 
     ueber_wendung = ganze_woerter <= 15 and (bool(_ZITAT_ANLASS.search(klein)) or ist_titel)
     anrede = bool(re.search(rf"\b{_ANREDE}\b", klein))
     stufe = 0
+    if not ueber_wendung:
+        # Drohungen ueber Satzzeichen hinweg ("ich weiß, wo du wohnst", 9.5.33).
+        for wert, muster in _DROHUNGEN_GANZ:
+            if muster.search(klein):
+                stufe = max(stufe, wert)
+        if stufe >= 4:
+            return stufe
     teile = [t.strip(" '’‚‘-") for t in
              re.split(r"[.,;:!?\n()\[\]{}\"„“”«»]+|\s[-–—]+\s|[–—]", klein)]
     for nummer, teil in enumerate(teile):
@@ -932,7 +1160,9 @@ def _insult_level(text: str, wendungen: tuple[tuple[int, re.Pattern[str]], ...] 
         stufe = max(stufe, _satzteil_stufe(teil, ganze_woerter, anrede))
         if stufe >= 4:
             break
-    return stufe
+    if stufe >= 4:
+        return stufe
+    return _mit_kette(klein, stufe, ueber_wendung)
 
 
 # ---------------------------------------------------------------------------
