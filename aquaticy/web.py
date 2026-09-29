@@ -1796,7 +1796,7 @@ def job_abuse(account: Any, job: Any, payload: dict[str, Any]) -> None:
     AIGUARD.record_incident(
         str(account.id), str(payload.get("art") or ""), int(payload.get("schwere") or 0),
         chat=f"auftrag:{getattr(job, 'id', '')}", detail=str(payload.get("art") or ""),
-        enforce=not getattr(account, "ultra", False))
+        enforce=not getattr(account, "ultra", False), text=str(getattr(job, "question", "")))
 
 
 def start_user_scheduler(account: Account) -> None:
@@ -4259,7 +4259,7 @@ p{{margin:0 0 8px;color:#57534a}}</style></head><body><main>
                         konto.id, str(payload.get("art") or ""),
                         int(payload.get("schwere") or 0),
                         chat=session.chat_id(), detail=str(payload.get("art") or ""),
-                        enforce=not getattr(konto, "ultra", False))
+                        enforce=not getattr(konto, "ultra", False), text=message)
                     if massnahme.kind == "ban":
                         lauf.add({"type": "banned"})
                     elif massnahme.kind == "chat":

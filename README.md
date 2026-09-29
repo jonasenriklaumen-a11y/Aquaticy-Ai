@@ -1,4 +1,4 @@
-# Aquaticy AI 9.5.26 Spark
+# Aquaticy AI 9.5.27 Spark
 
 **Aquaticy** recherchiert für dich. Du stellst eine Frage, Aquaticy sucht im Web, liest die
 passenden Seiten und fasst das Ergebnis zusammen — mit Quelle an jeder Angabe. Es läuft im
@@ -112,7 +112,7 @@ $ aquaticy
 git clone --branch Aquaticy-ai --single-branch https://github.com/jonasenriklaumen-a11y/Aquaticy-Ai.git
 cd Aquaticy-Ai
 uv tool install --force --reinstall .
-aquaticy --version            # 9.5.26 Spark
+aquaticy --version            # 9.5.27 Spark
 
 # 2. Einrichten — fragt nach Modell und Schlüssel und testet beide
 aquaticy setup
@@ -293,6 +293,7 @@ aquaticy list                   # Konten mit Adresse, Nutzung und Ai-guard-Stand
 aquaticy remove "name"         # Konto samt Sitzungen, Verbrauch und privaten Daten löschen (fragt nach; --yes ohne Rückfrage)
 aquaticy ban "name"             # Konto oder IP-Adresse sperren
 aquaticy unban "name"           # wieder freigeben
+aquaticy aiguard "Satz"         # zeigt, wie Ai-guard einen Satz einstuft (sperrt niemanden)
 aquaticy pro-code               # Code für neue Pro-Konten
 aquaticy ultra-code             # Code für neue Ultra-Konten
 aquaticy version
@@ -559,6 +560,15 @@ Tarnungen helfen nicht: getrennte Buchstaben („I d i o t“), Ziffern und Ster
 oder eine sehr lange Nachricht werden erkannt. Wer nach einer leichten Beleidigung immer wieder
 einen neuen Chat anfängt: Die dritte leichte Beleidigung binnen einer Woche ist ein Bann für 1 Tag.
 
+**Wie genau?** Gemessen an drei beschrifteten Listen mit zusammen 263 Beleidigungen und 337
+harmlosen Sätzen (Stand 9.5.27): alle Beleidigungen erkannt, kein Fehlalarm. Harmlos bleiben
+dabei auch Sätze wie „Kennst du Otto?“, „Ich bring dich zum Bahnhof um 8“, „Lauchsuppe-Rezept“,
+„Lily Allen – Fuck You“ oder „Mein Kollege hat mich Idiot genannt, was tun?“. Zusammengesetzte
+Schimpfwörter („Flachzange“, „Oberidiot“, „Kackbot“) werden auch erkannt, wenn sie in keiner Liste
+stehen. Meldet nur das KI-Modell eine Beleidigung, die die feste Erkennung nicht bestätigt, gibt es
+höchstens eine Chatsperre, nie einen Bann. Ein Missbrauchsverdacht, den nur das kleine Prüfmodell
+hatte, zählt nie. Anhaltspunkte für Angriffe bilden nur innerhalb von 90 Tagen ein Muster.
+
 Bei einem Bann bleibt der Chat, in dem es passiert ist, dauerhaft gesperrt. Der **Werkstatt-Wächter**
 prüft, was in der Werkstatt gebaut, installiert oder ausgeführt werden soll, und stoppt
 Schadsoftware, bevor sie läuft. Ein gesperrtes Konto kann sich anmelden, aber nichts mehr tun —
@@ -573,6 +583,8 @@ aquaticy ban "name" --tage 7   # Konto für 7 Tage sperren
 aquaticy ban 203.0.113.7       # IP-Adresse sperren
 aquaticy unban "name"          # wieder freigeben (auch Chatsperren)
 aquaticy list                  # Konten mit IP-Adresse und Ai-guard-Stand
+aquaticy aiguard "du Idiot"    # Stufe und Folge eines Satzes testen -- ohne Vermerk
+aquaticy aiguard --konto "name"  # die letzten Vorfälle eines Kontos
 ```
 
 ---

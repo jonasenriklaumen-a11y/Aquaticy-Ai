@@ -624,6 +624,58 @@ def unban_command(
                   else f"[yellow]{konto.username} war nicht gesperrt.[/yellow]")
 
 
+@app.command("aiguard")
+def aiguard_command(
+    text: str = typer.Argument("", help="Ein Satz, den Ai-guard einschätzen soll."),
+    konto: str = typer.Option("", "--konto", help="Vorfälle dieses Kontos zeigen."),
+) -> None:
+    """Prüft einen Satz wie Ai-guard -- oder zeigt die Vorfälle eines Kontos.
+
+    aquaticy aiguard "du Idiot"  ·  aquaticy aiguard --konto "anna"
+
+    Der Satz wird nur eingeschätzt, nicht vermerkt: niemand wird dadurch gesperrt.
+    """
+    import time as _zeit
+
+    from aquaticy.aiguard import decide, guard_for, insult_level
+
+    if text.strip():
+        stufe = insult_level(text)
+        namen = {0: "keine Beleidigung", 1: "leicht (abfällig)", 2: "mittel (Schimpfwort)",
+                 3: "schwer (grob/vulgär)", 4: "sehr schwer (Drohung)"}
+        console.print(f"Stufe {stufe}: {namen[stufe]}")
+        if stufe:
+            massnahme = decide("beleidigung", stufe)
+            folge = ("nur dieser Chat wird gesperrt" if massnahme.kind == "chat"
+                     else "Bann für immer" if massnahme.days <= 0
+                     else f"Bann für {massnahme.days} Tag(e)")
+            console.print(f"Folge bei Normal/Pro: {folge} · bei Ultra: nur eine Warnung")
+    if not konto.strip():
+        if not text.strip():
+            console.print("[yellow]Gib einen Satz oder --konto an.[/yellow]")
+        return
+    from aquaticy.auth import AuthStore, pro_code_for
+
+    settings = get_settings()
+    store = AuthStore(settings.data_dir, pro_code_for(settings.data_dir))
+    try:
+        gefunden = store.account_by_name(konto.strip())
+    except ValueError as exc:
+        console.print(f"[red]{exc}[/red]")
+        raise typer.Exit(code=1) from exc
+    if gefunden is None:
+        console.print(f"[yellow]Kein Konto mit Name oder E-Mail „{konto}“.[/yellow]")
+        raise typer.Exit(code=1)
+    guard = guard_for(settings.data_dir)
+    vorfaelle = guard.flags(gefunden.id)
+    sperre = guard.is_banned(user_id=gefunden.id)
+    console.print(f"{gefunden.username}: {len(vorfaelle)} Vorfall/Vorfälle"
+                  + (f" · gesperrt ({sperre.remaining_text()}): {sperre.reason}" if sperre else ""))
+    for vorfall in vorfaelle[-20:]:
+        wann = _zeit.strftime("%d.%m.%Y %H:%M", _zeit.localtime(vorfall.at))
+        console.print(f"  {wann}  {vorfall.kind}  {vorfall.detail}", markup=False)
+
+
 @app.command("pro-code")
 def pro_code_command() -> None:
     """Zeigt den geheimen neunstelligen Code fuer neue Pro-Konten."""
@@ -1529,6 +1581,7 @@ HELP_TEXT = """\
   aquaticy remove KONTONAME     Konto und private Daten loeschen
   aquaticy ban                  Konto oder Adresse sperren
   aquaticy unban                Konto oder Adresse freigeben
+  aquaticy aiguard              Satz wie Ai-guard einstufen / Vorfälle eines Kontos
   aquaticy pro-code             Pro-Registrierungscode anzeigen
   aquaticy ultra-code           Ultra-Registrierungscode anzeigen
   aquaticy notes                Notizen verwalten

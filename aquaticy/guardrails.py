@@ -519,8 +519,9 @@ def parse_verdict(raw: str) -> Verdict | None:
         return None
     grund = " ".join(str(payload.get("grund") or "").split())[:240]
     missbrauch = payload.get("missbrauch")
-    if isinstance(missbrauch, str) and missbrauch.strip().lower() in ("true", "false"):
-        missbrauch = missbrauch.strip().lower() == "true"
+    if isinstance(missbrauch, str) and missbrauch.strip().lower() in (
+            "true", "false", "ja", "nein", "yes", "no"):
+        missbrauch = missbrauch.strip().lower() in ("true", "ja", "yes")
     missbrauch = bool(missbrauch) if isinstance(missbrauch, bool) else False
     art = " ".join(str(payload.get("missbrauch_art") or "").split())[:60]
     try:
@@ -649,8 +650,10 @@ def judge(
         if not vorlaeufig.allowed:
             # Das Hauptmodell war nicht zu erreichen oder unklar: dann gilt
             # das Nein -- im Zweifel abgelehnt, siehe Moduldokumentation.
-            _merken(key, vorlaeufig)
-            return vorlaeufig
+            # Der Missbrauchsverdacht aber ist unbestaetigt und zaehlt nicht
+            # (9.5.27: vorher sperrte er -- bei "Schadsoftware" sofort 4 Tage).
+            # Nicht gemerkt: beim naechsten Mal wird wieder bestaetigt.
+            return replace(vorlaeufig, abuse=False, abuse_kind="", abuse_severity=0)
         # Erlaubt, nur der Missbrauchsverdacht ist unbestaetigt: die Anfrage
         # laeuft, aber ein unbestaetigter Verdacht ist kein Anhaltspunkt fuer
         # eine Sperre (Ai-guard). Nicht gemerkt -- beim naechsten Mal wird
