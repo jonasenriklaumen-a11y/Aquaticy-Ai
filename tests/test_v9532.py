@@ -510,7 +510,7 @@ def test_no_browser_alert_or_confirm_is_left() -> None:
 
 def test_ultra_only_switches_show_a_lock() -> None:
     html = _seite()
-    assert html.count('<span class="lock-tag" data-lock hidden>🔒 Mit Ultra verfügbar</span>') == 2
+    assert html.count('<span class="lock-tag" data-lock hidden>🔒 Mit Ultra verfügbar</span>') == 3
     assert "kontoPro" not in html and "pro-tag" not in html
     assert ".schalter.gesperrt" in html
 

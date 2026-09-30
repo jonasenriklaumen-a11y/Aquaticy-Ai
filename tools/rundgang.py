@@ -337,6 +337,17 @@ def anmelden(pg: Any, port: int) -> None:
     pg.wait_for_selector("#auth-gate", state="hidden", timeout=15_000)
 
 
+def menue(pg: Any, ziel: str = "") -> None:
+    """Oeffnet das Modellmenue unten neben dem Senden-Knopf (9.5.34) -- und auf
+    Wunsch eines der beiden kleinen Fenster darin ("aufwand" oder "weitere")."""
+    pg.click("#btn-model")
+    pg.wait_for_selector("#picker-models", state="visible")
+    if ziel in ("aufwand", "weitere"):
+        pg.click("#btn-" + ziel)
+        pg.wait_for_selector("#win-" + ziel, state="visible")
+    pg.wait_for_timeout(300)
+
+
 def warte_auf_text(pg: Any, auswahl: str, teil: str, sekunden: float = 10.0) -> str:
     """Wartet, bis *teil* im Text von *auswahl* steht -- und gibt den Text zurueck.
 
@@ -769,13 +780,16 @@ def rundgang(pg: Any, log: Protokoll, agent: FakeAgent, bilder: Path | None,
         log.pruefe(pg.locator(".bubble pre").count() >= 1, "Code steht im Block")
         pg.click('#modes .mode[data-mode="normal"]')
 
-        pg.click("#btn-model")
-        pg.wait_for_timeout(500)
-        log.pruefe(pg.is_visible("#structure") and pg.is_visible("#recheck"),
-                   "Strukturieren und Gegenprüfen stehen bereit")
+        menue(pg, "aufwand")
         log.pruefe(pg.locator("#efforts .eff").count() == 3, "drei Stufen der Denktiefe")
+        log.pruefe(pg.is_visible("#agents"), "die Zahl der Agenten steht im Aufwand-Fenster")
         pg.click('#efforts .eff[data-effort="high"]')
         pg.wait_for_timeout(200)
+        pg.keyboard.press("Escape")
+        pg.wait_for_timeout(300)
+        menue(pg, "weitere")
+        log.pruefe(pg.is_visible("#structure") and pg.is_visible("#recheck"),
+                   "Strukturieren und Gegenprüfen stehen bereit")
         pg.check("#structure")
         pg.check("#recheck")
         pg.keyboard.press("Escape")
@@ -801,7 +815,7 @@ def rundgang(pg: Any, log: Protokoll, agent: FakeAgent, bilder: Path | None,
             pg.eval_on_selector(".brand svg", "e => e.getBoundingClientRect().width") >= 20,
             "und das Logo in der Seitenleiste ist unversehrt",
         )
-        pg.click("#btn-model")
+        menue(pg, "weitere")
         pg.wait_for_timeout(400)
         pg.uncheck("#structure")
         pg.uncheck("#recheck")
@@ -810,7 +824,7 @@ def rundgang(pg: Any, log: Protokoll, agent: FakeAgent, bilder: Path | None,
 
     if dran("auswahl"):
         log.abschnitt("4g. Die Modellauswahl -- ganz, nicht halb")
-        pg.click("#btn-model")
+        menue(pg)
         pg.wait_for_selector("#picker-models", state="visible")
         pg.wait_for_timeout(500)
         hoehen = pg.eval_on_selector(
@@ -828,16 +842,79 @@ def rundgang(pg: Any, log: Protokoll, agent: FakeAgent, bilder: Path | None,
         kasten = pg.locator("#picker-models .picker-foot").bounding_box()
         log.pruefe(kasten is not None and kasten["y"] + kasten["height"] <= hoehen[3] + 1,
                    "und der Fuss ist erreichbar")
-        log.pruefe(pg.is_visible("#recheck"), "die Schalter auch")
+        log.pruefe(pg.is_visible("#btn-aufwand") and pg.is_visible("#btn-weitere"),
+                   "Aufwand und Weitere Einstellungen sind erreichbar")
+        log.pruefe(pg.is_visible("#btn-imagemode"), "Bilderstellung steht zur Wahl")
+        # Seit 9.5.34: die Modellauswahl sitzt unten, links neben dem Senden-Knopf.
+        modell = pg.locator("#btn-model").bounding_box()
+        senden = pg.locator("#send").bounding_box()
+        log.pruefe(modell is not None and senden is not None
+                   and modell["x"] + modell["width"] <= senden["x"] + 1
+                   and abs((modell["y"] + modell["height"] / 2)
+                           - (senden["y"] + senden["height"] / 2)) < 30,
+                   "die Modellauswahl steht links neben dem Senden-Knopf")
+        log.pruefe(pg.locator(".topbar #btn-model").count() == 0,
+                   "und nicht mehr oben in der Kopfzeile")
+        eingabe = pg.locator(".composer").bounding_box()
+        menue_box = pg.locator("#picker-models").bounding_box()
+        log.pruefe(menue_box is not None and eingabe is not None
+                   and menue_box["y"] + menue_box["height"] <= eingabe["y"] + 1,
+                   "das Menü öffnet sich nach oben, über der Eingabe")
         # Die Ueberschrift steht in Grossbuchstaben -- das macht das CSS.
         log.pruefe(pg.inner_text("#picker-head").lower().startswith("modell"),
                    "im Standardmodus stehen alle Modelle zur Wahl")
+        foto("04a-modellmenue")
         pg.keyboard.press("Escape")
         pg.wait_for_timeout(400)
 
+        # Aufwand: ein kleines Fenster mit Denktiefe und Zahl der Agenten.
+        menue(pg, "aufwand")
+        log.pruefe(pg.is_visible("#win-aufwand") and not pg.is_visible("#picker-models"),
+                   "Aufwand öffnet ein eigenes kleines Fenster")
+        log.pruefe(pg.is_visible("#efforts") and pg.is_visible("#agents"),
+                   "darin Denktiefe und Agenten")
+        foto("04b-aufwand")
+        pg.click("#win-aufwand [data-minwin-close]")
+        pg.wait_for_timeout(300)
+        log.pruefe(not pg.is_visible("#win-aufwand"), "das Kreuz schließt es")
+        # Weitere Einstellungen: darunter die Schalter (virtual machine, Suche ...).
+        menue(pg, "weitere")
+        log.pruefe(pg.is_visible("#online") and pg.is_visible("#structure"),
+                   "Weitere Einstellungen zeigt die Schalter")
+        foto("04c-weitere")
+        pg.mouse.click(8, 8)
+        pg.wait_for_timeout(300)
+        log.pruefe(not pg.is_visible("#win-weitere"), "ein Klick daneben schließt es")
+
+        # Bilderstellung: landet sofort im Standard-Modus, der Server bekommt das Kennzeichen.
+        anfragen: list[str] = []
+        pg.on("request", lambda r: anfragen.append(r.post_data or "")
+              if r.url.endswith("/api/chat") else None)
+        pg.click('#modes .mode[data-mode="pro"]')
+        pg.wait_for_timeout(500)
+        menue(pg)
+        pg.click("#btn-imagemode")
+        pg.wait_for_timeout(500)
+        log.pruefe(pg.eval_on_selector('#modes .mode[data-mode="normal"]',
+                                       "e => e.classList.contains('on')"),
+                   "Bilderstellung wechselt sofort in den Standard-Modus")
+        log.pruefe("Bilderstellung" in pg.inner_text("#btn-model"),
+                   "und steht als Auswahl unten")
+        foto("04d-bilderstellung")
+        pg.fill("#input", "Male einen Leuchtturm bei Sonnenuntergang")
+        pg.click("#send")
+        pg.wait_for_timeout(1200)
+        log.pruefe(any('"image_mode":true' in a.replace(" ", "") for a in anfragen),
+                   "der Server bekommt image_mode")
+        menue(pg)
+        pg.click("#btn-imagemode")
+        pg.wait_for_timeout(500)
+        log.pruefe("Bilderstellung" not in pg.inner_text("#btn-model"),
+                   "ein zweiter Klick schaltet sie wieder aus")
+
         pg.click('#modes .mode[data-mode="pro"]')
         pg.wait_for_timeout(700)
-        pg.click("#btn-model")
+        menue(pg)
         pg.wait_for_selector("#picker-models", state="visible")
         pg.wait_for_timeout(500)
         log.pruefe(pg.inner_text("#picker-head").lower().startswith("stärkstes"),
@@ -849,7 +926,7 @@ def rundgang(pg: Any, log: Protokoll, agent: FakeAgent, bilder: Path | None,
         # Programmieren. Das soll auch dranstehen.
         pg.click('#modes .mode[data-mode="code"]')
         pg.wait_for_timeout(700)
-        pg.click("#btn-model")
+        menue(pg)
         pg.wait_for_selector("#picker-models", state="visible")
         pg.wait_for_timeout(500)
         log.pruefe("code" in pg.inner_text("#picker-head").lower(),
@@ -881,13 +958,16 @@ def rundgang(pg: Any, log: Protokoll, agent: FakeAgent, bilder: Path | None,
         log.abschnitt("4a. virtual machine im Code-Modus")
         pg.click('#modes .mode[data-mode="code"]')
         pg.wait_for_timeout(300)
-        pg.click("#btn-model")
-        pg.wait_for_timeout(500)
+        menue(pg, "weitere")
+        pg.wait_for_timeout(300)
         log.pruefe(pg.is_visible("#werkstatt"), "der Schalter steht im Code-Modus bereit")
         log.pruefe(not pg.is_visible("#online"), "Im Web suchen ist hier verschwunden")
         log.pruefe(not pg.is_visible("#recheck"), "Gegenprüfen ebenso")
-        log.pruefe(pg.is_visible("#efforts"), "die Denktiefe bleibt")
         pg.check("#werkstatt")
+        pg.keyboard.press("Escape")
+        pg.wait_for_timeout(300)
+        menue(pg, "aufwand")
+        log.pruefe(pg.is_visible("#efforts"), "die Denktiefe bleibt")
         pg.keyboard.press("Escape")
         pg.wait_for_timeout(400)
         log.pruefe("virtual machine" in pg.inner_text("#status"), "die Kopfzeile sagt es")
@@ -904,7 +984,7 @@ def rundgang(pg: Any, log: Protokoll, agent: FakeAgent, bilder: Path | None,
         foto("04a-werkstatt")
         pg.click('#modes .mode[data-mode="normal"]')
         pg.wait_for_timeout(300)
-        pg.click("#btn-model")
+        menue(pg, "weitere")
         pg.wait_for_timeout(400)
         log.pruefe(not pg.is_visible("#werkstatt"), "im Standardmodus ist sie wieder weg")
         log.pruefe(pg.is_visible("#online") and pg.is_visible("#recheck"),
@@ -914,7 +994,7 @@ def rundgang(pg: Any, log: Protokoll, agent: FakeAgent, bilder: Path | None,
 
     if dran("web"):
         log.abschnitt("4b. Ohne Web")
-        pg.click("#btn-model")
+        menue(pg, "weitere")
         pg.wait_for_timeout(400)
         log.pruefe(pg.is_checked("#online"), "Suchen ist von Haus aus an")
         pg.uncheck("#online")
@@ -926,7 +1006,7 @@ def rundgang(pg: Any, log: Protokoll, agent: FakeAgent, bilder: Path | None,
         pg.wait_for_timeout(1100)
         log.pruefe(agent.gesehen[-1]["web"] is False,
                    f"der Schalter kommt an ({agent.gesehen[-1]['web']})")
-        pg.click("#btn-model")
+        menue(pg, "weitere")
         pg.wait_for_timeout(400)
         pg.check("#online")
         pg.keyboard.press("Escape")
@@ -951,7 +1031,7 @@ def rundgang(pg: Any, log: Protokoll, agent: FakeAgent, bilder: Path | None,
         log.pruefe(len(masse) == 3, f"drei Knoepfe nebeneinander ({len(masse)})")
         log.pruefe(len({str(m) for m in masse}) == 1,
                    f"alle drei sehen gleich aus ({masse})")
-        pg.click("#btn-model")
+        menue(pg, "weitere")
         pg.wait_for_timeout(500)
         log.pruefe(pg.is_checked("#structure"),
                    "Strukturieren geht beim Wechsel an -- ohne das keine Agenten")
@@ -988,7 +1068,7 @@ def rundgang(pg: Any, log: Protokoll, agent: FakeAgent, bilder: Path | None,
         log.pruefe("die Rückmeldungen tragen" in schritte, "am Ende trägt es")
 
         # Und jetzt die vier Pruefer: Schalter an, noch einmal fragen.
-        pg.click("#btn-model")
+        menue(pg, "weitere")
         pg.wait_for_timeout(400)
         pg.check("#recheck")
         pg.keyboard.press("Escape")
@@ -1011,14 +1091,14 @@ def rundgang(pg: Any, log: Protokoll, agent: FakeAgent, bilder: Path | None,
         log.pruefe("Gegengeprüft" in vermerk and "abweichenden" in vermerk,
                    "und an der Antwort steht der Vermerk")
         foto("04c-pro")
-        pg.click("#btn-model")
+        menue(pg, "weitere")
         pg.wait_for_timeout(400)
         pg.uncheck("#recheck")
         pg.keyboard.press("Escape")
         pg.wait_for_timeout(300)
         pg.click('#modes .mode[data-mode="normal"]')
         pg.wait_for_timeout(700)
-        pg.click("#btn-model")
+        menue(pg, "weitere")
         pg.wait_for_timeout(400)
         log.pruefe(pg.is_visible("#recheck"), "im Standardmodus ist es wieder da")
         # Der Schalter bleibt umlegbar -- und der Rundgang laesst die Lage so
@@ -1671,8 +1751,7 @@ def rundgang(pg: Any, log: Protokoll, agent: FakeAgent, bilder: Path | None,
         log.abschnitt("10a. Denken sichtbar machen")
         pg.click('#modes .mode[data-mode="normal"]')
         pg.wait_for_timeout(300)
-        pg.click("#btn-model")
-        pg.wait_for_selector("#picker-models", state="visible")
+        menue(pg, "weitere")
         pg.wait_for_timeout(400)
         log.pruefe(pg.is_visible("#denken"), "der Denken-Schalter steht im Standardmodus")
         log.pruefe(pg.is_visible("#structure"),
@@ -1722,7 +1801,7 @@ def rundgang(pg: Any, log: Protokoll, agent: FakeAgent, bilder: Path | None,
             pg.locator(".trace:not(.think):visible").count() == 0,
             "die uebrigen Mitlese-Zeilen bleiben weg -- die gehoeren zum Mitlesen",
         )
-        pg.click("#btn-model")
+        menue(pg, "weitere")
         pg.wait_for_timeout(400)
         pg.uncheck("#denken")
         pg.wait_for_timeout(300)
@@ -1806,10 +1885,12 @@ def rundgang(pg: Any, log: Protokoll, agent: FakeAgent, bilder: Path | None,
         log.abschnitt("10d. Der Zustand liegt beim Server")
         # Etwas umstellen, neu laden, nachsehen: was der Server weiss,
         # ueberlebt das Neuladen -- und den Wechsel des Geraets.
-        pg.click("#btn-model")
-        pg.wait_for_timeout(400)
+        menue(pg, "weitere")
         pg.check("#recheck")
         pg.wait_for_timeout(200)
+        pg.keyboard.press("Escape")
+        pg.wait_for_timeout(300)
+        menue(pg, "aufwand")
         pg.click('#efforts .eff[data-effort="high"]')
         pg.wait_for_timeout(500)
         pg.keyboard.press("Escape")
@@ -1992,7 +2073,7 @@ def rundgang(pg: Any, log: Protokoll, agent: FakeAgent, bilder: Path | None,
         # ueber der Kopfzeile -- also erst umschalten, dann aufklappen.
         pg.click('#modes .mode[data-mode="code"]')
         pg.wait_for_timeout(300)
-        pg.click("#btn-model")
+        menue(pg, "weitere")
         pg.wait_for_timeout(500)
         if not pg.is_checked("#werkstatt"):
             pg.check("#werkstatt")
@@ -2051,7 +2132,7 @@ def geraet(pg: Any, log: Protokoll, name: str, nummer: str,
         f"nichts steht seitlich ueber ({breite}px breit)",
     )
     # Die Kopfzeile und die Modellauswahl duerfen sich nicht schneiden.
-    pg.click("#btn-model")
+    menue(pg)
     pg.wait_for_timeout(500)
     ueberschnitten = pg.evaluate(
         """() => {
@@ -2066,10 +2147,24 @@ def geraet(pg: Any, log: Protokoll, name: str, nummer: str,
                             "e => e.getBoundingClientRect().width <= window.innerWidth"),
         "und passt in die Breite",
     )
-    # Ein Schalter, den man mit dem Daumen treffen soll, braucht Flaeche.
+    # Die beiden Knoepfe im Menue muessen sich mit dem Daumen treffen lassen.
+    for knopf in ("#btn-aufwand", "#btn-weitere", "#btn-imagemode"):
+        kh = pg.eval_on_selector(knopf, "e => e.getBoundingClientRect().height")
+        log.pruefe(kh >= 40, f"{knopf} ist {kh:.0f}px hoch")
+    pg.keyboard.press("Escape")
+    pg.wait_for_timeout(400)
+    # Ein Schalter, den man mit dem Daumen treffen soll, braucht Flaeche -- er
+    # steht seit 9.5.34 im kleinen Fenster "Weitere Einstellungen".
+    menue(pg, "weitere")
     hoehe = pg.eval_on_selector("#online",
                                 "e => e.closest('label').getBoundingClientRect().height")
     log.pruefe(hoehe >= 40, f"die Schalterzeilen sind {hoehe:.0f}px hoch")
+    log.pruefe(
+        pg.eval_on_selector("#win-weitere",
+                            "e => e.getBoundingClientRect().width <= window.innerWidth"
+                            " && e.getBoundingClientRect().height <= window.innerHeight"),
+        "das kleine Fenster passt auf den Bildschirm",
+    )
     pg.keyboard.press("Escape")
     pg.wait_for_timeout(400)
 

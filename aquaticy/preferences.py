@@ -167,6 +167,7 @@ PROTECTED: dict[str, str] = {
         "ob ich die virtual machine mit Internet bediene wie ein Mensch (User mode)"
     ),
     "AQUATICY_VM_INTERNET": "ob die virtual machine ins Internet darf (nur Ultra)",
+    "AQUATICY_VM_LAN": "ob die virtual machine auch ins lokale Netz darf (nur Ultra)",
     "AQUATICY_VM_DESKTOP_IMAGE": "welches Abbild der User mode benutzt",
     "AQUATICY_VM_IMAGE": "welches Abbild die virtual machine benutzt",
     "AQUATICY_GITHUB_TOKEN": "mit welchem Zugang ich GitHub lese",
@@ -191,6 +192,8 @@ PROTECTED_ALIASES: dict[str, str] = {
     "AQUATICY_WERKSTATT_INTERNET": "AQUATICY_VM_INTERNET",
     "AQUATICY_VM_NETZ": "AQUATICY_VM_INTERNET",
     "AQUATICY_VM_NET": "AQUATICY_VM_INTERNET",
+    "AQUATICY_VM_HEIMNETZ": "AQUATICY_VM_LAN",
+    "AQUATICY_VM_LOKALES_NETZ": "AQUATICY_VM_LAN",
     "AQUATICY_DESKTOP": "AQUATICY_VM_USER_MODE",
     "AQUATICY_GITHUB": "AQUATICY_GITHUB_TOKEN",
     "AQUATICY_ADDON": "AQUATICY_ADDONS",

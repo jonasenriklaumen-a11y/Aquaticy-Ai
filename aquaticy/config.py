@@ -321,6 +321,10 @@ class Settings:
     #: Internet fuer die virtual machine im Code-Modus (seit 9.5.31, nur Ultra).
     #: Das Heimnetz bleibt gesperrt -- dieselbe Sperre wie im User mode.
     vm_internet: bool = False
+    #: Auch das lokale Netz (seit 9.5.34, nur Ultra): dann entfaellt die Sperre.
+    #: Normal und Pro haben in der virtual machine immer Internet -- aber nie
+    #: das lokale Netz.
+    vm_lan: bool = False
     #: Das Abbild dafuer (siehe docker/workshop-desktop.Dockerfile).
     vm_desktop_image: str = "aquaticy-werkstatt-desktop:local"
     #: Werkzeug-Budget je Subagent.
@@ -377,6 +381,9 @@ class Settings:
     legal_guard: bool = True
     #: Das Hauptmodell je Nachricht automatisch waehlen (Dev settings, fuer jedes
     #: Konto; siehe aquaticy/router.py). Die Agenten bleiben dabei unveraendert.
+    #: Ai-guard prueft auch die Antworten von Aquaticy (seit 9.5.34). Nur der
+    #: Betreiber stellt das ab, nie ein Konto und nie das Modell.
+    answer_check: bool = True
     auto_model: bool = False
     #: Das Kontingent des Kontos (aquaticy/quota.py: 5-Stunden-Sitzung und
     #: Woche) -- nur normale Konten haben eins. Gesetzt vom Webserver, nie aus
@@ -784,6 +791,7 @@ def get_settings() -> Settings:
         vm_cpus=_env_int("AQUATICY_VM_CPUS", 0) or vm_preset["cpus"],
         vm_user_mode=_env_bool("AQUATICY_VM_USER_MODE", False),
         vm_internet=_env_bool("AQUATICY_VM_INTERNET", False),
+        vm_lan=_env_bool("AQUATICY_VM_LAN", False),
         vm_desktop_image=(
             _env_str("AQUATICY_VM_DESKTOP_IMAGE") or "aquaticy-werkstatt-desktop:local"
         ),
@@ -799,6 +807,7 @@ def get_settings() -> Settings:
         memory_key=_env_str("AQUATICY_MEMORY_KEY"),
         lan_enabled=_env_bool("AQUATICY_LAN_ENABLED", True),
         legal_guard=guard_on(_env_str("AQUATICY_LEGAL_GUARD")),
+        answer_check=_env_bool("AQUATICY_ANSWER_CHECK", True),
         auto_model=_env_bool("AQUATICY_AUTO_MODEL", False),
         lan_subnet=_env_str("AQUATICY_LAN_SUBNET"),
         fetch_timeout=float(_env_int("AQUATICY_FETCH_TIMEOUT", 15)),

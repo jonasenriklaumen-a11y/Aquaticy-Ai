@@ -285,6 +285,7 @@ SETTING_KEYS: tuple[str, ...] = (
     "AQUATICY_VM_SIZE",
     "AQUATICY_VM_USER_MODE",
     "AQUATICY_VM_INTERNET",
+    "AQUATICY_VM_LAN",
     "AQUATICY_LEGAL_GUARD",
     "AQUATICY_AUTO_MODEL",
 )
@@ -512,6 +513,7 @@ _BOOL_SETTINGS = {
     "AQUATICY_MEMORY": "memory_enabled",
     "AQUATICY_VM_USER_MODE": "vm_user_mode",
     "AQUATICY_VM_INTERNET": "vm_internet",
+    "AQUATICY_VM_LAN": "vm_lan",
     "AQUATICY_AUTO_MODEL": "auto_model",
 }
 _INT_SETTINGS = {
@@ -763,7 +765,7 @@ def client_ip(direkt: str, forwarded: str = "", real_ip: str = "") -> str:
 #: neu aufgebaut (siehe ChatSession.reload).
 WORKSHOP_FIELDS: tuple[str, ...] = (
     "vm_size", "vm_image", "vm_idle_minutes", "vm_memory_mb", "vm_disk_gb", "vm_cpus",
-    "vm_user_mode", "vm_internet", "vm_desktop_image", "user_agent", "data_dir",
+    "vm_user_mode", "vm_internet", "vm_lan", "vm_desktop_image", "user_agent", "data_dir",
 )
 
 
@@ -972,8 +974,11 @@ def _profile_settings(profile: Path, plan: str, account: Account | None = None) 
         # hier "an".
         settings.legal_guard = True
         settings.vm_user_mode = False
-        # Internet fuer die virtual machine gibt es nur mit Ultra (9.5.31).
-        settings.vm_internet = False
+        # Seit 9.5.34: Normal und Pro haben in der virtual machine IMMER Internet
+        # (kein pip install ohne Netz), aber nie das lokale Netz -- die Sperre
+        # fuers Heimnetz bleibt. Das lokale Netz gibt es nur mit Ultra.
+        settings.vm_internet = True
+        settings.vm_lan = False
         # 5-Stunden-Sitzung und Woche, am Konto gespeichert (aquaticy/quota.py).
         # Pro bekommt über AUTH.quota() seine eigenen, höheren Grenzen.
         settings.quota = account_quota(profile, account)
@@ -1222,6 +1227,7 @@ class ChatSession:
         sandbox: bool | None = None,
         agents: int | None = None,
         visual_sources: bool | None = None,
+        image_mode: bool = False,
     ) -> Any:
         """Fuehrt eine Anfrage aus und meldet jeden Zwischenschritt an *emit*.
 
@@ -1285,6 +1291,7 @@ class ChatSession:
                     from aquaticy.agent import Agent as BuiltinAgent
                     if isinstance(agent, BuiltinAgent):
                         ask_options["visual_sources"] = visual_sources
+                        ask_options["image_mode"] = image_mode
                         # Sprache aus dem Design-Fenster (9.5.25).
                         with contextlib.suppress(Exception):
                             from aquaticy.uistate import UIState
@@ -1995,6 +2002,7 @@ def current_values() -> dict[str, str]:
         "AQUATICY_VM_SIZE": settings.vm_size,
         "AQUATICY_VM_USER_MODE": "true" if settings.vm_user_mode else "false",
         "AQUATICY_VM_INTERNET": "true" if settings.vm_internet else "false",
+        "AQUATICY_VM_LAN": "true" if settings.vm_lan else "false",
         "AQUATICY_LEGAL_GUARD": "true" if settings.legal_guard else "false",
         "AQUATICY_AUTO_MODEL": "true" if settings.auto_model else "false",
     }
@@ -2174,12 +2182,16 @@ def save_values(payload: dict[str, Any]) -> Path:
         raise ValueError(
             "Der User mode (virtual machine mit Desktop und Internet) braucht ein Ultra-Konto."
         )
-    internet_on = "AQUATICY_VM_INTERNET" in payload and str(
-        payload.get("AQUATICY_VM_INTERNET", "")
+    # Internet fuer die virtual machine: Normal und Pro haben es seit 9.5.34 immer
+    # (der Schalter ist dort fest an), Ultra stellt es selbst. Was Normal und Pro
+    # dazu speichern, ignoriert _profile_settings.
+    lan_on = "AQUATICY_VM_LAN" in payload and str(
+        payload.get("AQUATICY_VM_LAN", "")
     ).strip().lower() in {"1", "true", "yes", "on", "ja"}
-    if internet_on and not session.ultra:
-        # Seit 9.5.31: Internet fuer die virtual machine nur mit Ultra.
-        raise ValueError("Internet für die virtual machine gibt es nur mit einem Ultra-Konto.")
+    if lan_on and not session.ultra:
+        # Seit 9.5.34: das lokale Netz fuer die virtual machine nur mit Ultra.
+        raise ValueError("Das lokale Netz für die virtual machine gibt es nur mit einem "
+                         "Ultra-Konto.")
     values = {
         key: str(payload.get(key, "")).strip() for key in SETTING_KEYS if key in payload
     }
@@ -4455,6 +4467,11 @@ p{{margin:0 0 8px;color:#57534a}}</style></head><body><main>
         }
         if "structured" not in wunsch and "thinking" in payload:
             wunsch["structured"] = payload["thinking"]
+        # Bilderstellung (9.5.34): landet sofort im Standard-Modus -- auch im
+        # gespeicherten Stand, damit die Oberflaeche danach dort bleibt.
+        image_mode = payload.get("image_mode") is True
+        if image_mode:
+            wunsch["mode"] = "normal"
         # Ein Schalter, den der gewaehlte Modus gar nicht zeigt, ist kein
         # Wunsch: er darf den gespeicherten Stand nicht ueberschreiben. Sonst
         # kaeme man aus dem Code-Modus zurueck und das abgeschaltete Web waere
@@ -4616,6 +4633,7 @@ p{{margin:0 0 8px;color:#57534a}}</style></head><body><main>
                     sandbox=sandbox,
                     agents=agents,
                     visual_sources=visual_sources,
+                    image_mode=image_mode,
                 )
             except Exception as exc:
                 lauf.add({"type": "error", "message": f"{type(exc).__name__}: {exc}"})

@@ -312,12 +312,18 @@ aquaticy web --lan    # zeigt alle Adressen, unter denen es im Heimnetz erreichb
 Eingabe mit den drei Arbeitsweisen Normal, Pro und Code. Dateien und Bilder hängst du mit 📎 an.
 Ein vollständig geschriebener Slash-Befehl leuchtet im Akzentton; der Text dahinter bleibt normal.
 
-**Modellauswahl** (oben in der Mitte):
-- **Denktiefe** Low / Medium / High — wie gründlich Aquaticy nachdenkt.
-- **Helfer** — wie viele gleichzeitig suchen (Modus Normal und Code 1–12, Modus Pro 1–50).
-- **Im Web suchen**, **Öffentliche Webcams & Satellitenbilder**, **Denken** (mitlesen, wie
-  Aquaticy überlegt), **Strukturieren**, **Gegenprüfen**.
-- Im Code-Modus: **Code wirklich ausprobieren** in der virtual machine.
+**Modellauswahl** (unten, links neben dem Senden-Knopf; das Menü öffnet sich nach oben):
+- Oben die **Modelle** zur Wahl.
+- **🎨 Bilderstellung** (seit 9.5.34): wer das wählt, landet sofort im Standard-Modus, und
+  Aquaticy nimmt selbst ein Modell, das Bilder erstellen kann (NVIDIA FLUX oder Mistral, je nach
+  Schlüssel). Ohne passenden Schlüssel sagt es, was einzutragen ist. Ein zweiter Klick, ein
+  anderes Modell oder ein anderer Modus beendet die Bilderstellung.
+- **⚡ Aufwand** öffnet ein kleines Fenster: **Denktiefe** Low / Medium / High und die Zahl der
+  **Helfer** (Modus Normal und Code 1–12, Modus Pro 1–50).
+- **⚙ Weitere Einstellungen** öffnet ein zweites kleines Fenster: **Im Web suchen**,
+  **Öffentliche Webcams & Satellitenbilder**, **Denken** (mitlesen, wie Aquaticy überlegt),
+  **Strukturieren**, **Gegenprüfen** — und im Code-Modus **Code wirklich ausprobieren** in der
+  virtual machine.
 
 **Design** (links unten): Hell, Dunkel oder wie das System. Dazu:
 - **Standard** — das grüne Papier.
@@ -466,13 +472,14 @@ Die **virtual machine** ist ein abgeschotteter Rechner, in dem Aquaticy Code wir
 | Normal | 1 | 1 GB | 4 GB |
 | Plus (Ultra) | 4 | 6 GB | 20 GB |
 
-- Kein Internet, kein Zugriff aufs Heimnetz, kein root; die Platte ist hart begrenzt.
-- **Internet für die virtual machine** (Ultra, seit 9.5.31): ein eigener Schalter in den
-  Einstellungen. Dann gehen im Code-Modus `pip install` und `curl` — das Heimnetz (private
-  Adressbereiche, Router, Home Assistant) bleibt gesperrt, mit derselben Sperre wie im User mode.
-  Lässt sie sich nicht setzen oder fehlt ein Bereich, startet die Maschine gar nicht. Braucht das
-  Desktop-Abbild (unten). Normal- und Pro-Konten sehen den Schalter nur mit Ultra-Hinweis; der
-  Server lehnt ihn für sie ab.
+- Kein root; die Platte ist hart begrenzt.
+- **Netz je Tarif (seit 9.5.34):** **Normal und Pro** haben in der virtual machine **immer
+  Internet** (`pip install`, `curl`), aber **nie Zugriff auf das lokale Netz** — private
+  Adressbereiche, Router, Home Assistant und der eigene Rechner sind gesperrt. Lässt sich die
+  Sperre nicht setzen oder fehlt ein Bereich, startet die Maschine gar nicht. **Ultra** stellt
+  das Internet selbst ein (seit 9.5.31) und kann mit dem Schalter **Auch ins lokale Netz** die
+  Sperre ganz wegnehmen — dann erreicht die Maschine Internet **und** Heimnetz. Das Modell kann
+  beides nicht umschalten. Es braucht das Desktop-Abbild (unten).
 - Angehängte Dateien liegen unter `eingang`, alles Erstellte kannst du herunterladen.
 - 20 Minuten nach der letzten Nachricht wird die virtual machine samt Inhalt gelöscht.
 
@@ -691,6 +698,15 @@ und hat einen Test. Die wichtigsten Punkte:
   nichts nützt, Preiswächter lesen „bis 17 Zoll unter 80 Euro“ richtig, `aquaticy export` nimmt
   die Produkte mit, Orte wie „Zahnarzt“ oder „Parkhaus“ werden richtig gesucht.
 
+**Antworten werden mitgeprüft (seit 9.5.34).** Ai-guard schaut auch auf das, was Aquaticy
+selbst schreibt — milder als bei deinen Nachrichten: niemand wird deswegen gesperrt. Beschimpft
+oder bedroht eine Antwort den Nutzer, oder halten bei Stichworten (Schadsoftware, Waffen,
+Selbstverletzung, Hass, Sexuelles …) das schnelle Modell und die feste Erkennung sie für
+eindeutig unangemessen, wird sie zurückgezogen. Stattdessen steht: „Dabei kann ich nicht
+helfen.“ Zitate, Erklärungen, Geschichte, Bildung und Prävention bleiben frei; fällt das Modell
+aus, gilt die Antwort als in Ordnung. Auch aus dem Verlauf wird sie genommen, damit sie nicht
+im Kontext der nächsten Frage steht.
+
 **Sicherheit im Code-Modus (9.5.30).** Fragt ein **Normal- oder Pro-Konto** im Code-Modus mit
 laufender virtual machine nach etwas in Richtung **Cybersecurity, Hacking oder Schadsoftware**,
 schaltet Aquaticy automatisch zurück in den **Normal-Modus** — die virtual machine ist damit aus —
@@ -840,7 +856,9 @@ setzt du die meisten unter *Einstellungen*.
 | `AQUATICY_VM_SIZE` | virtual machine: `normal` oder `plus` (Ultra) | `normal` |
 | `AQUATICY_VM_IMAGE` | Abbild der virtual machine | `python:3.12-slim` |
 | `AQUATICY_VM_USER_MODE` | User mode (Ultra) | `false` |
-| `AQUATICY_VM_INTERNET` | Internet für die virtual machine im Code-Modus (Ultra) | `false` |
+| `AQUATICY_VM_INTERNET` | Internet für die virtual machine im Code-Modus (Ultra; Normal und Pro haben es immer) | `false` |
+| `AQUATICY_VM_LAN` | virtual machine auch ins lokale Netz, ohne Sperre (nur Ultra) | `false` |
+| `AQUATICY_ANSWER_CHECK` | Ai-guard prüft auch die Antworten von Aquaticy (nur der Betreiber stellt es ab) | `true` |
 | `AQUATICY_VM_DESKTOP_IMAGE` | Abbild für den User mode | `aquaticy-werkstatt-desktop:local` |
 | `AQUATICY_VM_IDLE_MINUTES` | virtual machine löschen nach Minuten Ruhe | `20` |
 | `AQUATICY_GITHUB_TOKEN` | Token des GitHub-Add-ons | — |

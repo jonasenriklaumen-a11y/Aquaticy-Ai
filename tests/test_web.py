@@ -2833,8 +2833,10 @@ def test_the_composer_offers_all_three_modes() -> None:
 def test_the_picker_offers_the_structure_switch_and_the_effort() -> None:
     """Gedacht wird immer -- der Schalter zerlegt. Deshalb heisst er anders."""
     html = web.UI_FILE.read_text(encoding="utf-8")
+    # Seit 9.5.34 liegen Aufwand und Weitere Einstellungen in kleinen Fenstern
+    # direkt hinter dem Menue -- alles zusammen bis zum Hauptbereich.
     picker = html[html.index('id="picker-models"') :]
-    picker = picker[: picker.index("picker-foot")]
+    picker = picker[: picker.index('<main id="main">')]
     assert 'id="structure"' in picker
     assert "Strukturieren" in picker
     assert "in kleine Teilfragen" in picker
@@ -2957,8 +2959,10 @@ def test_the_standard_mode_starts_no_agents_in_the_ui() -> None:
 def test_the_picker_offers_the_web_switch() -> None:
     """Ohne Web bleibt Aquaticy bei seinem Wissen und den eigenen Dateien."""
     html = web.UI_FILE.read_text(encoding="utf-8")
+    # Seit 9.5.34 liegen Aufwand und Weitere Einstellungen in kleinen Fenstern
+    # direkt hinter dem Menue -- alles zusammen bis zum Hauptbereich.
     picker = html[html.index('id="picker-models"') :]
-    picker = picker[: picker.index("picker-foot")]
+    picker = picker[: picker.index('<main id="main">')]
     assert 'id="online"' in picker
     assert "Im Web suchen" in picker
     assert "was du angehängt hast" in picker
@@ -2977,8 +2981,10 @@ def test_the_web_switch_reaches_the_agent(
 def test_the_workshop_switch_belongs_to_the_code_mode() -> None:
     """Web und Gegenpruefen gehoeren zur Recherche, die virtual machine zum Code."""
     html = web.UI_FILE.read_text(encoding="utf-8")
+    # Seit 9.5.34 liegen Aufwand und Weitere Einstellungen in kleinen Fenstern
+    # direkt hinter dem Menue -- alles zusammen bis zum Hauptbereich.
     picker = html[html.index('id="picker-models"') :]
-    picker = picker[: picker.index("picker-foot")]
+    picker = picker[: picker.index('<main id="main">')]
     assert 'id="werkstatt"' in picker
     assert "Code wirklich ausprobieren" in picker
     # Der virtual-machine-Schalter steht im Code-Modus, die beiden anderen daneben.
@@ -3042,8 +3048,10 @@ def test_code_blocks_carry_their_language_and_a_copy_button() -> None:
 
 def test_the_recheck_switch_sits_under_the_structure_switch() -> None:
     html = web.UI_FILE.read_text(encoding="utf-8")
+    # Seit 9.5.34 liegen Aufwand und Weitere Einstellungen in kleinen Fenstern
+    # direkt hinter dem Menue -- alles zusammen bis zum Hauptbereich.
     picker = html[html.index('id="picker-models"') :]
-    picker = picker[: picker.index("picker-foot")]
+    picker = picker[: picker.index('<main id="main">')]
     assert picker.index('id="structure"') < picker.index('id="recheck"')
     assert "Gegenprüfen" in picker
     assert "ganz anderen Seiten" in picker
@@ -3328,8 +3336,10 @@ def test_without_the_workshop_an_attachment_is_not_copied_anywhere(
 def test_thinking_has_its_own_switch_next_to_structuring() -> None:
     """Ein eigener Schalter -- er ersetzt Strukturieren nicht, er steht daneben."""
     html = web.UI_FILE.read_text(encoding="utf-8")
+    # Seit 9.5.34 liegen Aufwand und Weitere Einstellungen in kleinen Fenstern
+    # direkt hinter dem Menue -- alles zusammen bis zum Hauptbereich.
     picker = html[html.index('id="picker-models"') :]
-    picker = picker[: picker.index("picker-foot")]
+    picker = picker[: picker.index('<main id="main">')]
     assert 'id="denken"' in picker
     assert 'id="structure"' in picker, "Strukturieren bleibt, wo es war"
     assert "<b>Denken</b>" in picker
@@ -3997,7 +4007,7 @@ def test_the_whole_picker_scrolls_not_just_the_list() -> None:
     picker = html[html.index(".picker{position:absolute") :]
     picker = picker[: picker.index(".pick{")]
     assert "overflow-y:auto" in picker
-    assert "max-height:calc(100vh - 72px)" in picker
+    assert "max-height:calc(100vh - 140px)" in picker
     assert "display:flex;flex-direction:column" in picker
     # Die Liste bekommt einen kleineren Anteil, sonst füllt sie alles.
     assert "min(38vh,320px)" in picker

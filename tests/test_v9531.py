@@ -259,19 +259,20 @@ def _sitzung(tmp_path: Path, monkeypatch: pytest.MonkeyPatch, plan: str) -> Path
 
 
 @pytest.mark.parametrize("plan", ["normal", "pro"])
-def test_normal_and_pro_cannot_switch_vm_internet_on(
+def test_normal_and_pro_cannot_switch_the_vm_lan_on(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, plan: str
 ) -> None:
     from aquaticy import web
 
     profil = _sitzung(tmp_path, monkeypatch, plan)
+    # Seit 9.5.34: Internet haben Normal und Pro immer -- das lokale Netz nie.
     for wert in ("true", "1", "on", "ja", "TRUE "):
         with pytest.raises(ValueError, match="Ultra"):
-            web.save_values({"AQUATICY_VM_INTERNET": wert})
-    assert not (profil / ".env").exists() or "VM_INTERNET=true" not in (
+            web.save_values({"AQUATICY_VM_LAN": wert})
+    assert not (profil / ".env").exists() or "VM_LAN=true" not in (
         profil / ".env").read_text()
     # Ausschalten geht immer.
-    web.save_values({"AQUATICY_VM_INTERNET": "false"})
+    web.save_values({"AQUATICY_VM_LAN": "false"})
 
 
 def test_ultra_can_switch_vm_internet_on(tmp_path: Path,
@@ -289,10 +290,14 @@ def test_the_env_switch_only_counts_for_ultra(tmp_path: Path) -> None:
 
     profil = tmp_path / "konto"
     profil.mkdir()
-    (profil / ".env").write_text("AQUATICY_VM_INTERNET=true\n", encoding="utf-8")
+    (profil / ".env").write_text("AQUATICY_VM_INTERNET=true\nAQUATICY_VM_LAN=true\n",
+                                 encoding="utf-8")
     assert web._profile_settings(profil, "ultra").vm_internet is True
-    assert web._profile_settings(profil, "pro").vm_internet is False
-    assert web._profile_settings(profil, "normal").vm_internet is False
+    assert web._profile_settings(profil, "ultra").vm_lan is True
+    # Normal und Pro: immer Internet (9.5.34), nie das lokale Netz.
+    for plan in ("pro", "normal"):
+        einstellungen = web._profile_settings(profil, plan)
+        assert einstellungen.vm_internet is True and einstellungen.vm_lan is False
 
 
 def test_the_model_cannot_switch_vm_internet() -> None:

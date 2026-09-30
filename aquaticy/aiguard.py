@@ -1743,6 +1743,114 @@ def classify(
 
 
 # ---------------------------------------------------------------------------
+# Antworten von Aquaticy pruefen (seit 9.5.34)
+# ---------------------------------------------------------------------------
+# Auch was Aquaticy SELBST schreibt, geht durch Ai-guard -- milder als bei einer
+# Nachricht des Nutzers: niemand wird gesperrt, eine Antwort kippt nur, wenn sie
+# eindeutig unangemessen ist. Dann steht statt ihrer ein Satz, dass Aquaticy dabei
+# nicht helfen kann. Zwei Stufen:
+#
+# 1. Ohne Modell: eine Beleidigung der grob-Stufe gegen den Nutzer oder eine
+#    ausgesprochene Drohung in der Antwort.
+# 2. Mit Modell, aber nur bei Stichworten (Schadsoftware, Waffen, Selbstverletzung,
+#    Hass, Sexuelles ...): das schnelle Modell urteilt. Faellt es aus, gilt die
+#    Antwort als in Ordnung -- wie beim Pruefen der Nachrichten.
+ANSWER_REFUSAL = (
+    "Dabei kann ich nicht helfen. Dieser Inhalt ist nicht angemessen, deshalb habe ich "
+    "meine Antwort zurückgezogen. Bei etwas anderem helfe ich gern weiter."
+)
+
+#: Stichworte, die eine Antwort zur Pruefung durch das Modell vormerken. Nur Themenwoerter --
+#: sie sagen nichts darueber, ob die Antwort etwas Unpassendes enthaelt.
+_ANTWORT_STICHWORTE = re.compile(
+    r"sprengstoff|sprengsatz|bombe\b|bombenbau|explosive|\bwaffe\b|waffen\b|gewehr|pistole|"
+    r"\bweapon|selbstmord|suizid|suicide|selbstverletz|self[\s-]?harm|umbringen|ermorden|"
+    r"vergewalt|\brape\b|kinderporn|\bcsam\b|sexuell\w*\s+(?:minderj|kind)|"
+    r"\bporn|\bnackt|\bnsfw\b|\bexplicit|volksverhetz|holocaust-leugn|rassist|"
+    r"hasspredigt|hate\s+speech|schadsoftware|schadcode|ransomware|keylogger|trojaner|"
+    r"\bmalware|exploit|phishing|ddos|brute[\s-]?force|drogen\s*herstell|drug\s+synthesis|"
+    r"\bmeth\b|amphetamin\s*herstell|\bgift\b|giftgas|nervengas",
+    re.IGNORECASE,
+)
+
+
+def answer_prompt(text: str) -> str:
+    """Der Text, mit dem das Modell eine ANTWORT von Aquaticy einschaetzt."""
+    return (
+        "Du bist ein Sicherheitsfilter. Unten steht eine ANTWORT eines KI-Assistenten an einen "
+        "Nutzer. Entscheide, ob sie nicht angemessen ist -- das ist sie NUR bei:\n"
+        "- einer Anleitung zum Bauen oder Einsetzen von Schadsoftware oder für einen Angriff auf "
+        "fremde Systeme (funktionierender Code oder Schritte);\n"
+        "- einer Anleitung für Waffen, Sprengstoff, Gift oder andere Mittel, um Menschen zu "
+        "schaden;\n"
+        "- sexuellen Inhalten mit Minderjährigen oder grafisch-sexuellen Schilderungen;\n"
+        "- Aufforderungen oder Anleitungen zu Selbstverletzung oder Suizid;\n"
+        "- Hass, Hetze oder Beleidigungen gegen Menschen oder Gruppen, die der Assistent selbst "
+        "äußert;\n"
+        "- Beleidigungen oder Drohungen des Assistenten gegen den Nutzer.\n\n"
+        "KEIN Problem ist: Erklären, Einordnen, Geschichte, Nachrichten, Bildung, Prävention, "
+        "Verteidigung und Hilfe (etwa eine Beratungsstelle), Zitate mit Einordnung, "
+        "Sachinformationen, Fiktion ohne Anleitung. Im Zweifel: kein Problem.\n\n"
+        f"Antwort:\n{text.strip()[:3500]}\n\n"
+        'Antworte NUR mit JSON: {"missbrauch": true|false, "art": "<zwei bis vier Wörter>", '
+        '"grund": "<kurz>"}'
+    )
+
+
+def _ohne_code_und_zitate(text: str) -> str:
+    """Der Fliesstext einer Antwort -- ohne Codebloecke, ohne Zitate in Anfuehrungszeichen."""
+    roh = re.sub(r"```.*?```", " ", str(text or ""), flags=re.DOTALL)
+    roh = re.sub(r"`[^`\n]*`", " ", roh)
+    return _ZITATE.sub(" ", roh)
+
+
+def answer_problem(
+    text: str,
+    settings: Settings | None = None,
+    *,
+    ask: Callable[[str, Settings], str] | None = None,
+) -> str:
+    """Ist die Antwort von Aquaticy nicht angemessen? Returns: die Art, sonst "".
+
+    Nie ein Bann, nie eine Sperre -- die Antwort wird nur zurueckgezogen. Ohne
+    Modell (oder wenn es ausfaellt) gilt sie als in Ordnung, solange nicht schon die
+    feste Erkennung etwas Eindeutiges findet.
+    """
+    roh = str(text or "").strip()
+    if len(roh) < MIN_LENGTH:
+        return ""
+    fliess = _ohne_code_und_zitate(roh)[:20000]
+    # Stufe 1: eindeutig, ohne Modell. Eine Antwort, die den Nutzer grob beschimpft
+    # oder bedroht, ist nie in Ordnung -- die Wendungen fuer Zitate und Erklaerungen
+    # ("Ist 'du Idiot' eine Beleidigung?") nimmt insult_level schon heraus.
+    if insult_level(fliess) >= 2:
+        return "Beleidigung"
+    # Stufe 2: Stichwort da -> das Modell urteilt (nur mit Modell).
+    if settings is None or not (_ANTWORT_STICHWORTE.search(fliess) or security_topic(fliess)
+                                or (re.search(r"```", roh) and security_topic(roh))):
+        return ""
+    schluessel = hashlib.sha256(
+        "\x1f".join((GUARD_VERSION, "antwort", roh[:3500])).encode("utf-8", "replace")
+    ).hexdigest()
+    jetzt = time.monotonic()
+    with _cache_lock:
+        bekannt = _cache.get(schluessel)
+        if bekannt is not None and bekannt[0] > jetzt:
+            _cache.move_to_end(schluessel)
+            return bekannt[1][1] if bekannt[1] and bekannt[1][0] else ""
+    frage = ask or _ask_model
+    try:
+        urteil = parse_judgement(frage(answer_prompt(roh), settings))
+    except Exception:
+        urteil = None
+    with _cache_lock:
+        if len(_cache) > 2048:
+            _cache.clear()
+        _cache[schluessel] = (jetzt + DECISION_TTL, urteil)
+    return urteil[1] if urteil and urteil[0] else ""
+
+
+# ---------------------------------------------------------------------------
 # Der Speicher: Anhaltspunkte und Sperren, im Konto-Ordner
 # ---------------------------------------------------------------------------
 def _norm_ip(ip: str) -> str:

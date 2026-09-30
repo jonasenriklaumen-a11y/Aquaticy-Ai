@@ -472,6 +472,7 @@ class Sandbox:
         addon_mounts: dict[str, str] | None = None,
         headless: bool = False,
         internet: bool = False,
+        lan: bool = False,
     ) -> None:
         #: Desktop mit Internet statt Maschine ohne Netz (siehe Kopf der Datei).
         self.user_mode = bool(user_mode)
@@ -480,6 +481,9 @@ class Sandbox:
         #: Desktop-Abbild (es bringt iptables und das Sperr-Skript mit). Ohne
         #: eingerichtete Sperre startet die Maschine nicht (fail-closed).
         self.internet = bool(internet) and not self.user_mode
+        #: Auch das lokale Netz (9.5.34, nur Ultra): dann gibt es keine Sperre.
+        #: Ohne Netz ist das sinnlos -- es gilt nur mit Internet oder User mode.
+        self.lan = bool(lan) and (self.user_mode or bool(internet))
         #: Womit sich der Browser im User mode bei Webseiten meldet.
         self.browser_agent = browser_agent
         #: Datentraeger der eingeschalteten Add-ons -> wo sie haengen
@@ -571,7 +575,7 @@ class Sandbox:
             try:
                 self._create_volume()
                 self._start_container()
-                if self.netz_offen:
+                if self.netz_offen and not self.lan:
                     self._lock_network()
                 if self.user_mode and not self.headless:
                     self._start_desktop()
@@ -650,7 +654,9 @@ class Sandbox:
         # NET_ADMIN ist die eine Faehigkeit, die die Sperre braucht. Sie steht
         # nur root zur Verfuegung, und root arbeitet drinnen nie -- ausser fuer
         # genau dieses eine Skript beim Start.
-        faehigkeiten = ["--cap-drop", "ALL", *(("--cap-add", "NET_ADMIN") if offen else ())]
+        # Ohne Sperre (lokales Netz, nur Ultra) braucht es auch NET_ADMIN nicht.
+        faehigkeiten = ["--cap-drop", "ALL",
+                        *(("--cap-add", "NET_ADMIN") if offen and not self.lan else ())]
         prozesse = DESKTOP_PID_LIMIT if desktop else PID_LIMIT
         dateien = DESKTOP_FILE_LIMIT if desktop else FILE_LIMIT
         flags = [
@@ -1035,7 +1041,8 @@ class Sandbox:
             if not self.netz_offen or not self._name:
                 return
             try:
-                self._lock_network()
+                if not self.lan:
+                    self._lock_network()
                 if self.user_mode and not self.headless:
                     self._start_desktop()
             except Exception:
@@ -1260,6 +1267,7 @@ class Sandbox:
             "running": True,
             "user_mode": self.user_mode,
             "internet": self.internet or self.user_mode,
+            "lan": self.lan,
             "addons": sorted(ziel.rsplit("/", 1)[-1] for ziel in self.addon_mounts.values()),
             "runtime": self.runtime.label if self.runtime else "",
             "image": self.image,
@@ -1348,7 +1356,10 @@ def shared(settings: Any = None, on_event: Any = _KEEP) -> Sandbox:
         if box is None:
             user_mode = bool(getattr(settings, "vm_user_mode", False))
             # Internet ohne Desktop (9.5.31) -- die Einstellung setzt nur Ultra.
-            internet = bool(getattr(settings, "vm_internet", False)) and not user_mode
+            # Das lokale Netz (9.5.34) bringt das Internet mit -- sonst waere es
+            # eine virtual machine nur fuers Heimnetz.
+            lan = bool(getattr(settings, "vm_lan", False))
+            internet = (bool(getattr(settings, "vm_internet", False)) or lan) and not user_mode
             box = Sandbox(
                 image=(
                     getattr(settings, "vm_desktop_image", "") or DESKTOP_IMAGE
@@ -1357,6 +1368,7 @@ def shared(settings: Any = None, on_event: Any = _KEEP) -> Sandbox:
                 ),
                 user_mode=user_mode,
                 internet=internet,
+                lan=lan,
                 headless=internet,
                 browser_agent=browser_agent(settings) if user_mode else "",
                 addon_mounts=_addon_mounts(settings) if user_mode else None,

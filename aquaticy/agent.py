@@ -634,6 +634,12 @@ VM_NET_USER_PROMPT = (
     "Sie hat Internet, aber kein Heimnetz: `pip install` und `curl` gehen, Router, "
     "Home Assistant und andere Geraete im Haus sind gesperrt."
 )
+#: Nur Ultra, per Schalter (9.5.34): Internet UND das lokale Netz.
+VM_NET_LAN_PROMPT = (
+    "Sie hat Internet und Zugang zum lokalen Netz (vom Nutzer freigegeben): `pip install` "
+    "und `curl` gehen, auch Geraete im Haus sind erreichbar. Greife nur auf Geraete zu, die "
+    "der Nutzer genannt hat, und durchsuche das Netz nicht."
+)
 
 #: Im User mode: die virtual machine ist ein Desktop, den du bedienst wie ein Mensch.
 USER_MODE_PROMPT = """
@@ -1168,6 +1174,8 @@ class Agent:
         #: Frage lang -- die volle Mannschaft ist eine Entscheidung, keine
         #: Einstellung.
         self.max_run = False
+        #: Bilderstellung gewaehlt (9.5.34) -- gilt genau fuer die eine Frage.
+        self._image_turn = False
         self.toolbox = toolbox or Toolbox(
             settings,
             cache=cache,
@@ -1251,7 +1259,10 @@ class Agent:
         # und nur mit Web, denn alle drei fragen einen Dienst im Internet.
         if self.online:
             extra.extend(addon_schemas_for(self.settings))
-            # Bilder erstellen -- nur, wenn ein Anbieter dafuer erreichbar ist.
+        # Bilder erstellen -- nur, wenn ein Anbieter dafuer erreichbar ist. Ist
+        # "Bilderstellung" gewaehlt, geht es auch ohne Web-Suche (9.5.34): das
+        # Bild kommt vom Bildmodell, nicht aus dem Netz.
+        if self.online or getattr(self, "_image_turn", False):
             from aquaticy.images import available as image_backends
 
             if image_backends(self.settings):
@@ -2024,7 +2035,8 @@ class Agent:
                 "kern_wort": "Prozessorkern" if cpus == 1 else "Prozessorkerne",
                 "memory_mb": max(1, int(self.settings.vm_memory_mb or 1024)),
                 "disk_gb": max(1, int(self.settings.vm_disk_gb or 4)),
-                "netz": VM_NET_USER_PROMPT if mit_netz else VM_NET_OFF_PROMPT,
+                "netz": (VM_NET_LAN_PROMPT if getattr(self.settings, "vm_lan", False)
+                         else VM_NET_USER_PROMPT if mit_netz else VM_NET_OFF_PROMPT),
             }
             if user_mode:
                 text += USER_MODE_PROMPT
@@ -2073,6 +2085,28 @@ class Agent:
             "beruecksichtigen ohne es aufzuzaehlen):\n"
             + "\n".join(f"- {line}" for line in lines[:8])
         )
+
+    def _image_unavailable(self) -> str:
+        """Gibt es ein Modell, das Bilder erstellen kann? Sonst: was zu tun ist."""
+        from aquaticy.images import available
+
+        if available(self.settings):
+            return ""
+        return (
+            "Bilder erstellen geht noch nicht: Dafür braucht Aquaticy einen Schlüssel für "
+            "NVIDIA (FLUX) oder Mistral — den trägst du in den Einstellungen unter Modell "
+            "ein. Danach wählst du „Bilderstellung“ einfach noch einmal."
+        )
+
+    def _choose_image_model(self) -> None:
+        """Bilderstellung: Aquaticy nimmt selbst ein Modell, das Bilder erstellen kann (9.5.34)."""
+        from aquaticy.images import available
+
+        wahl = available(self.settings)
+        if not wahl:
+            return
+        self.toolbox.image_model = wahl[0].model
+        self._emit("image_mode", modell=wahl[0].label, model=wahl[0].model)
 
     def _auto_choose(self, question: str) -> None:
         """Automatische Modellwahl -- ohne Modellaufruf, vor der ersten Runde.
@@ -2407,6 +2441,7 @@ class Agent:
         online: bool | None = None,
         sandbox: bool | None = None,
         visual_sources: bool | None = None,
+        image_mode: bool = False,
     ) -> AgentResult:
         """Beantwortet *question* -- sucht, liest und wertet aus.
 
@@ -2425,8 +2460,15 @@ class Agent:
             sandbox: virtual machine im Code-Modus. `None` laesst den bisherigen
                 Stand stehen.
             visual_sources: Öffentliche Webcams und Satellitenbilder zusätzlich prüfen.
+            image_mode: Bilderstellung (9.5.34): die Frage laeuft im Standard-Modus,
+                und Aquaticy malt mit einem Bildmodell statt zu suchen.
         """
         question = question.strip()
+        self._image_turn = bool(image_mode)
+        if self._image_turn:
+            # Bilderstellung landet immer im Standard-Modus -- ohne Struktur und
+            # ohne virtual machine.
+            mode, structured, sandbox = "normal", False, False
         # `/max` gehoert zur Frage, nicht zu den Einstellungen: es gilt genau
         # diesen einen Turn. Ausserhalb des Pro-Modus wird es abgetrennt und
         # ignoriert -- ohne Master gibt es nichts zu erzwingen.
@@ -2507,10 +2549,20 @@ class Agent:
         if abgelehnt is not None:
             return abgelehnt
 
+        if self._image_turn:
+            kein_bild = self._image_unavailable()
+            if kein_bild:
+                self.messages.append({"role": "user", "content": question})
+                self.messages.append({"role": "assistant", "content": kein_bild})
+                self._type_out(kein_bild, stream)
+                return self._finish(AgentResult(answer=kein_bild), question)
+
         if self.workshop_on:
             self._touch_workshop()
             self._warm_workshop()
         self._auto_choose(question)
+        if self._image_turn:
+            self._choose_image_model()
         if clean_mode(self.mode) in ("code", "pro"):
             if stark_suche is not None:
                 stark_suche.join(timeout=STRONG_LOOKUP_WAIT)
@@ -3221,7 +3273,37 @@ class Agent:
             self._emit("answer_chunk", text=stueck)
             time.sleep(STANDARD_TYPING_SECONDS)
 
+    def _check_answer(self, result: AgentResult) -> None:
+        """Ai-guard prueft die Antwort (9.5.34) -- milder als bei Nachrichten.
+
+        Niemand wird gesperrt. Ist die Antwort eindeutig unangemessen, steht
+        stattdessen ein Satz, dass Aquaticy dabei nicht helfen kann; was schon
+        gestreamt wurde, wird per ``answer_reset`` wieder weggenommen.
+        """
+        if not getattr(self.settings, "answer_check", True) or not result.answer:
+            return
+        if result.error or self.stopped:
+            return
+        from aquaticy.aiguard import ANSWER_REFUSAL, answer_problem
+
+        try:
+            art = answer_problem(result.answer, self.settings)
+        except Exception:
+            return
+        if not art:
+            return
+        self._emit("answer_reset", reason="antwort_geprueft")
+        self._emit("answer_chunk", text=ANSWER_REFUSAL)
+        self._emit("note", text="Ai-guard hat die Antwort zurückgezogen (" + art + ").")
+        result.answer = ANSWER_REFUSAL
+        # Auch aus dem Verlauf nehmen: sonst steht es im Kontext der naechsten Frage.
+        for nachricht in reversed(self.messages):
+            if nachricht.get("role") == "assistant" and not nachricht.get("tool_calls"):
+                nachricht["content"] = ANSWER_REFUSAL
+                break
+
     def _finish(self, result: AgentResult, question: str = "") -> AgentResult:
+        self._check_answer(result)
         stats = self.toolbox.stats
         result.tool_calls = stats.tool_calls
         result.searches = list(stats.searches)
@@ -3258,6 +3340,12 @@ class Agent:
 
     def _with_context(self, question: str) -> str:
         """Haengt den aktiven Ortsfilter an die Nutzerfrage."""
+        if getattr(self, "_image_turn", False):
+            return (
+                f"{question}\n\n[Bilderstellung ist gewählt: Erstelle jetzt mit dem Werkzeug "
+                "create_image ein Bild zu dieser Nachricht (Beschreibung auf Englisch, "
+                "konkret). Suche nicht im Web. Antworte danach mit einem kurzen Satz.]"
+            )
         location = (self.settings.location or "").strip()
         if not location:
             return question

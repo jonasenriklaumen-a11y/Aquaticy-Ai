@@ -262,10 +262,10 @@ body.hat-neues #btn-side::after{content:"";position:absolute;top:5px;right:5px;
   white-space:nowrap;min-width:0}
 .topbar .spacer{flex:1}
 
-/* ---------- Modellauswahl in der Mitte ---------- */
+/* ---------- Modellauswahl unten, links neben dem Senden-Knopf (9.5.34) ---------- */
 .modelpick{display:flex;align-items:center;gap:6px;background:var(--surface);
   border:1px solid var(--line);border-radius:999px;padding:5px 12px;cursor:pointer;
-  font-size:calc(13.5px * var(--fs));max-width:min(46vw,340px)}
+  font-size:calc(13px * var(--fs));max-width:min(40vw,260px);min-width:0;color:var(--text-2)}
 .modelpick:hover{border-color:var(--accent)}
 .modelpick #model-name{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .modelpick .caret{color:var(--text-3);flex:0 0 auto;font-size:calc(11px * var(--fs))}
@@ -274,11 +274,41 @@ body.hat-neues #btn-side::after{content:"";position:absolute;top:5px;right:5px;
    die Schalter, der Fuss mit dem Weg zu den Einstellungen -- lag ausserhalb
    des Bildschirms, ohne jede Moeglichkeit, dorthin zu kommen. Man konnte
    also das Modell waehlen, aber nicht, was es tun darf. */
-.picker{position:absolute;top:52px;left:50%;transform:translateX(-50%);z-index:30;
-  width:min(420px,calc(100vw - 32px));background:var(--surface);border:1px solid var(--line-2);
+.picker{position:absolute;bottom:96px;right:16px;z-index:30;
+  width:min(380px,calc(100vw - 32px));background:var(--surface);border:1px solid var(--line-2);
   border-radius:16px;box-shadow:var(--shadow);
-  display:flex;flex-direction:column;max-height:calc(100vh - 72px);
+  display:flex;flex-direction:column;max-height:calc(100vh - 140px);
   overflow-y:auto;overscroll-behavior:contain}
+/* Bilderstellung und die beiden Knoepfe darunter -- untereinander, gross genug zum Treffen. */
+.picker-image{display:flex;gap:12px;align-items:flex-start;width:100%;text-align:left;
+  background:transparent;border:0;border-top:1px solid var(--line);padding:12px 16px;cursor:pointer;
+  font-size:calc(13px * var(--fs));color:var(--text)}
+.picker-image:hover{background:var(--surface-2)}
+.picker-image.on{background:var(--accent-soft)}
+.picker-image .pi-icon{font-size:calc(18px * var(--fs));line-height:1.2}
+.picker-image .why,.picker-act .why{display:block;color:var(--text-3);
+  font-size:calc(11.5px * var(--fs));line-height:1.45;margin-top:2px}
+.picker-actions{display:flex;flex-direction:column;border-top:1px solid var(--line)}
+.picker-act{display:flex;flex-direction:column;align-items:flex-start;gap:0;width:100%;
+  text-align:left;background:transparent;border:0;padding:11px 16px;cursor:pointer;
+  font-size:calc(13.5px * var(--fs));color:var(--text)}
+.picker-act+.picker-act{border-top:1px solid var(--line)}
+.picker-act:hover{background:var(--surface-2)}
+/* Kleine Fenster: Aufwand und Weitere Einstellungen. */
+.minwin{position:fixed;z-index:40;left:50%;top:50%;transform:translate(-50%,-50%);
+  width:min(400px,calc(100vw - 28px));max-height:min(80vh,620px);overflow-y:auto;
+  overscroll-behavior:contain;background:var(--surface);border:1px solid var(--line-2);
+  border-radius:16px;box-shadow:var(--shadow)}
+.minwin[hidden]{display:none}
+.minwin-head{display:flex;align-items:center;justify-content:space-between;padding:12px 16px;
+  position:sticky;top:0;background:var(--surface);z-index:2;border-bottom:1px solid var(--line);
+  font-size:calc(14px * var(--fs))}
+.minwin-x{background:none;border:0;color:var(--text-3);cursor:pointer;font-size:calc(15px * var(--fs));
+  padding:4px 8px;border-radius:8px}
+.minwin-x:hover{background:var(--surface-2);color:var(--text)}
+.minwin .picker-think{border-top:0;border-bottom:1px solid var(--line)}
+.minwin .picker-think:last-child{border-bottom:0}
+.backdrop.minwin-back{z-index:35}
 /* Die Ueberschrift bleibt beim Scrollen stehen -- sonst weiss man nach zwei
    Handbewegungen nicht mehr, worin man da blaettert. */
 .picker-head{padding:12px 16px 8px;font-size:calc(12px * var(--fs));letter-spacing:.06em;text-transform:uppercase;
@@ -639,7 +669,7 @@ fieldset{scroll-margin-top:13rem}
    bliebe beim Schliessen die staerkere Einblende-Regel oben stehen. */
 .overlay.ask.closing>.sheet{animation:sheet-out var(--t-fast) var(--ease-in) forwards}
 .backdrop{animation:fade-in var(--t-fast) var(--ease-out)}
-.picker{animation:slide-up var(--t-mid) var(--ease-out)}
+.picker,.minwin{animation:slide-up var(--t-mid) var(--ease-out)}
 .picker.closing{animation:fade-out var(--t-fast) var(--ease-in) forwards}
 .chatmenu{animation:pop var(--t-fast) var(--ease-out);transform-origin:top right}
 
@@ -959,8 +989,8 @@ input:focus,select:focus{border-color:var(--accent)}
   .sheet-head{margin:-18px -16px 0;padding:16px 16px 10px;border-radius:14px 14px 0 0;top:-18px}
   .overlay{padding:2vh 10px}
   .row{grid-template-columns:1fr}
-  .picker{width:calc(100vw - 20px)}
-  .modelpick{max-width:52vw}
+  .picker{width:calc(100vw - 20px);right:10px}
+  .modelpick{max-width:34vw;padding:5px 9px}
   .topbar{padding:10px 12px;gap:6px}
   .topbar .where{font-size:calc(12px * var(--fs))}
   /* Auf schmalen Schirmen zaehlt die Modellwahl mehr als der Ortsfilter. */
@@ -994,8 +1024,8 @@ input:focus,select:focus{border-color:var(--accent)}
   .chip:nth-child(n+3){display:inline-flex}
   .chip{font-size:calc(13px * var(--fs));padding:8px 14px}
   /* Die Modellauswahl ist eine Liste, keine Flaeche. */
-  .picker{width:min(30rem, calc(100vw - 48px))}
-  .modelpick{max-width:22rem}
+  .picker{width:min(24rem, calc(100vw - 48px))}
+  .modelpick{max-width:16rem}
   /* Im Formular passen zwei Spalten nebeneinander. */
   .row{grid-template-columns:1fr 1fr}
   .sheet{padding:22px 22px 24px;max-height:92vh}
@@ -1014,14 +1044,15 @@ input:focus,select:focus{border-color:var(--accent)}
   .topbar{flex-wrap:wrap;row-gap:2px}
   .topbar .where{order:3;width:100%;font-size:calc(11.5px * var(--fs));padding-left:2px}
   .topbar .spacer{display:none}
-  .modelpick{margin-left:auto;margin-right:auto;max-width:72vw}
+  .crow{flex-wrap:wrap}
+  .modelpick{max-width:46vw}
   .hello h1{font-size:calc(22px * var(--fs))}
   .thread{padding:4px 12px 180px}
   /* Die Kopfzeile ist hier zweizeilig -- die Modellauswahl muss tiefer
      ansetzen, sonst schneidet sie den Ortsfilter halb ab und es sieht aus
      wie ein Fehler beim Zeichnen. Und sie hat entsprechend weniger Hoehe. */
-  .picker{top:74px;max-height:calc(100vh - 94px)}
-  .picker-list{max-height:min(30vh,260px)}
+  .picker{max-height:calc(100vh - 150px)}
+  .picker-list{max-height:min(26vh,220px)}
   /* Drei Arbeitsweisen brauchen Platz. Also bleibt vom Anhaengen und vom
      Abbrechen hier nur das Sinnbild: es sagt dasselbe wie das Wort, und der
      Titel sagt es noch einmal fuer den, der lange draufhaelt. Ohne das
@@ -1304,10 +1335,6 @@ input:focus-visible,select:focus-visible,.side-search input:focus-visible,
             aria-label="Seitenleiste ein- oder ausblenden">☰</button>
     <span class="where" id="status" role="status" aria-live="polite"></span>
     <span class="spacer"></span>
-    <button class="modelpick" id="btn-model" title="Modell wechseln">
-      <span id="model-name">Modell</span><span class="caret">▾</span>
-    </button>
-    <span class="spacer"></span>
     <button class="iconbtn" id="btn-vmfiles" title="Dateien in der virtual machine"
             aria-label="Dateien in der virtual machine" hidden>🗀</button>
   </div>
@@ -1315,6 +1342,28 @@ input:focus-visible,select:focus-visible,.side-search input:focus-visible,
   <div class="picker" id="picker-models" hidden>
     <div class="picker-head" id="picker-head">Modell wählen</div>
     <div class="picker-list" id="model-list"></div>
+    <button type="button" class="picker-image" id="btn-imagemode" aria-pressed="false">
+      <span class="pi-icon" aria-hidden="true">🎨</span>
+      <span><b>Bilderstellung</b>
+        <span class="why">Aquaticy malt ein Bild nach deiner Beschreibung. Es geht sofort in
+          den Standard-Modus und wählt selbst ein Modell, das Bilder erstellen kann.</span></span>
+    </button>
+    <div class="picker-actions">
+      <button type="button" class="picker-act" id="btn-aufwand">
+        <span>⚡ <b>Aufwand</b></span><span class="why">Denktiefe und Zahl der Agenten</span></button>
+      <button type="button" class="picker-act" id="btn-weitere">
+        <span>⚙ <b>Weitere Einstellungen</b></span><span class="why">virtual machine, Suche, Strukturieren
+          und mehr</span></button>
+    </div>
+    <div class="picker-foot">Anderes Modell oder eigener Schlüssel? Das geht in den
+      <button class="linkish" id="picker-settings">Einstellungen</button>.</div>
+  </div>
+
+  <!-- Kleine Fenster zum Modellmenue (seit 9.5.34). Die Bedienelemente behalten
+       ihre Kennungen -- nur ihr Ort ist neu. -->
+  <div class="minwin" id="win-aufwand" role="dialog" aria-modal="true" aria-label="Aufwand" hidden>
+    <div class="minwin-head"><b>Aufwand</b>
+      <button type="button" class="minwin-x" data-minwin-close aria-label="Schließen">✕</button></div>
     <div class="picker-effort">
       <div class="eff-head"><b>Denktiefe</b>
         <span class="why">Wie gründlich Aquaticy nachdenkt, bevor es antwortet.
@@ -1332,13 +1381,19 @@ input:focus-visible,select:focus-visible,.side-search input:focus-visible,
       <span class="why" id="agents-help">Wie viele Helfer gleichzeitig suchen, wenn
         „Strukturieren“ an ist. Normal: 1 bis 12.</span>
     </div>
+  </div>
+  <div class="minwin" id="win-weitere" role="dialog" aria-modal="true"
+       aria-label="Weitere Einstellungen" hidden>
+    <div class="minwin-head"><b>Weitere Einstellungen</b>
+      <button type="button" class="minwin-x" data-minwin-close aria-label="Schließen">✕</button></div>
     <label class="picker-think only-code" for="werkstatt">
       <input type="checkbox" role="switch" class="schalter" id="werkstatt">
       <span><b>Code wirklich ausprobieren</b>
         <span class="why">Aquaticy bekommt einen eigenen, abgeschotteten Rechner und
           lässt den Code dort laufen — statt nur zu raten, ob er funktioniert. Dieser
-          Rechner hat <b>kein Internet</b> und wird 20 Minuten nach deiner letzten
-          Nachricht gelöscht. Im Web nachschlagen kann Aquaticy trotzdem.</span></span>
+          Rechner hat <b>Internet</b> (etwa für pip install), aber <b>keinen Zugriff auf
+          dein lokales Netz</b>, und er wird 20 Minuten nach deiner letzten
+          Nachricht gelöscht.</span></span>
     </label>
     <label class="picker-think only-normal" for="online">
       <input type="checkbox" role="switch" class="schalter" id="online" checked>
@@ -1381,8 +1436,6 @@ input:focus-visible,select:focus-visible,.side-search input:focus-visible,
           Zeit. Aus: Aquaticy entscheidet allein, ob etwas nachgeprüft werden
           muss.</span></span>
     </label>
-    <div class="picker-foot">Anderes Modell oder eigener Schlüssel? Das geht in den
-      <button class="linkish" id="picker-settings">Einstellungen</button>.</div>
   </div>
 
   <main id="main">
@@ -1432,6 +1485,9 @@ input:focus-visible,select:focus-visible,.side-search input:focus-visible,
             title="Zum Programmieren: Aquaticy schreibt Code statt langer Texte">Code</button>
         </div>
         <span class="spacer"></span>
+        <button class="modelpick" id="btn-model" title="Modell wechseln" aria-haspopup="true">
+          <span id="model-name">Modell</span><span class="caret">▴</span>
+        </button>
         <button class="send" id="send" title="Senden (Enter)" aria-label="Nachricht senden">↑</button>
       </div>
     </div>
@@ -1761,8 +1817,20 @@ input:focus-visible,select:focus-visible,.side-search input:focus-visible,
             <span class="ultra-tag">Ultra</span>
             <span class="lock-tag" data-lock hidden>🔒 Mit Ultra verfügbar</span>
             <span class="why">Im Code-Modus darf die virtual machine dann ins Internet —
-              etwa für pip install oder um eine Seite abzurufen. Dein Heimnetz bleibt
-              gesperrt, genau wie im User mode. Ohne diese Sperre startet sie gar nicht.</span></label>
+              etwa für pip install oder um eine Seite abzurufen. Normal- und Pro-Konten
+              haben das immer; dein Heimnetz bleibt dabei gesperrt. Ohne diese Sperre
+              startet die Maschine gar nicht.</span></label>
+        </div>
+        <div class="check usermode-row">
+          <input type="checkbox" role="switch" class="schalter" id="vmlan"
+                 name="AQUATICY_VM_LAN">
+          <label for="vmlan" style="margin:0">Auch ins lokale Netz
+            <span class="ultra-tag">Ultra</span>
+            <span class="lock-tag" data-lock hidden>🔒 Mit Ultra verfügbar</span>
+            <span class="why">Nur mit Ultra: Die virtual machine erreicht dann zusätzlich
+              Geräte in deinem Heimnetz (Router, Lager, Home Assistant …), nicht nur das
+              Internet. Die Sperre fällt weg — schalte das nur ein, wenn du es
+              brauchst.</span></label>
         </div>
         <div class="login-apps" id="login-apps">
           <div><b>Login-Apps</b> — hier meldest du dich selbst an: Du siehst den Bildschirm,
@@ -2329,6 +2397,7 @@ document.querySelectorAll("#modes .mode").forEach(button =>
     // passt nicht mehr zu dem, was jetzt gefragt ist. Steht schon nichts
     // im Chat, gibt es auch nichts anzufangen.
     const anders = button.dataset.mode !== mode;
+    if (imageMode) setImageMode(false);
     setMode(button.dataset.mode);
     greet();
     if (anders && thread.children.length) neuerChat({ leiste: false });
@@ -3080,6 +3149,7 @@ async function ask(text){
       method: "POST", headers: {"Content-Type":"application/json"},
       body: JSON.stringify({
         message: text, attachments, mode, structured, recheck, effort, sandbox, agents,
+        image_mode: imageMode,
         visual_sources: mode === "code" ? false : visualSources,
         // Im Code-Modus gibt es den Web-Schalter nicht -- also darf er dort
         // auch nichts abschalten. Sonst haette ein "aus" aus dem
@@ -3354,6 +3424,7 @@ async function verfolge(hole, steps, bubble, text){
         step(steps, "[Modell]",
              `automatisch: ${String(ev.model || "").split("/").pop()} — ${ev.grund || ""}`
              + (ev.bild ? ` · Bild: ${ev.bild}` : "")); break;
+      case "image_mode": step(steps, "[Bild]", `Bilderstellung mit ${ev.modell || "einem Bildmodell"}`); break;
       case "image_create": step(steps, "[Bild]", "wird erstellt …"); break;
       case "image_created":
         step(steps, "[Bild]", ev.error ? ev.error : `erstellt mit ${ev.modell}`,
@@ -4710,18 +4781,25 @@ function closePicker(){
   }, CLOSE_MS);
 }
 
-// Der Kasten haengt unter der Kopfzeile -- und zwar unter ihrer wirklichen
-// Unterkante, nicht unter einer geratenen Zahl. Die Leiste ist auf dem Handy
-// zweizeilig, auf dem Tablet einzeilig und wird laenger, wenn mehr darin
-// steht; jede feste Angabe waere irgendwo falsch. Vorher lag der Kasten
-// sechs Pixel zu hoch: seine abgerundete Oberkante verschwand hinter der
-// Leiste, und auf dem Handy schnitt er den Ortsfilter an.
+// Das Menue steht ueber der Eingabe, rechts buendig mit dem Senden-Knopf
+// (seit 9.5.34; vorher hing es unter der Kopfzeile). Die Masse kommen aus dem
+// Bild, nicht aus geratenen Zahlen: die Eingabe ist auf dem Handy hoeher, am
+// Anfang steht sie in der Mitte, und beim Schreiben waechst sie.
 function setzePickerHoehe(){
-  const leiste = document.querySelector(".topbar");
+  const eingabe = document.querySelector(".composer");
   const flaeche = document.querySelector(".pane");
-  if (!leiste || !flaeche) return;
-  const unten = leiste.getBoundingClientRect().bottom - flaeche.getBoundingClientRect().top;
-  modelBox.style.top = Math.round(unten + 6) + "px";
+  const leiste = document.querySelector(".topbar");
+  const senden = document.querySelector("#send");
+  if (!eingabe || !flaeche) return;
+  const e = eingabe.getBoundingClientRect(), f = flaeche.getBoundingClientRect();
+  modelBox.style.bottom = Math.round(f.bottom - e.top + 8) + "px";
+  const oben = leiste ? leiste.getBoundingClientRect().bottom : f.top;
+  modelBox.style.maxHeight = Math.max(180, Math.round(e.top - oben - 16)) + "px";
+  if (senden && innerWidth > 640){
+    modelBox.style.right = Math.max(10, Math.round(f.right - senden.getBoundingClientRect().right)) + "px";
+  } else {
+    modelBox.style.right = "10px";
+  }
 }
 addEventListener("resize", () => { if (pickerOpen()) setzePickerHoehe(); });
 
@@ -4797,6 +4875,7 @@ async function openPicker(){
 
 async function chooseModel(model, feld){
   closePicker();
+  if (imageMode) setImageMode(false);
   $("#model-name").textContent = model.label;
   // Welches Feld die Wahl setzt, hat der Server mit der Liste gesagt.
   const wunsch = { [feld === "AQUATICY_CODE_MODEL" ? "AQUATICY_CODE_MODEL" : "AQUATICY_MODEL"]: model.id };
@@ -4810,6 +4889,63 @@ async function chooseModel(model, feld){
 }
 
 $("#btn-model").addEventListener("click", () => pickerOpen() ? closePicker() : openPicker());
+
+/* ---------- Kleine Fenster: Aufwand und Weitere Einstellungen (9.5.34) ---------- */
+let minwinOffen = null, minwinBack = null;
+function minwinSchliessen(){
+  if (!minwinOffen) return;
+  minwinOffen.hidden = true;
+  minwinBack?.remove();
+  minwinOffen = null; minwinBack = null;
+  $("#btn-model").focus({ preventScroll: true });
+}
+function minwinOeffnen(id){
+  closePicker();
+  if (minwinOffen) { minwinOffen.hidden = true; minwinBack?.remove(); }
+  const fenster = $("#" + id);
+  fenster.hidden = false;
+  minwinOffen = fenster;
+  minwinBack = document.createElement("div");
+  minwinBack.className = "backdrop minwin-back";
+  minwinBack.addEventListener("click", minwinSchliessen);
+  document.body.appendChild(minwinBack);
+  fenster.scrollTop = 0;
+  // Der Fokus geht auf das Kreuz: ein Schalter darin koennte ausgeblendet sein
+  // (Code-Modus) oder das Fenster beim Fokussieren verschieben.
+  (fenster.querySelector(".minwin-x") || fenster).focus({ preventScroll: true });
+}
+$("#btn-aufwand").addEventListener("click", () => minwinOeffnen("win-aufwand"));
+$("#btn-weitere").addEventListener("click", () => minwinOeffnen("win-weitere"));
+document.querySelectorAll("[data-minwin-close]").forEach(knopf =>
+  knopf.addEventListener("click", minwinSchliessen));
+
+/* ---------- Bilderstellung (9.5.34) ---------- */
+// Wer "Bilderstellung" waehlt, landet sofort im Standard-Modus; welches Modell
+// das Bild malt, sucht der Server selbst (aquaticy/images.py).
+let imageMode = false;
+function setImageMode(on){
+  imageMode = !!on;
+  const knopf = $("#btn-imagemode");
+  knopf.classList.toggle("on", imageMode);
+  knopf.setAttribute("aria-pressed", imageMode ? "true" : "false");
+  document.body.classList.toggle("image-mode", imageMode);
+  if (imageMode){
+    if (mode !== "normal"){
+      setMode("normal");
+      greet();
+      if (thread.children.length) neuerChat({ leiste: false });
+    }
+    $("#model-name").textContent = "🎨 Bilderstellung";
+    $("#input").placeholder = "Beschreibe das Bild, das Aquaticy malen soll …";
+  } else {
+    $("#input").placeholder = PLATZHALTER[mode] || PLATZHALTER.normal;
+    refreshHeader();
+  }
+}
+$("#btn-imagemode").addEventListener("click", () => {
+  closePicker();
+  setImageMode(!imageMode);
+});
 $("#picker-settings").addEventListener("click", () => {
   closePicker(); $("#btn-settings").click();
 });
@@ -4821,6 +4957,7 @@ document.addEventListener("keydown", (e) => {
   if (guardBox.classList.contains("open")) { guardSchliessen(false); return; }
   if (screenBox.classList.contains("open")) { bildschirmSchliessen(); return; }
   if (addonBox.classList.contains("open")) { addonsSchliessen(); return; }
+  if (minwinOffen) { minwinSchliessen(); return; }
   if (pickerOpen()) { closePicker(); return; }
   if (vmBox.classList.contains("open")) { closeOverlay(vmBox); return; }
   if (memBox.classList.contains("open")) { closeOverlay(memBox); return; }
@@ -4938,7 +5075,7 @@ async function loadAccount(account){
   // Dev settings und User mode gehören zu Ultra; der Server prüft es ohnehin.
   kontoUltra = ultra;
   // Sichtbar gesperrt statt zurueckspringend (9.5.32): Schloss und Hinweis.
-  for (const id of ["usermode", "vminternet"]){
+  for (const id of ["usermode", "vminternet", "vmlan"]){
     const schalter = $("#" + id);
     // Bewusst kein aria-disabled: der Schalter bleibt bedienbar, ein Klick
     // erklaert, warum er nicht geht (das Schloss steht daneben).
@@ -5128,13 +5265,26 @@ $("#usermode").addEventListener("click", async (e) => {
 });
 
 // Internet fuer die virtual machine (9.5.31): ebenfalls nur mit Ultra.
+// Seit 9.5.34 haben Normal und Pro das Internet in der virtual machine immer (das
+// lokale Netz nie) -- der Schalter ist dort fest an und laesst sich nicht umlegen.
 $("#vminternet").addEventListener("click", async (e) => {
+  if (kontoUltra) return;
+  e.preventDefault();
+  e.currentTarget.checked = true;
+  await guardDialog({
+    title: "Das Internet ist bei dir immer an.",
+    text: "Die virtual machine hat bei Normal- und Pro-Konten immer Internet — etwa für "
+      + "pip install. Dein lokales Netz bleibt gesperrt; das gibt es nur mit Ultra.",
+    ok: "Verstanden",
+  });
+});
+$("#vmlan").addEventListener("click", async (e) => {
   if (kontoUltra || !e.currentTarget.checked) return;
   e.preventDefault();
   await guardDialog({
     title: "Das gibt es leider nur mit einem Ultra-Konto.",
-    text: "Bei Normal- und Pro-Konten bleibt die virtual machine ohne Internet — "
-      + "Code läuft dort nur mit dem, was schon eingebaut ist.",
+    text: "Nur Ultra darf mit der virtual machine auch ins lokale Netz. Bei Normal- und "
+      + "Pro-Konten hat sie Internet, aber keinen Zugriff auf dein Heimnetz.",
     ok: "Verstanden",
   });
 });
@@ -6680,7 +6830,7 @@ async function kopfNeuZeichnen(){
     // staerkste), "Auto · ..." bei automatischer Wahl und die Statuszeile:
     // alles fertig vom Server (aquaticy/webview.py).
     currentModel = kopf.model || "";
-    flash($("#model-name"), kopf.model_label || "Modell wählen");
+    flash($("#model-name"), imageMode ? "🎨 Bilderstellung" : (kopf.model_label || "Modell wählen"));
     flash($("#status"), kopf.status || "");
     $("#status").title = kopf.status_title || "";
   } catch { /* Server weg -- die Oberflaeche bleibt trotzdem bedienbar */ }
