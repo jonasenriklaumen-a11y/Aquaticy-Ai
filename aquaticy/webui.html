@@ -4,7 +4,9 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <title>Aquaticy AI</title>
-<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Ctext y='26' font-size='28'%3E%E2%9C%B3%3C/text%3E%3C/svg%3E">
+<link rel="icon" type="image/png" sizes="32x32" href="/favicon-32.png">
+<link rel="icon" type="image/png" sizes="64x64" href="/favicon-64.png">
+<link rel="apple-touch-icon" href="/apple-touch-icon.png">
 <style>
 /* =========================================================================
    Farben. Warmes Papier statt kaltem Grau, gruener Akzent.
@@ -101,13 +103,16 @@ button{font:inherit;color:inherit}
 aside{width:260px;flex:0 0 auto;background:var(--sidebar);border-right:1px solid var(--line);
   display:flex;flex-direction:column;transition:margin-left .18s ease}
 body.collapsed aside{margin-left:-260px}
-.brand{display:flex;align-items:center;gap:10px;padding:16px 16px 12px}
-.mark{width:22px;height:22px;flex:0 0 auto;color:var(--accent)}
-.brand .name{font-weight:600;letter-spacing:-.01em;font-size:calc(16px * var(--fs))}
+.brand{display:flex;align-items:center;gap:10px;padding:14px 16px 12px}
+/* Das Logo (seit 9.6.0) -- darunter der Name, rechts die Version. */
+.brand-logo{display:flex;flex-direction:column;align-items:center;gap:2px;flex:0 0 auto}
+.mark{width:40px;height:40px;flex:0 0 auto;display:block;object-fit:contain}
+.brand .name{font-weight:600;letter-spacing:-.01em;font-size:calc(13px * var(--fs));line-height:1.1}
 .brand .ver{font-size:calc(11px * var(--fs));color:var(--text-3);font-variant-numeric:tabular-nums;
   border:1px solid var(--line-2);border-radius:999px;padding:1px 7px}
 /* Versionsnummer und darunter -- nur bei einer Sperre -- das rote „Info“ (9.5.24). */
-.ver-stack{margin-left:auto;display:flex;flex-direction:column;align-items:flex-end;gap:3px}
+.ver-stack{display:flex;flex-direction:column;align-items:flex-start;gap:3px;align-self:center;
+  margin-top:-14px}
 .ban-info{background:none;border:0;padding:0 2px;cursor:pointer;color:var(--err);
   font:700 calc(11px * var(--fs))/1.2 inherit;text-decoration:underline;text-underline-offset:2px}
 .ban-info[hidden]{display:none}
@@ -348,7 +353,7 @@ body:not(.start) .hello{display:none}
 
 /* =========================== Startbildschirm ============================ */
 .hello{max-width:46rem;margin:0 auto;padding:0 24px 26px;text-align:center}
-.hello .star{color:var(--accent);width:34px;height:34px;margin-bottom:18px}
+.hello .star{width:44px;height:44px;margin-bottom:18px;display:inline-block;object-fit:contain}
 .hello h1{font:400 calc(34px * var(--fs))/1.25 var(--serif);margin:0 0 10px;letter-spacing:-.01em}
 .hello p{color:var(--text-2);margin:0 0 30px;font-size:calc(15px * var(--fs))}
 .chips{display:flex;gap:9px;justify-content:center;flex-wrap:wrap;margin:16px auto 0;
@@ -970,7 +975,7 @@ input:focus,select:focus{border-color:var(--accent)}
   .hello{padding:0 18px 20px}
   .hello h1{font-size:calc(25px * var(--fs));line-height:1.2}
   .hello p{font-size:calc(14px * var(--fs));margin-bottom:22px}
-  .hello .star{width:28px;height:28px;margin-bottom:12px}
+  .hello .star{width:36px;height:36px;margin-bottom:12px}
   footer{padding:0 12px 12px}
   body.start footer{padding:0 14px 4px}
   .composer{border-radius:18px;padding:10px 11px 8px}
@@ -1016,7 +1021,7 @@ input:focus,select:focus{border-color:var(--accent)}
   .hello{padding:0 24px 26px}
   .hello h1{font-size:calc(30px * var(--fs))}
   .hello p{font-size:calc(15px * var(--fs))}
-  .hello .star{width:34px;height:34px}
+  .hello .star{width:44px;height:44px}
   .composer{border-radius:22px;padding:12px 14px 10px}
   .msg.user .bubble{max-width:80%;font-size:calc(15.5px * var(--fs))}
   .msg.bot .bubble{font-size:calc(16px * var(--fs))}
@@ -1295,10 +1300,10 @@ input:focus-visible,select:focus-visible,.side-search input:focus-visible,
 
 <aside>
   <div class="brand">
-    <svg class="mark" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
-      <path d="M12 1.6l1.9 6.1 5.6-3-3 5.6 6.1 1.9-6.1 1.9 3 5.6-5.6-3L12 22.4l-1.9-6.1-5.6 3 3-5.6L1.4 11.8l6.1-1.9-3-5.6 5.6 3z"/>
-    </svg>
-    <span class="name">Aquaticy AI</span>
+    <span class="brand-logo">
+      <img class="mark" src="/logo.png" width="40" height="40" alt="">
+      <span class="name">Aquaticy</span>
+    </span>
     <span class="ver-stack">
       <span class="ver" id="version">…</span>
       <!-- Ai-guard (9.5.24): nur sichtbar, wenn das Konto gesperrt ist. -->
@@ -1440,9 +1445,7 @@ input:focus-visible,select:focus-visible,.side-search input:focus-visible,
 
   <main id="main">
     <div class="hello" id="hello">
-      <svg class="star" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
-        <path d="M12 1.6l1.9 6.1 5.6-3-3 5.6 6.1 1.9-6.1 1.9 3 5.6-5.6-3L12 22.4l-1.9-6.1-5.6 3 3-5.6L1.4 11.8l6.1-1.9-3-5.6 5.6 3z"/>
-      </svg>
+      <img class="star" src="/logo.png" width="44" height="44" alt="">
       <h1 id="greeting">Guten Tag</h1>
       <p>Ich suche selbst im Web, lese die Seiten und nenne zu jeder Angabe die Quelle.</p>
       <div class="can-list" id="can-list">
@@ -2215,7 +2218,7 @@ input:focus-visible,select:focus-visible,.side-search input:focus-visible,
 const $ = (s) => document.querySelector(s);
 const thread = $("#thread"), main = $("#main"), input = $("#input"), send = $("#send");
 let busy = false;
-const aquaticyVersion = window.__AQUATICY_VERSION__ || "9.5.34 Spark";
+const aquaticyVersion = window.__AQUATICY_VERSION__ || "9.6.0 Spark";
 $("#version").textContent = "v" + aquaticyVersion;
 document.title = `Aquaticy AI ${aquaticyVersion}`;
 

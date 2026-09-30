@@ -59,6 +59,16 @@ from aquaticy.guardrails import rules_overview
 from aquaticy.legal import LEGAL_ROUTES, LEGAL_VERSION, legal_page
 
 UI_FILE = Path(__file__).with_name("webui.html")
+#: Feste Dateien neben der Oberflaeche (seit 9.6.0: das Logo). Nur diese
+#: Namen -- kein Pfad aus der Anfrage erreicht die Platte.
+STATIC_DIR = Path(__file__).with_name("static")
+STATIC_FILES: dict[str, str] = {
+    "/favicon.ico": "favicon-32.png",
+    "/favicon-32.png": "favicon-32.png",
+    "/favicon-64.png": "favicon-64.png",
+    "/apple-touch-icon.png": "apple-touch-icon.png",
+    "/logo.png": "logo.png",
+}
 
 #: Standardport der Oberflaeche. Steht hier, weil auch die
 #: Google-Rueckleitadresse ihn braucht.
@@ -436,7 +446,7 @@ TOKEN_COOKIE = "aquaticy_token"
 
 #: Wird gezeigt, wenn jemand ohne gueltiges Zugangswort anklopft.
 DENIED_PAGE = """<!doctype html><html lang="de"><meta charset="utf-8">
-<title>Aquaticy AI</title>
+<title>Aquaticy AI</title><link rel="icon" type="image/png" href="/favicon-32.png">
 <body style="background:#0d0f0e;color:#e8ece9;font:15px/1.6 system-ui;
              display:grid;place-items:center;height:100vh;margin:0">
 <div style="text-align:center;max-width:34em;padding:20px">
@@ -3359,7 +3369,27 @@ class Handler(BaseHTTPRequestHandler):
         self.end_headers()
         self.wfile.write(data)
 
+    def _send_static(self, route: str) -> None:
+        """Eine feste Datei aus aquaticy/static -- mit Zwischenspeicher im Browser."""
+        try:
+            daten = (STATIC_DIR / STATIC_FILES[route]).read_bytes()
+        except OSError:
+            self._json({"error": "nicht gefunden"}, 404)
+            return
+        self.send_response(200)
+        self.send_header("Content-Type", "image/png")
+        self.send_header("Content-Length", str(len(daten)))
+        self.send_header("Cache-Control", "public, max-age=86400")
+        self.end_headers()
+        if self.command != "HEAD":
+            self.wfile.write(daten)
+
     def _get(self) -> None:
+        # Das Logo (seit 9.6.0) ist oeffentlich: der Browser holt das Tab-Symbol
+        # auch ohne Zugangswort, und darin steht nichts Geheimes.
+        if self._route() in STATIC_FILES:
+            self._send_static(self._route())
+            return
         if not self._authorized():
             self._deny()
             return
@@ -3965,7 +3995,7 @@ class Handler(BaseHTTPRequestHandler):
         colour = "#2f6f4e" if ok else "#a4342b"
         title = "Geschafft" if ok else "Das hat nicht geklappt"
         body = f"""<!doctype html><html lang="de"><head><meta charset="utf-8">
-<meta name="viewport" content="width=device-width,initial-scale=1"><title>Aquaticy AI</title>
+<meta name="viewport" content="width=device-width,initial-scale=1"><title>Aquaticy AI</title><link rel="icon" type="image/png" href="/favicon-32.png">
 <style>body{{font:15px/1.6 system-ui,sans-serif;margin:0;display:grid;place-items:center;
 min-height:100vh;background:#faf9f6;color:#26241f}}
 main{{max-width:30em;padding:32px;text-align:center}}

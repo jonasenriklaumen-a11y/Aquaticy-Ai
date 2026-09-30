@@ -166,7 +166,7 @@ def legal_page(route: str) -> bytes:
     title, content = _CONTENT[route]
     html = f"""<!doctype html>
 <html lang="de"><head><meta charset="utf-8"><meta name="viewport"
-content="width=device-width,initial-scale=1"><title>{title} · Aquaticy</title>
+content="width=device-width,initial-scale=1"><title>{title} · Aquaticy</title><link rel="icon" type="image/png" href="/favicon-32.png">
 <style>
 :root{{color-scheme:light dark;font:16px/1.6 system-ui,-apple-system,"Segoe UI",sans-serif}}
 body{{max-width:760px;margin:0 auto;padding:28px 20px 60px;background:#faf9f5;color:#26251f}}

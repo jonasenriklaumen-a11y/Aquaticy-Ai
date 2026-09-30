@@ -812,7 +812,8 @@ def rundgang(pg: Any, log: Protokoll, agent: FakeAgent, bilder: Path | None,
         breite = pg.eval_on_selector(".answer-note", "e => e.getBoundingClientRect().width")
         log.pruefe(breite > 200, f"der Vermerk steht in einer Zeile ({breite:.0f}px)")
         log.pruefe(
-            pg.eval_on_selector(".brand svg", "e => e.getBoundingClientRect().width") >= 20,
+            pg.eval_on_selector(".brand img.mark",
+                                "e => e.naturalWidth > 0 && e.getBoundingClientRect().width >= 20"),
             "und das Logo in der Seitenleiste ist unversehrt",
         )
         menue(pg, "weitere")
