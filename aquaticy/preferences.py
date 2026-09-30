@@ -294,7 +294,7 @@ def coerce(preference: Preference, value: str) -> str:
     if preference.kind == "zahl":
         try:
             number = int(float(raw))
-        except ValueError:
+        except (ValueError, OverflowError):  # auch "inf", "1e400" (9.5.34)
             raise BadValue(
                 f"{preference.label}: eine Zahl zwischen {preference.low} und "
                 f"{preference.high}."

@@ -64,8 +64,15 @@ def normalize_url(url: str) -> str:
     if "://" not in url:
         url = f"http://{url}"
     parsed = urlparse(url)
-    if parsed.port is None and parsed.scheme == "http":
-        url = f"{url}:{STORAGE_PORT}"
+    # Seit 9.5.34: der Port gehoert an den Rechnernamen, nicht hinter den Pfad
+    # ("nas.local/ha" -> "nas.local:{port}/ha"); ein ungueltiger Port
+    # ("ha.local:abc") ergibt "" statt eines Absturzes.
+    try:
+        port = parsed.port
+    except ValueError:
+        return ""
+    if port is None and parsed.scheme == "http" and parsed.hostname:
+        url = parsed._replace(netloc=f"{parsed.netloc}:{STORAGE_PORT}").geturl()
     return url
 
 

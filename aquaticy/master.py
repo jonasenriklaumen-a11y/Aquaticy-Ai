@@ -318,7 +318,9 @@ def review_results(
     if not payload:
         return Review(ok=True)
     urteil = str(payload.get("urteil") or "").strip().lower()
-    fehlt = [str(eintrag).strip() for eintrag in payload.get("fehlt") or [] if str(eintrag).strip()]
+    roh = payload.get("fehlt") or []
+    roh = [roh] if isinstance(roh, str) else roh if isinstance(roh, list) else []  # 9.5.34
+    fehlt = [str(eintrag).strip() for eintrag in roh if str(eintrag).strip()]
     nachrunde = _tasks_from(payload.get("nachrunde"), retry, max(0, int(strong)))
     # Das Urteil zaehlt, aber Taten zaehlen mehr: wer Nachauftraege vergibt,
     # hat Luecken gesehen, auch wenn er "gut" geschrieben hat.

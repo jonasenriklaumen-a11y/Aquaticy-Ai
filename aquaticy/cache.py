@@ -150,7 +150,15 @@ class Cache:
         return self._sealer.seal_text(str(text or ""), spalte)
 
     def _open(self, text: Any, spalte: str) -> str:
-        return self._sealer.open_text(str(text or ""), spalte)
+        """Entschluesselt eine Spalte. Eine einzelne kaputte Zeile ergibt ""
+        statt einer Ausnahme (9.5.34) -- sonst liess sich die ganze Chatliste
+        nicht mehr oeffnen."""
+        from aquaticy.memory import CipherError
+
+        try:
+            return self._sealer.open_text(str(text or ""), spalte)
+        except (CipherError, UnicodeDecodeError):
+            return ""
 
     def _seal_old_rows(self, conn: sqlite3.Connection) -> None:
         """Verschluesselt einmalig, was noch aus der Zeit vor 9.5.32 im Klartext liegt."""
@@ -233,10 +241,13 @@ class Cache:
         # Der Zwischenspeicher zaehlt zum 400-MB-Deckel (aquaticy/budget.py).
         # Ist kein Platz, wird eben nicht zwischengespeichert -- das kostet
         # nur einen spaeteren zweiten Abruf, nie eine Antwort.
-        from aquaticy.budget import has_room
+        from aquaticy.budget import fits, note_written
 
         self._maybe_purge()
-        if not has_room(self.db_path.parent, len(payload.encode("utf-8"))):
+        groesse = len(payload.encode("utf-8"))
+        # Seit 9.5.34 ohne Aufraeumen: ein Zwischenspeicher-Eintrag ist es nicht
+        # wert, Uploads zu loeschen. Passt er nicht, entfaellt er einfach.
+        if not fits(self.db_path.parent, groesse):
             return
         with self._connect() as conn:
             conn.execute(
@@ -244,6 +255,7 @@ class Cache:
                 " VALUES (?, ?, ?, ?, ?, ?)",
                 (key, kind or key.split(":", 1)[0], label, payload, now, now + ttl_seconds),
             )
+        note_written(self.db_path.parent, groesse)
 
     def purge_expired(self) -> int:
         """Loescht abgelaufene Eintraege, gibt deren Anzahl zurueck."""
@@ -282,10 +294,13 @@ class Cache:
         Raises:
             StorageFull: Das Profil hat seine 400 MB erreicht (aquaticy/budget.py).
         """
-        from aquaticy.budget import ensure_room
+        from aquaticy.budget import ensure_room, note_written
 
         daten = json.dumps(meta or {}, ensure_ascii=False)
-        ensure_room(self.db_path.parent, len(question) + len(answer) + len(daten))
+        # Verschluesselt waechst der Text um gut ein Drittel (Base64) -- mit
+        # eingerechnet (9.5.34).
+        groesse = (len(question.encode()) + len(answer.encode()) + len(daten.encode())) * 4 // 3
+        ensure_room(self.db_path.parent, groesse)
         with self._connect() as conn, closing(conn.cursor()) as cur:
             cur.execute(
                 "INSERT INTO history (session_id, created_at, question, answer, meta)"
@@ -298,7 +313,9 @@ class Cache:
                     self._seal(daten, "history.meta"),
                 ),
             )
-            return int(cur.lastrowid or 0)
+            nummer = int(cur.lastrowid or 0)
+        note_written(self.db_path.parent, groesse)
+        return nummer
 
     def recent_history(self, limit: int = 20, session_id: str | None = None) -> list[HistoryEntry]:
         query = "SELECT * FROM history"
@@ -307,7 +324,8 @@ class Cache:
             query += " WHERE session_id = ?"
             params.append(session_id)
         query += " ORDER BY id DESC LIMIT ?"
-        params.append(limit)
+        # "LIMIT -1" hiesse in SQLite: alles (9.5.34, "export -n -1").
+        params.append(max(1, int(limit)))
         with self._connect() as conn, closing(conn.cursor()) as cur:
             cur.execute(query, params)
             rows = cur.fetchall()

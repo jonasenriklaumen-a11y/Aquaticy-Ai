@@ -18,7 +18,7 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import dataclass, field
 from html import unescape
 from html.parser import HTMLParser
-from urllib.parse import parse_qs, unquote, urlsplit
+from urllib.parse import parse_qs, urlsplit
 
 import httpx
 
@@ -63,7 +63,7 @@ class _DuckDuckGoHTML(HTMLParser):
             self._field, self._depth = "title", 1
         elif self._item is not None and "result__snippet" in classes:
             self._field, self._depth = "snippet", 1
-        elif self._field:
+        elif self._field and tag not in _LEERE_TAGS:
             self._depth += 1
 
     def handle_endtag(self, tag: str) -> None:
@@ -81,12 +81,18 @@ class _DuckDuckGoHTML(HTMLParser):
             self._item[self._field] += data
 
 
+#: Tags ohne End-Tag -- sie duerfen die Tiefe nicht erhoehen (9.5.34).
+_LEERE_TAGS = frozenset({"area", "base", "br", "col", "embed", "hr", "img", "input", "link",
+                         "meta", "source", "track", "wbr"})
+
+
 def _result_url(value: str) -> str:
     """Entpackt DuckDuckGos Weiterleitungs-URL, falls eine geliefert wird."""
     value = unescape(value).strip()
     parsed = urlsplit(value)
     if parsed.netloc.endswith("duckduckgo.com") and parsed.path.startswith("/l/"):
-        return unquote((parse_qs(parsed.query).get("uddg") or [""])[0])
+        # parse_qs dekodiert schon -- ein zweites unquote machte aus "%26" ein "&".
+        return (parse_qs(parsed.query).get("uddg") or [""])[0]
     return value
 
 
@@ -391,7 +397,16 @@ def search_web(
         engines=engines,
         instance_url=instance_url,
     )
-    return _dedupe(runner(query, options), count)
+    try:
+        roh = runner(query, options)
+    except SearchError:
+        raise
+    except (httpx.HTTPError, ValueError, AttributeError, TypeError, KeyError) as exc:
+        # Seit 9.5.34: Netzfehler und unerwartete Antworten (eine Liste statt
+        # eines Objekts, "web": null) kommen als SearchError -- sonst brach eine
+        # einzige gestoerte Anfrage die ganze Mehrfachsuche ab.
+        raise SearchError(f"Die Suche ist gerade gestört ({type(exc).__name__}).") from exc
+    return _dedupe(roh, count)
 
 
 def search_news(

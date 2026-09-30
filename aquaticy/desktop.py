@@ -157,7 +157,7 @@ REFUSE: dict[str, tuple[str, str]] = {
 
 #: Diese Tasten koennen etwas ausloesen (Formular absenden, Knopf druecken) --
 #: vor ihnen wird nachgesehen wie vor einem Klick.
-TRIGGER_KEYS = frozenset({"Return", "KP_Enter", "space"})
+TRIGGER_KEYS = frozenset({"Return", "KP_Enter", "ISO_Enter", "Linefeed", "space"})  # 9.5.34
 
 #: Tastennamen, wie xdotool sie kennt: Return, ctrl+l, alt+F4, Page_Down ...
 KEY_RE = re.compile(r"^[A-Za-z0-9_]{1,24}(\+[A-Za-z0-9_]{1,24}){0,3}$")

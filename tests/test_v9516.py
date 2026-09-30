@@ -31,6 +31,7 @@ def _ha_transport(monkeypatch: pytest.MonkeyPatch) -> list[str]:
 
     def patched(method: str, url: str, **kwargs: Any) -> httpx.Response:
         kwargs.pop("timeout", None)
+        kwargs.pop("trust_env", None)
         with httpx.Client(transport=transport) as session:
             return session.request(method, url, **kwargs)
 

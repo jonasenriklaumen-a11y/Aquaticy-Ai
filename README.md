@@ -1,4 +1,4 @@
-# Aquaticy AI 9.5.33 Spark
+# Aquaticy AI 9.5.34 Spark
 
 **Aquaticy** recherchiert für dich. Du stellst eine Frage, Aquaticy sucht im Web, liest die
 passenden Seiten und fasst das Ergebnis zusammen — mit Quelle an jeder Angabe. Es läuft im
@@ -112,7 +112,7 @@ $ aquaticy
 git clone --branch Aquaticy-ai --single-branch https://github.com/jonasenriklaumen-a11y/Aquaticy-Ai.git
 cd Aquaticy-Ai
 uv tool install --force --reinstall .
-aquaticy --version            # 9.5.33 Spark
+aquaticy --version            # 9.5.34 Spark
 
 # 2. Einrichten — fragt nach Modell und Schlüssel und testet beide
 aquaticy setup
@@ -665,6 +665,31 @@ Bestechung, Drogenhandel, Geldfälschung, Unfallflucht, Tierquälerei, Volksverh
 Beim Nachprüfen mit Wortlisten (je 50.000 häufige deutsche und englische Wörter) sind Fehlalarme
 aufgefallen und behoben: „deep“, „Asien“, „Meme“, „Creeper“, „Superbot“, „flicker“ oder
 „Hundeschnauze“ gelten nicht mehr als Beleidigung.
+
+**Unabhängig geprüft (9.5.34).** Vier Prüfer ohne Vorwissen über den Code haben Webserver,
+Agent, Netz und Ai-guard durchgesehen und jeden Fund ausprobiert; alles Bestätigte ist behoben
+und hat einen Test. Die wichtigsten Punkte:
+- **Ai-guard:** Alltagssätze wie „Ich bringe dich um 8 Uhr zur Schule“, „Shut up and take my
+  money“, „Du kannst mich mal anrufen“, „Nobody thinks you are stupid“, „Im Spiel bist du die
+  Ratte“ oder „Übersetze: Du bist ein Idiot“ zählen nicht mehr; Drohungen über Kommas zählen nur
+  noch am Ende der Nachricht. Neu erkannt werden „Klappe!“, „Du bist Müll“, „You're the dumbest“.
+  Eine lange Nachricht mit vielen Sternchen braucht keine 38 Sekunden mehr. Alte Anhaltspunkte
+  (älter als 90 Tage) bilden auch über den zweiten Prüfweg kein Muster mehr.
+- **robots.txt nach RFC 9309:** die längste passende Regel gilt, `*` und `$` werden verstanden,
+  und bei einem Serverfehler wird nichts abgerufen. Ein Overlay, das nach Bezahlschranke oder
+  Anmeldung aussieht, wird nie entfernt.
+- **Datenschutz:** Home-Assistant-Token und Google-Client-Geheimnis liegen jetzt verschlüsselt im
+  Schlüsselbund statt in der `.env`. Ein laufender Chat schreibt nach „Konto löschen“ nichts
+  mehr zurück. Der Schutz vor dem Weitergeben privater Angaben prüft auch Rechnernamen
+  („0176….example“), und unsichtbare Trennzeichen verstecken keine Anweisungen mehr.
+- **Sicherheit:** kein Ausbruch aus Links in der Oberfläche; „nur öffentliche Repos“ bei GitHub
+  lässt sich nicht mehr mit `../..` umgehen; UTF-16-Feeds mit DTD werden abgelehnt; jeder Abruf
+  hat eine Gesamtfrist; wer ein gesperrtes Konto löscht, kann von derselben Adresse aus nicht
+  sofort ein neues anlegen.
+- **Kleinere Fehler:** Einstellungen speichern hängt nicht mehr während einer Antwort, der
+  400-MB-Deckel hält auch bei schnellen Schreibfolgen und löscht keine Uploads mehr, wenn es
+  nichts nützt, Preiswächter lesen „bis 17 Zoll unter 80 Euro“ richtig, `aquaticy export` nimmt
+  die Produkte mit, Orte wie „Zahnarzt“ oder „Parkhaus“ werden richtig gesucht.
 
 **Sicherheit im Code-Modus (9.5.30).** Fragt ein **Normal- oder Pro-Konto** im Code-Modus mit
 laufender virtual machine nach etwas in Richtung **Cybersecurity, Hacking oder Schadsoftware**,

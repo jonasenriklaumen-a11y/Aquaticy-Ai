@@ -18,6 +18,7 @@ from __future__ import annotations
 
 import ipaddress
 import socket
+import time
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -253,14 +254,17 @@ def web_title(address: str, port: int, timeout: float = 1.5) -> str:
     # Keine Weiterleitungen und eine Obergrenze (seit 9.5.16): ein Geraet
     # koennte sonst woandershin schicken oder endlos Daten liefern.
     try:
+        # Kein Proxy aus der Umgebung und eine Gesamtfrist (9.5.34): ein Geraet,
+        # das Byte fuer Byte tropft, haelt die Suche sonst stundenlang auf.
+        frist = time.monotonic() + max(5.0, 3 * float(timeout))
         with httpx.stream("GET", url, timeout=timeout, verify=False,
-                          follow_redirects=False) as response:
+                          follow_redirects=False, trust_env=False) as response:
             if response.status_code >= 500:
                 return ""
             daten = b""
             for stueck in response.iter_bytes():
                 daten += stueck
-                if len(daten) >= MAX_TITLE_BYTES:
+                if len(daten) >= MAX_TITLE_BYTES or time.monotonic() > frist:
                     break
             text = daten[:MAX_TITLE_BYTES].decode(response.encoding or "utf-8", "replace")
     except Exception:

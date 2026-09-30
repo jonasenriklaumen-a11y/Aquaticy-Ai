@@ -3049,15 +3049,20 @@ class Agent:
                 self._emit("answer_chunk", text=text)
         else:
             parts: list[str] = []
-            for chunk in response:
-                zahlen = metering.usage_of(getattr(chunk, "usage", None)) or zahlen
-                choices = getattr(chunk, "choices", None)
-                if not choices:
-                    continue
-                piece = getattr(choices[0].delta, "content", None)
-                if piece:
-                    parts.append(piece)
-                    self._emit("answer_chunk", text=piece)
+            try:
+                for chunk in response:
+                    zahlen = metering.usage_of(getattr(chunk, "usage", None)) or zahlen
+                    choices = getattr(chunk, "choices", None)
+                    if not choices:
+                        continue
+                    piece = getattr(choices[0].delta, "content", None)
+                    if piece:
+                        parts.append(piece)
+                        self._emit("answer_chunk", text=piece)
+            except Exception as exc:
+                # Ein Abbruch mitten im Strom (9.5.34) beendete sonst den ganzen
+                # Chat im Terminal -- jetzt zaehlt, was bis dahin ankam.
+                self._emit("error", message=f"{type(exc).__name__}: {exc}")
             text = "".join(parts)
         self._note_usage(self.messages, {"role": "assistant", "content": text}, buchung, zahlen)
         self.messages.append({"role": "assistant", "content": text})

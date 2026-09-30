@@ -94,6 +94,7 @@ CATEGORIES: dict[str, str] = {
     "bäcker": 'nwr[shop=bakery]',
     "metzger": 'nwr[shop=butcher]',
     "supermarkt": 'nwr[shop~"^(supermarket|convenience)$"]',
+    "supermaerkte": 'nwr[shop~"^(supermarket|convenience)$"]',
     "apotheke": 'nwr[amenity=pharmacy]',
     "arzt": 'nwr[amenity~"^(doctors|clinic)$"]',
     "zahnarzt": 'nwr[amenity=dentist]',
@@ -222,14 +223,40 @@ def geocode(place: str, user_agent: str, timeout: float = 15.0) -> tuple[float, 
         raise PlacesError("Die Ortssuche gab etwas Unerwartetes zurueck.") from exc
 
 
+#: Endungen, die ein Kategorienwort tragen darf ("Cafés", "Bäckerei", "Blumenladen").
+_ENDUNGEN = ("", "s", "e", "es", "n", "en", "er", "ern", "ei", "erei", "laden", "läden",
+             "geschäft", "geschaeft", "shop", "shops", "handel", "handlung", "praxis")
+_UMLAUTE = str.maketrans({"ä": "ae", "ö": "oe", "ü": "ue", "ß": "ss"})
+
+
+def _kategorie(text: str) -> str:
+    """Die Kategorie zu einem Suchtext -- ganze Woerter, laengstes zuerst (9.5.34).
+
+    Vorher reichte ein Teilstueck: "Zahnarzt" landete bei "arzt",
+    "Radiologie" bei Fahrradlaeden, "Barbier" bei Bars, "Parkhaus" bei Parks.
+    Jetzt zaehlt ein Wort, wenn es das Kategorienwort ist, mit einer gaengigen
+    Endung ("Cafés", "Bäckerei") oder als Grundwort hinten ("Kinderarzt", "Rennrad").
+    """
+    import re
+
+    woerter = re.findall(r"[^\W\d_]+", text)
+    woerter += [w.translate(_UMLAUTE) for w in woerter]
+    for schluessel in sorted(CATEGORIES, key=len, reverse=True):
+        for wort in woerter:
+            if wort == schluessel or any(wort == schluessel + e for e in _ENDUNGEN) or (
+                    len(wort) > len(schluessel) + 2 and wort.endswith(schluessel)):
+                return CATEGORIES[schluessel]
+    return ""
+
+
 def _filter_for(what: str) -> str:
     """Der Overpass-Filter zu einem Suchwort."""
     text = " ".join((what or "").split()).lower()
     if not text:
         return "nwr[shop]"
-    for wort, filter_text in CATEGORIES.items():
-        if wort in text:
-            return filter_text
+    gefunden = _kategorie(text)
+    if gefunden:
+        return gefunden
     # Nichts Bekanntes: ueber den Namen suchen. Findet den "Radladen Meier"
     # auch dann, wenn er als etwas eingetragen ist, das hier nicht steht.
     sicher = "".join(zeichen for zeichen in text if zeichen.isalnum() or zeichen in " -äöüß")

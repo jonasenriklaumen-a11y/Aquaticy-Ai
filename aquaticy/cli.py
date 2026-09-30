@@ -1805,10 +1805,16 @@ def chat_command(
                 if _handle_slash(line, agent, settings, turns, renderer, stream, show_images):
                     break
                 continue
+            verlauf = getattr(agent, "messages", None)
+            vorher = len(verlauf) if isinstance(verlauf, list) else -1
             try:
                 result = _run_turn(agent, renderer, line, stream, show_images)
             except KeyboardInterrupt:
                 renderer.reset()
+                # Den halben Turn verwerfen (9.5.34): ein Werkzeugaufruf ohne
+                # Antwort im Verlauf liess die API jede weitere Frage ablehnen.
+                if vorher >= 0 and isinstance(getattr(agent, "messages", None), list):
+                    del agent.messages[vorher:]
                 console.print("\n[yellow]Abgebrochen.[/yellow]")
                 continue
             _record_turn(turns, line, result)
@@ -2091,6 +2097,20 @@ def _enable_readline() -> None:
         import readline  # noqa: F401
 
 
+
+def _produkte(roh: object) -> list:
+    """Produkte aus dem gespeicherten Verlauf -- Kaputtes wird uebersprungen."""
+    from pydantic import ValidationError
+
+    from aquaticy.models import Product
+
+    produkte = []
+    for eintrag in roh if isinstance(roh, list) else []:
+        if isinstance(eintrag, dict):
+            with contextlib.suppress(ValidationError, TypeError):
+                produkte.append(Product(**eintrag))
+    return produkte
+
 @app.command("export")
 def export_command(
     fmt: str = typer.Argument("html", help="html, md oder csv."),
@@ -2113,6 +2133,8 @@ def export_command(
             sources=entry.meta.get("sources", []),
             searches=entry.meta.get("searches", []),
             skipped=entry.meta.get("skipped", {}),
+            # Seit 9.5.34 auch die Produkte -- CSV und HTML waren sonst leer.
+            products=_produkte(entry.meta.get("products", [])),
         )
         for entry in entries
     ]

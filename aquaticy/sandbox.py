@@ -1173,7 +1173,9 @@ class Sandbox:
             "exec", "--user", RUN_AS, "--workdir", WORKDIR, self._name,
             "sh", "-c",
             f'find "{full}" -type f -not -path "*/.git/*" 2>/dev/null '
-            f"| head -n {MAX_LIST} | xargs -r stat -c '%s %n' 2>/dev/null",
+            # Zeilenweise statt an Leerzeichen getrennt (9.5.34): "mein bericht.pdf"
+            # fehlte sonst in der Liste.
+            f"| head -n {MAX_LIST} | tr '\\n' '\\000' | xargs -0 -r stat -c '%s %n' 2>/dev/null",
             timeout=30,
         )
         self.touch()

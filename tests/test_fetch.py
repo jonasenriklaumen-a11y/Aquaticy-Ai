@@ -138,12 +138,13 @@ def test_missing_robots_allows_everything() -> None:
     assert policy.allows("https://example.de/beliebig")
 
 
-def test_unreachable_robots_allows_everything() -> None:
+def test_unreachable_robots_disallows_for_now() -> None:
+    """RFC 9309 (seit 9.5.34): robots.txt nicht erreichbar -> vorerst nichts abrufen."""
     def handler(request: httpx.Request) -> httpx.Response:
         raise httpx.ConnectError("kein Netz", request=request)
 
     policy = RobotsPolicy(_client_returning(handler), "aquaticy/0.1")
-    assert policy.allows("https://example.de/x")
+    assert not policy.allows("https://example.de/x")
 
 
 def test_robots_is_fetched_once_per_origin() -> None:

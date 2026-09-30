@@ -138,6 +138,9 @@ def clean_flag(value: Any, standard: bool) -> bool:
     """
     if isinstance(value, str):
         value = value.strip()
+    elif value is not None and not isinstance(value, (bool, int, float)):
+        # Liste oder Objekt (9.5.34): "in _YES" warf sonst TypeError -> 500.
+        return standard
     if value in _YES:
         return True
     if value in _NO:
@@ -170,7 +173,7 @@ def clean(raw: Any, *, base: dict[str, Any] | None = None) -> dict[str, Any]:
         elif isinstance(erlaubt, range):
             try:
                 zahl = int(wert)
-            except (TypeError, ValueError):
+            except (TypeError, ValueError, OverflowError):  # auch 1e999 (9.5.34)
                 continue
             if zahl in erlaubt:
                 stand[name] = zahl
@@ -180,12 +183,25 @@ def clean(raw: Any, *, base: dict[str, Any] | None = None) -> dict[str, Any]:
     return stand
 
 
+#: Eine Sperre je Datenbank (9.5.34): der Server legt je Anfrage ein neues
+#: UIState an -- eine Sperre je Objekt schuetzte nichts, und zwei gleichzeitige
+#: Schalter ueberschrieben einander.
+_SPERREN: dict[str, threading.Lock] = {}
+_SPERREN_LOCK = threading.Lock()
+
+
+def _sperre_fuer(pfad: Path) -> threading.Lock:
+    schluessel = str(pfad.resolve())
+    with _SPERREN_LOCK:
+        return _SPERREN.setdefault(schluessel, threading.Lock())
+
+
 class UIState:
     """Liest und schreibt den Zustand der Oberflaeche."""
 
     def __init__(self, db_path: Path | str) -> None:
         self.db_path = Path(db_path)
-        self._lock = threading.Lock()
+        self._lock = _sperre_fuer(self.db_path)
         self.db_path.parent.mkdir(parents=True, exist_ok=True)
         with self._connect() as conn:
             conn.executescript(SCHEMA)

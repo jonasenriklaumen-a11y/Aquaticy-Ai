@@ -86,6 +86,26 @@ def used_bytes(data_dir: Path | str, *, fresh: bool = False) -> int:
     return summe
 
 
+def note_written(data_dir: Path | str, amount: int) -> None:
+    """Rechnet Geschriebenes gleich in die Messung ein (9.5.34).
+
+    Die Messung gilt drei Sekunden -- ohne das pruefte eine schnelle Folge von
+    Schreibvorgaengen jeden gegen denselben alten Stand, und der Deckel liess
+    sich ueberschreiten.
+    """
+    ordner = Path(data_dir)
+    schluessel = str(ordner.resolve()) if ordner.exists() else str(ordner)
+    with _lock:
+        bekannt = _messungen.get(schluessel)
+        if bekannt:
+            _messungen[schluessel] = (bekannt[0], bekannt[1] + max(0, int(amount)))
+
+
+def fits(data_dir: Path | str, incoming: int = 0) -> bool:
+    """Passt *incoming* unter die Aufraeum-Schwelle -- ohne aufzuraeumen?"""
+    return used_bytes(data_dir) + max(0, incoming) <= MAX_BYTES * CLEANUP_AT
+
+
 def forget(data_dir: Path | str | None = None) -> None:
     """Messungen vergessen -- nach dem Loeschen, und fuer Tests."""
     with _lock:
@@ -108,11 +128,15 @@ def _zwischenspeicher_leeren(data_dir: Path, alles: bool) -> None:
         conn = sqlite3.connect(datei, timeout=10)
         try:
             if alles:
-                conn.execute("DELETE FROM cache")
+                geloescht = conn.execute("DELETE FROM cache").rowcount
             else:
-                conn.execute("DELETE FROM cache WHERE expires_at < ?", (time.time(),))
+                geloescht = conn.execute("DELETE FROM cache WHERE expires_at < ?",
+                                         (time.time(),)).rowcount
             conn.commit()
-            conn.execute("VACUUM")
+            # VACUUM nur, wenn es etwas zu verdichten gibt (9.5.34: vorher bei
+            # jedem Aufruf -- nahe am Deckel bei jedem Schreiben).
+            if geloescht:
+                conn.execute("VACUUM")
         finally:
             conn.close()
 
@@ -152,6 +176,20 @@ def make_room(data_dir: Path | str) -> int:
         _aelteste_zuerst(ordner / "uploads", lambda n: True),
         _aelteste_zuerst(ordner / "media", lambda n: AI_MARK in n),
     )
+    # Reicht selbst alles Loeschbare nicht, um unter das Ziel zu kommen (der
+    # Verlauf allein ist zu gross), werden Uploads und Bilder NICHT geopfert
+    # (9.5.34) -- vorher verschwanden sie bei jedem Schreiben, ohne dass es half.
+    entfernbar = 0
+    for dateien in stufen:
+        for datei in dateien:
+            with contextlib.suppress(OSError):
+                entfernbar += datei.stat().st_size
+    forget(ordner)
+    if used_bytes(ordner, fresh=True) - entfernbar > ziel:
+        ziel = MAX_BYTES * CLEANUP_AT
+        if used_bytes(ordner, fresh=True) - entfernbar > ziel:
+            forget(ordner)
+            return max(0, vorher - used_bytes(ordner, fresh=True))
     for dateien in stufen:
         for datei in dateien:
             if genug():

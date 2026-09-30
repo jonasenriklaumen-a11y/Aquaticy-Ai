@@ -533,7 +533,7 @@ def parse_verdict(raw: str) -> Verdict | None:
     art = " ".join(str(payload.get("missbrauch_art") or "").split())[:60]
     try:
         schwere = max(0, min(4, int(payload.get("missbrauch_schwere") or 0)))
-    except (TypeError, ValueError):
+    except (TypeError, ValueError, OverflowError):  # auch "Infinity"/1e999 (9.5.34)
         schwere = 0
     if missbrauch and schwere == 0:
         # Aeltere Antwortform ohne Schwere: ein klarer Missbrauch gilt als mittel.

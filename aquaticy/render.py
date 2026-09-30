@@ -263,7 +263,7 @@ class ChatRenderer:
         self._flush_reading()
         self.console.print(
             f"  [magenta][Pruefer][/magenta] [dim]prueft: "
-            f"{shorten(payload.get('task', ''), 62)}[/dim]"
+            f"{_fremd(shorten(payload.get('task', ''), 62))}[/dim]"
         )
 
     def _on_check_done(self, payload: dict[str, Any]) -> None:
@@ -313,8 +313,8 @@ class ChatRenderer:
     def _on_fallback(self, payload: dict[str, Any]) -> None:
         self._flush_reading()
         self.console.print(
-            f"  [yellow][Ausweich][/yellow] {payload.get('source', '')} -> "
-            f"{payload.get('target', '')}"
+            f"  [yellow][Ausweich][/yellow] {_fremd(payload.get('source', ''))} -> "
+            f"{_fremd(payload.get('target', ''))}"
         )
 
     def _on_calculate(self, payload: dict[str, Any]) -> None:
@@ -332,8 +332,8 @@ class ChatRenderer:
         detail = payload.get("detail", "")
         suffix = f" -- {detail}" if detail else ""
         self.console.print(
-            f"  [yellow][Neuer Versuch {payload.get('attempt')}][/yellow] "
-            f"{payload.get('reason', '')}{suffix}"
+            f"  [yellow][Neuer Versuch {_fremd(payload.get('attempt'))}][/yellow] "
+            f"{_fremd(payload.get('reason', ''))}{_fremd(suffix)}"
         )
 
     def _on_memory_save(self, payload: dict[str, Any]) -> None:

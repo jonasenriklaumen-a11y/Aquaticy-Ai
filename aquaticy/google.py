@@ -265,12 +265,16 @@ def _explain(response: httpx.Response) -> str:
     detail = ""
     with contextlib.suppress(ValueError):
         body = response.json()
-        detail = str(
-            body.get("error_description")
-            or (body.get("error") or {}).get("message")
-            or body.get("error")
-            or ""
-        )
+        if isinstance(body, dict):
+            # "error" ist mal ein Objekt mit "message", mal nur ein Text
+            # ("invalid_grant") -- beides ist kein Absturz (9.5.34).
+            fehler = body.get("error")
+            detail = str(
+                body.get("error_description")
+                or (fehler.get("message") if isinstance(fehler, dict) else "")
+                or fehler
+                or ""
+            )
     if response.status_code == 401:
         return f"Google lehnt die Anmeldung ab ({detail or 'nicht autorisiert'})."
     if response.status_code == 403:

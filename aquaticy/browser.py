@@ -57,14 +57,36 @@ VIDEO_GRACE_SECONDS = 6.0
 CONTAINER_ARGS = ("--no-sandbox", "--disable-dev-shm-usage")
 
 #: Entfernt Overlays und loest die Scroll-Sperre.
+#: Seit 9.5.34: Ein Overlay, das nach Bezahlschranke oder Anmeldung aussieht,
+#: bleibt stehen -- und dann auch die Scroll-Sperre. Die allgemeinen Muster
+#: ("[role=dialog]", "[class*=backdrop]") trafen sonst auch Abo- und
+#: Login-Dialoge, und das waere ein Umgehen der Schranke.
 REMOVE_OVERLAYS_JS = """
 (selectors) => {
+  const schranke = new RegExp([
+    'paywall', 'regwall', 'piano', 'tp-modal', 'tp-backdrop', 'subscri', 'abonn', 'abo-',
+    'premium', 'plus-artikel', 'login', 'log in', 'sign in', 'signin', 'einloggen',
+    'anmelden', 'registrier', 'jetzt lesen mit', 'weiterlesen mit', 'unlimited access',
+    'zugang'].join('|'), 'i');
+  const istSchranke = (node) => {
+    const klasse = typeof node.className === 'string' ? node.className : '';
+    const merkmale = (node.id || '') + ' ' + klasse;
+    const text = (node.textContent || '').slice(0, 4000);
+    return schranke.test(merkmale) || schranke.test(text)
+      || !!node.querySelector(
+        'input[type="password"], iframe[src*="piano"], iframe[src*="login"]');
+  };
   let removed = 0;
+  let gesperrt = false;
   for (const selector of selectors) {
     let nodes;
     try { nodes = document.querySelectorAll(selector); } catch (e) { continue; }
-    for (const node of nodes) { node.remove(); removed += 1; }
+    for (const node of nodes) {
+      if (istSchranke(node)) { gesperrt = true; continue; }
+      node.remove(); removed += 1;
+    }
   }
+  if (gesperrt) return removed;
   // Scroll-Sperre loesen -- viele CMPs frieren das Dokument ein.
   for (const element of [document.body, document.documentElement]) {
     if (!element) continue;

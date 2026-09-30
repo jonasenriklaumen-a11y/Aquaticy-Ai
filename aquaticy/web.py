@@ -927,6 +927,18 @@ def _profile_settings(profile: Path, plan: str, account: Account | None = None) 
         settings.github_token = tresor.secret(GITHUB_TOKEN_KEY)
     except Exception:
         settings.github_token = ""
+    # Home-Assistant-Token und Google-Geheimnis ebenso (9.5.34): ein altes aus
+    # der .env wandert einmal in den Schluesselbund und verschwindet dort.
+    for name, attr in (("HA_TOKEN", "ha_token"), ("GOOGLE_CLIENT_SECRET", "google_client_secret")):
+        with contextlib.suppress(Exception):
+            alt = raw.get(name, "").strip()
+            if alt:
+                if not tresor.secret(name):
+                    tresor.set_secret(name, alt)
+                remove_env_keys(settings.env_path, {name})
+            gespeichert = tresor.secret(name)
+            if gespeichert:
+                setattr(settings, attr, gespeichert)
     # Den Such-Schluessel des Betreibers teilt ein normales Konto nur bei der
     # Suchmaschine, die der Betreiber selbst gewaehlt hat (seit 9.5.16).
     settings.account_email = str(getattr(account, "email", "") or "")
@@ -1018,6 +1030,10 @@ class ChatSession:
         #: Eine Einstellung wurde im Gespraech geaendert -- nach dem Durchlauf
         #: wird der Agent neu gebaut.
         self._reload_after = False
+        #: Beim verschobenen Neuaufbau (9.5.34): die virtual machine mit neu bauen?
+        self._reload_workshop = False
+        #: ... und die Einstellungen von vor dem Speichern, zum Vergleich.
+        self._reload_old: Settings | None = None
         #: Der Chat, in den ein neu gebauter Agent zurueckkehren soll. Leer
         #: heisst: neuer Chat.
         self._carry_over = ""
@@ -1120,8 +1136,22 @@ class ChatSession:
         Der Chat bleibt derselbe. Wer waehrend eines Gespraechs das Modell
         wechselt, will ein anderes Modell -- nicht ein anderes Gespraech.
         """
+        if self.busy():
+            # Waehrend einer Antwort nicht auf ihr Ende warten (9.5.34: das
+            # Speichern hing sonst bis zu Minuten). Neu gebaut wird danach;
+            # gelesen werden die neuen Einstellungen schon jetzt.
+            if self._reload_old is None:
+                self._reload_old = self._settings
+            self._reload_workshop = self._reload_workshop or workshop
+            self._reload_after = True
+            self._settings = None
+            if self.profile is None:
+                reset_settings_cache()
+            return
         with self._lock:
-            old_settings = self._settings
+            old_settings = self._reload_old or self._settings
+            workshop = workshop or self._reload_workshop
+            self._reload_old, self._reload_workshop = None, False
             if self._agent is not None:
                 self._carry_over = str(getattr(self._agent, "session_id", ""))
                 # Was der alte Agent schon gelesen hat, gilt fuer den neuen
@@ -1276,7 +1306,8 @@ class ChatSession:
             # `reload()` nimmt dieselbe Sperre. Es darf daher erst laufen, nachdem
             # der Turn sie freigegeben hat -- auch wenn der Agent mit einem Fehler
             # endet.
-            if reload_after:
+            if reload_after or self._reload_after:
+                self._reload_after = False
                 self.reload()
 
     @staticmethod
@@ -1830,7 +1861,7 @@ def job_abuse(account: Any, job: Any, payload: dict[str, Any]) -> None:
     if AIGUARD is None or account is None:
         return
     AIGUARD.record_incident(
-        str(account.id), str(payload.get("art") or ""), int(payload.get("schwere") or 0),
+        str(account.id), str(payload.get("art") or ""), payload.get("schwere") or 0,
         chat=f"auftrag:{getattr(job, 'id', '')}", detail=str(payload.get("art") or ""),
         enforce=not getattr(account, "ultra", False), text=str(getattr(job, "question", "")))
 
@@ -1867,6 +1898,15 @@ def forget_account_runtime(account: Account) -> None:
             planer.stop()
     sitzung = SESSIONS.drop(account.id)
     if sitzung is not None:
+        # Einen laufenden Chat erst anhalten und sein Ende abwarten (9.5.34):
+        # sonst schrieb er nach dem Loeschen den Verlauf wieder auf die Platte.
+        with contextlib.suppress(Exception):
+            sitzung.stop()
+        if sitzung._lock.acquire(timeout=60):
+            sitzung._lock.release()
+        with contextlib.suppress(Exception):
+            if sitzung._agent is not None:
+                sitzung._agent.close()
         with contextlib.suppress(Exception):
             from aquaticy import sandbox as werkstatt
 
@@ -2159,8 +2199,10 @@ def save_values(payload: dict[str, Any]) -> Path:
         if values.get(key):
             values[key] = fix_model_id(values[key])
     ha_token = str(payload.get(HA_TOKEN_FIELD, "")).strip()
+    #: Geheimnisse, die bei einem Konto in den Schluesselbund gehoeren (9.5.34).
+    geheim: dict[str, str] = {}
     if ha_token:
-        values["HA_TOKEN"] = ha_token
+        geheim["HA_TOKEN"] = ha_token
     # Eigene API-Schluessel eines Kontos gehen in seinen Schluesselbund
     # (aquaticy/keyvault.py) -- nie in eine .env, nie in die Umgebung.
     schluessel: dict[str, str] = {}
@@ -2176,7 +2218,11 @@ def save_values(payload: dict[str, Any]) -> Path:
         values["GOOGLE_CLIENT_ID"] = google_id
     google_secret = str(payload.get(GOOGLE_SECRET_FIELD, "")).strip()
     if google_secret:
-        values["GOOGLE_CLIENT_SECRET"] = google_secret
+        geheim["GOOGLE_CLIENT_SECRET"] = google_secret
+    if geheim and session.profile is None:
+        # Lokal ohne Konten bleibt es bei der .env des Betreibers.
+        values.update(geheim)
+        geheim = {}
     search_key = str(payload.get(SEARCH_KEY_FIELD, "")).strip()
     if search_key:
         backend = values.get("AQUATICY_SEARCH_BACKEND", "") or session.settings().search_backend
@@ -2204,6 +2250,15 @@ def save_values(payload: dict[str, Any]) -> Path:
         tresor = account_vault(session.profile, session.account)
         for name, wert in schluessel.items():
             tresor.set(name, wert)
+    if geheim and session.profile is not None:
+        from aquaticy.keyvault import VaultError
+
+        tresor = account_vault(session.profile, session.account)
+        for name, wert in geheim.items():
+            try:
+                tresor.set_secret(name, wert)
+            except VaultError as exc:
+                raise ValueError(str(exc)) from exc
     # In einem laufenden Prozess gewinnen bereits gesetzte Umgebungsvariablen
     # ueber die .env. Ohne override laege die neue Einstellung zwar in der
     # Datei, waere aber erst nach einem Neustart aktiv -- die Oberflaeche
@@ -2568,7 +2623,7 @@ def workshop_input(payload: dict[str, Any]) -> tuple[dict[str, Any], int]:
             fertig = box.desktop("key", taste, timeout=20, start=False)
         else:
             return {"ok": False, "error": "art: open, click, type oder key."}, 400
-    except (TypeError, ValueError):
+    except (TypeError, ValueError, OverflowError):
         return {"ok": False, "error": "x und y bitte als Zahlen."}, 400
     except Exception as exc:
         return {"ok": False,
@@ -2811,6 +2866,9 @@ class Handler(BaseHTTPRequestHandler):
             "/api/consent",
             "/api/auth/register",
             "/api/auth/login",
+            # Abmelden geht auch mit abgelaufener Sitzung -- der Cookie soll weg
+            # (9.5.34; vorher 401, und der alte Cookie blieb stehen).
+            "/api/auth/logout",
         }
         if AUTH is not None and route.startswith("/api/") and not public and account is None:
             self._json({"error": "Bitte melde dich an."}, 401)
@@ -3167,7 +3225,7 @@ class Handler(BaseHTTPRequestHandler):
                     image_id=image_id,
                 )
                 saved = True
-            except (ValueError, TypeError) as exc:
+            except (ValueError, TypeError, OverflowError) as exc:  # 1e999 (9.5.34)
                 return {"ok": False, "error": str(exc)}
             except sqlite3.Error:
                 return {"ok": False, "error": "Der Auftrag konnte nicht gespeichert werden. "
@@ -3182,7 +3240,7 @@ class Handler(BaseHTTPRequestHandler):
 
         try:
             nummer = int(payload.get("id", 0))
-        except (TypeError, ValueError):
+        except (TypeError, ValueError, OverflowError):
             return {"ok": False, "error": "Keine gueltige Kennung."}
 
         if action in ("pause", "resume"):
@@ -3970,6 +4028,11 @@ p{{margin:0 0 8px;color:#57534a}}</style></head><body><main>
             return {"ok": True, "title": cache.rename_chat(
                 session_id, titel if isinstance(titel, str) else "")}
         if action == "delete":
+            if session_id == SESSION.chat_id() and SESSION.busy():
+                # Loeschen haette bis zum Ende der Antwort gewartet -- und die
+                # schriebe den Chat danach wieder hin (9.5.34).
+                return {"ok": False, "error": "Dieser Chat antwortet gerade. "
+                        "Bitte erst stoppen, dann löschen.", "code": "busy"}
             removed = cache.delete_chat(session_id)
             # Der geloeschte Chat war vielleicht der offene -- dann faengt der
             # naechste Satz einen neuen an, statt in ein Nichts zu schreiben.
@@ -4314,6 +4377,10 @@ p{{margin:0 0 8px;color:#57534a}}</style></head><body><main>
         forget_account_runtime(konto)
         if route == "/api/account/wipe":
             AUTH.wipe_data(konto)
+            # Das Konto bleibt -- also auch sein Taktgeber (9.5.34: vorher
+            # liefen neue Auftraege bis zur naechsten Anmeldung nie).
+            with contextlib.suppress(Exception):
+                start_user_scheduler(konto)
             self._json({"ok": True})
             return
         # Ein gesperrtes Konto darf sich loeschen (Recht auf Loeschung) -- die
@@ -4324,6 +4391,13 @@ p{{margin:0 0 8px;color:#57534a}}</style></head><body><main>
             if sperre is not None:
                 for keks in AUTH.device_cookie_hashes(konto.id):
                     AIGUARD.ban_device(keks, reason=sperre.reason, until=sperre.until)
+                # Auch die letzte Adresse (9.5.34): ohne Cookie liess sich sonst
+                # sofort ein neues Konto anlegen.
+                with contextlib.suppress(Exception):
+                    adresse = AUTH.last_address(konto.id)
+                    if adresse:
+                        AIGUARD.ban_ip(adresse, reason=sperre.reason, by="konto-geloescht",
+                                       until=sperre.until)
         AUTH.remove_account(konto)
         self._json_cookie({"ok": True, "deleted": True}, AUTH_COOKIE, "", 0)
 
@@ -4491,7 +4565,7 @@ p{{margin:0 0 8px;color:#57534a}}</style></head><body><main>
                 with contextlib.suppress(Exception):
                     massnahme = AIGUARD.record_incident(
                         konto.id, str(payload.get("art") or ""),
-                        int(payload.get("schwere") or 0),
+                        payload.get("schwere") or 0,
                         chat=session.chat_id(), detail=str(payload.get("art") or ""),
                         enforce=not getattr(konto, "ultra", False), text=message)
                     if massnahme.kind == "ban":

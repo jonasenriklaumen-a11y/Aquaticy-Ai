@@ -315,7 +315,11 @@ def loaded_models(base_url: str = DEFAULT_OLLAMA_URL) -> list[str]:
         payload = response.json()
     except (httpx.HTTPError, ValueError):
         return []
-    return [str(item.get("name", "")) for item in payload.get("models", []) if item.get("name")]
+    # Wie _tag_list (9.5.34): eine Liste oder "models": null ist kein Absturz.
+    modelle = payload.get("models") if isinstance(payload, dict) else None
+    if not isinstance(modelle, list):
+        return []
+    return [str(item["name"]) for item in modelle if isinstance(item, dict) and item.get("name")]
 
 
 def unload_model(name: str, base_url: str = DEFAULT_OLLAMA_URL) -> bool:

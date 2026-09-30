@@ -138,8 +138,15 @@ def normalize_url(url: str) -> str:
     from urllib.parse import urlparse
 
     parsed = urlparse(url)
-    if parsed.port is None and parsed.scheme == "http":
-        url = f"{url}:{HA_PORT}"
+    # Seit 9.5.34: der Port gehoert an den Rechnernamen, nicht hinter den Pfad
+    # ("nas.local/ha" -> "nas.local:{port}/ha"); ein ungueltiger Port
+    # ("ha.local:abc") ergibt "" statt eines Absturzes.
+    try:
+        port = parsed.port
+    except ValueError:
+        return ""
+    if port is None and parsed.scheme == "http" and parsed.hostname:
+        url = parsed._replace(netloc=f"{parsed.netloc}:{HA_PORT}").geturl()
     return url
 
 
@@ -167,6 +174,9 @@ class HomeAssistant:
                 headers={"Authorization": f"Bearer {self.token}"},
                 json=payload,
                 timeout=self.timeout,
+                # Nie ueber einen Proxy aus der Umgebung (9.5.34): das Token
+                # ginge sonst womoeglich im Klartext durch fremde Haende.
+                trust_env=False,
             )
         except httpx.HTTPError as exc:
             raise HomeAssistantError(f"{self.url} nicht erreichbar: {exc}") from exc

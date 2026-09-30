@@ -1023,7 +1023,10 @@ def github_call(
         return {"error": f"Unbekannte Aktion. Moeglich: {', '.join(GITHUB_ACTIONS)}."}
     repo = (repo or "").strip().strip("/")
     braucht_repo = action in {"repo", "issues", "issue", "pulls", "pull", "datei", "commits"}
-    if braucht_repo and not REPO_RE.fullmatch(repo):
+    # "."/".." als Teil wuerde httpx wegnormalisieren ("../.." -> "/") -- damit
+    # liefe die Pruefung "nur oeffentlich" ins Leere (9.5.34).
+    if braucht_repo and (not REPO_RE.fullmatch(repo)
+                         or any(t in (".", "..") for t in repo.split("/"))):
         return {"error": "repo bitte als 'besitzer/name'."}
     nummer = 0
     if action in {"issue", "pull"}:
@@ -1485,10 +1488,30 @@ def _strip_html(text: str) -> str:
     return " ".join(re.sub(r"<[^>]+>", " ", text or "").split())
 
 
+def _hat_dtd(data: bytes) -> bool:
+    """Fragt den XML-Parser selbst (9.5.34): die Byte-Suche oben sieht eine DTD
+    in UTF-16 nicht, der Parser erkennt jede Kodierung."""
+    from xml.parsers import expat
+
+    parser = expat.ParserCreate()
+    gefunden = False
+
+    def dtd(*_args: Any) -> None:
+        nonlocal gefunden
+        gefunden = True
+        raise ValueError("DTD")
+
+    parser.StartDoctypeDeclHandler = dtd
+    parser.EntityDeclHandler = dtd
+    with contextlib.suppress(expat.ExpatError, ValueError):
+        parser.Parse(data, True)
+    return gefunden
+
+
 def parse_feed(data: bytes, quelle: str) -> list[dict[str, Any]]:
     """RSS 2.0 und Atom. Ohne DTD -- Entitaeten-Tricks kommen gar nicht an."""
     kopf = data[:4096].lower()
-    if b"<!doctype" in kopf or b"<!entity" in data.lower():
+    if b"<!doctype" in kopf or b"<!entity" in data.lower() or _hat_dtd(data):
         raise ValueError("Feed mit DTD/Entitaeten -- wird nicht gelesen.")
     wurzel = ET.fromstring(data)
     eintraege: list[dict[str, Any]] = []

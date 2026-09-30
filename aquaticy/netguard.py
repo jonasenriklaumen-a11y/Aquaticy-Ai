@@ -354,11 +354,34 @@ def _grenze(limit: Limit, headers: httpx.Headers) -> tuple[int, bool]:
     return limit(headers) if callable(limit) else (int(limit), False)
 
 
-def _lesen(response: httpx.Response, limit: Limit) -> bytes:
+def _gesamtfrist(client: httpx.Client, timeout: Any) -> float:
+    """Wie lange ein Abruf insgesamt dauern darf (9.5.34).
+
+    Die Zeitgrenzen von httpx gelten je Lesevorgang: ein Server, der alle paar
+    Sekunden ein Byte schickt, haelt einen Abruf sonst beliebig lange fest.
+    Insgesamt gilt deshalb das Vierfache der Lesegrenze, mindestens 30 Sekunden.
+    """
+    wert: Any = timeout
+    if isinstance(wert, httpx.Timeout):
+        wert = wert.read
+    elif wert is httpx.USE_CLIENT_DEFAULT or wert is None:
+        wert = client.timeout.read
+    try:
+        sekunden = float(wert)
+    except (TypeError, ValueError):
+        sekunden = 30.0
+    return max(30.0, 4 * sekunden)
+
+
+def _lesen(response: httpx.Response, limit: Limit, frist: float | None = None) -> bytes:
     """Liest hoechstens bis zur Grenze. Returns: die Bytes (bei "abschneiden" gekuerzt).
+
+    Args:
+        frist: Zeitpunkt (``time.monotonic``), bis zu dem alles gelesen sein muss.
 
     Raises:
         TooLarge: groesser als erlaubt, und abschneiden ist nicht erlaubt.
+        httpx.ReadTimeout: die Frist ist abgelaufen.
     """
     obergrenze, abschneiden = _grenze(limit, response.headers)
     angekuendigt = response.headers.get("content-length", "")
@@ -367,6 +390,8 @@ def _lesen(response: httpx.Response, limit: Limit) -> bytes:
     teile: list[bytes] = []
     menge = 0
     for stueck in response.iter_bytes():
+        if frist is not None and time.monotonic() > frist:
+            raise httpx.ReadTimeout("Die Seite antwortet zu langsam.", request=response.request)
         menge += len(stueck)
         if menge > obergrenze:
             if not abschneiden:
@@ -406,7 +431,10 @@ def get(
         httpx.HTTPError: alles andere, wie gewohnt.
     """
     aktuell = str(url)
+    frist = time.monotonic() + _gesamtfrist(client, timeout)
     for _ in range(max(0, int(max_redirects)) + 1):
+        if time.monotonic() > frist:
+            raise httpx.ReadTimeout("Die Seite antwortet zu langsam.", request=None)
         check_url(aktuell)
         with client.stream("GET", aktuell, headers=headers, timeout=timeout,
                            follow_redirects=False) as antwort:
@@ -417,7 +445,7 @@ def get(
                                                     request=antwort.request)
                 aktuell = urljoin(str(antwort.url), ziel)
                 continue
-            inhalt = b"" if antwort.is_redirect else _lesen(antwort, max_bytes)
+            inhalt = b"" if antwort.is_redirect else _lesen(antwort, max_bytes, frist)
             kopf = [(k, v) for k, v in antwort.headers.multi_items() if k.lower() not in _WEG]
             fertig = httpx.Response(antwort.status_code, headers=kopf, content=inhalt,
                                     request=antwort.request)

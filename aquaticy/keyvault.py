@@ -74,7 +74,9 @@ SLOT_BY_NAME: dict[str, Slot] = {slot.name: slot for slot in SLOTS}
 #: API-Schluessel fuer Modell oder Suche sind -- sie tauchen weder in der
 #: Liste der Schluessel noch in den Einstellungen auf (seit 9.5.16; das
 #: GitHub-Token stand bis dahin im Klartext in der .env des Kontos).
-INTERNAL_SECRETS = frozenset({"AQUATICY_GITHUB_TOKEN"})
+#: Seit 9.5.34 auch das Home-Assistant-Token und das Google-Client-Geheimnis
+#: -- sie standen bis dahin im Klartext in der .env des Kontos.
+INTERNAL_SECRETS = frozenset({"AQUATICY_GITHUB_TOKEN", "HA_TOKEN", "GOOGLE_CLIENT_SECRET"})
 MODEL_KEY_NAMES = frozenset(s.name for s in SLOTS if s.art == "modell")
 SEARCH_KEY_NAMES = frozenset(s.name for s in SLOTS if s.art == "suche")
 

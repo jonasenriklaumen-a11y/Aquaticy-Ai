@@ -747,7 +747,8 @@ def get_settings() -> Settings:
     from aquaticy.sandbox import VM_SIZES
 
     env_path = load_env()
-    data_dir = Path(_env_str("AQUATICY_DATA_DIR") or str(Path.home() / ".aquaticy"))
+    # "~/daten" meint den Heimordner, nicht einen Ordner "~" hier (9.5.34).
+    data_dir = Path(_env_str("AQUATICY_DATA_DIR") or str(Path.home() / ".aquaticy")).expanduser()
     vm_size = _env_str("AQUATICY_VM_SIZE", "normal").strip().lower()
     if vm_size not in VM_SIZES:
         vm_size = "normal"
@@ -908,6 +909,10 @@ def write_env_file(values: dict[str, str], path: Path | None = None) -> Path:
         if key in remaining:
             remaining.pop(key)
             out.append(zeilen[key])
+        elif key in zeilen:
+            # Eine doppelte Zeile weiter unten gewinnt beim Lesen -- sie faellt
+            # weg, sonst waere "Gespeichert" ohne Wirkung (9.5.34).
+            continue
         else:
             out.append(line)
     if remaining:

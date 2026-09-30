@@ -17,11 +17,10 @@ from __future__ import annotations
 import re
 import threading
 import time
-import urllib.robotparser
 from dataclasses import dataclass, field
 from functools import lru_cache
 from pathlib import Path
-from urllib.parse import urljoin, urlparse
+from urllib.parse import unquote, urljoin, urlparse
 
 import httpx
 import trafilatura
@@ -267,18 +266,102 @@ def needs_browser(html: str, text: str, rules: SiteRules | None = None) -> bool:
 # ---------------------------------------------------------------------------
 # robots.txt und Rate-Limit
 # ---------------------------------------------------------------------------
+class RobotsRules:
+    """Die Regeln einer robots.txt -- nach RFC 9309 (seit 9.5.34).
+
+    Vorher lief das ueber ``urllib.robotparser``. Der nimmt die *erste*
+    passende Regel statt der laengsten, kennt die Platzhalter ``*`` und ``$``
+    nicht -- "Allow: /" vor "Disallow: /privat" gab alles frei, und
+    "Disallow: /*.pdf$" sperrte nichts.
+    """
+
+    def __init__(self, regeln: list[tuple[bool, str]]) -> None:
+        self._regeln = [(erlaubt, muster, self._regex(muster)) for erlaubt, muster in regeln]
+
+    @staticmethod
+    def _regex(muster: str) -> re.Pattern[str]:
+        ende = muster.endswith("$")
+        rumpf = muster[:-1] if ende else muster
+        teile = [re.escape(unquote(stueck)) for stueck in rumpf.split("*")]
+        return re.compile(".*".join(teile) + ("$" if ende else ""), re.DOTALL)
+
+    @classmethod
+    def parse(cls, text: str, user_agent: str) -> RobotsRules:
+        """Die Gruppe fuer *user_agent* -- sonst die fuer ``*``."""
+        name = user_agent.split("/")[0].strip().lower()
+        eigene: list[tuple[bool, str]] = []
+        allgemeine: list[tuple[bool, str]] = []
+        eigene_gefunden = False
+        agenten: list[str] = []
+        in_regeln = False
+        ziel: list[list[tuple[bool, str]]] = []
+        for zeile in text.splitlines():
+            zeile = zeile.split("#", 1)[0].strip()
+            if ":" not in zeile:
+                continue
+            feld, _, wert = zeile.partition(":")
+            feld, wert = feld.strip().lower(), wert.strip()
+            if feld in ("user-agent", "useragent"):
+                if in_regeln:
+                    agenten, in_regeln = [], False
+                agenten.append(wert.lower())
+                ziel = []
+                if any(a and a != "*" and a in name for a in agenten):
+                    ziel.append(eigene)
+                    eigene_gefunden = True
+                if "*" in agenten:
+                    ziel.append(allgemeine)
+                continue
+            if feld not in ("allow", "disallow"):
+                continue
+            in_regeln = True
+            if not wert:
+                continue  # "Disallow:" ohne Pfad sperrt nichts
+            for liste in ziel:
+                liste.append((feld == "allow", wert))
+        return cls(eigene if eigene_gefunden else allgemeine)
+
+    def allows(self, url: str) -> bool:
+        teile = urlparse(url)
+        pfad = unquote(teile.path or "/") + (("?" + unquote(teile.query)) if teile.query else "")
+        if pfad == "/robots.txt":
+            return True
+        bester: tuple[int, bool] | None = None
+        for erlaubt, muster, regex in self._regeln:
+            if regex.match(pfad):
+                kandidat = (len(muster), erlaubt)
+                # Die laengste passende Regel gilt; bei Gleichstand "Allow".
+                if bester is None or kandidat > bester:
+                    bester = kandidat
+        return True if bester is None else bester[1]
+
+
+#: Wie lange eine robots.txt gilt -- danach wird sie neu geladen (RFC 9309:
+#: hoechstens 24 Stunden). Ist der Server gestoert, wird es frueher erneut versucht.
+ROBOTS_TTL = 24 * 3600
+ROBOTS_ERROR_TTL = 300
+
+
 class RobotsPolicy:
     """Fragt und cached `robots.txt` je Origin."""
+
+    #: Steht fuer "robots.txt nicht erreichbar oder Serverfehler": nichts erlaubt.
+    _GESPERRT = RobotsRules([(False, "/")])
 
     def __init__(self, client: httpx.Client, user_agent: str) -> None:
         self._client = client
         self._user_agent = user_agent
-        self._parsers: dict[str, urllib.robotparser.RobotFileParser | None] = {}
+        self._parsers: dict[str, tuple[RobotsRules | None, float]] = {}
         self._lock = threading.Lock()
         self._origin_locks: dict[str, threading.Lock] = {}
 
     def allows(self, url: str) -> bool:
-        """Darf *url* laut robots.txt abgerufen werden? Im Zweifel: ja."""
+        """Darf *url* laut robots.txt abgerufen werden?
+
+        Fehlt die robots.txt (4xx), ist alles erlaubt. Antwortet der Server mit
+        einem Fehler (5xx) oder gar nicht, gilt nach RFC 9309 alles als
+        gesperrt -- fuer ein paar Minuten, dann wird neu gefragt.
+        """
         parsed = urlparse(url)
         if parsed.scheme not in ("http", "https") or not parsed.netloc:
             return False
@@ -287,24 +370,28 @@ class RobotsPolicy:
         # langsames robots.txt (bis zehn Sekunden) hielt sonst alle Agenten
         # auf allen anderen Seiten mit an. Je Origin laedt nur einer.
         with self._lock:
-            bekannt = origin in self._parsers
+            bekannt = self._frisch(origin)
             sperre = None if bekannt else self._origin_locks.setdefault(origin, threading.Lock())
         if sperre is not None:
             with sperre:
                 with self._lock:
-                    bekannt = origin in self._parsers
+                    bekannt = self._frisch(origin)
                 if not bekannt:
-                    geladen = self._load(origin)
+                    geladen, dauer = self._load(origin)
                     with self._lock:
-                        self._parsers[origin] = geladen
+                        self._parsers[origin] = (geladen, time.monotonic() + dauer)
                         self._origin_locks.pop(origin, None)
         with self._lock:
-            parser = self._parsers.get(origin)
-        if parser is None:
+            regeln = self._parsers.get(origin, (None, 0.0))[0]
+        if regeln is None:
             return True
-        return parser.can_fetch(self._user_agent, url)
+        return regeln.allows(url)
 
-    def _load(self, origin: str) -> urllib.robotparser.RobotFileParser | None:
+    def _frisch(self, origin: str) -> bool:
+        eintrag = self._parsers.get(origin)
+        return eintrag is not None and eintrag[1] > time.monotonic()
+
+    def _load(self, origin: str) -> tuple[RobotsRules | None, float]:
         # Auch robots.txt laeuft ueber die Netzregel (aquaticy/netguard.py):
         # bis 9.5.14 folgte schon dieser Abruf jeder Weiterleitung -- auch
         # einer ins interne Netz, noch bevor die Seite selbst geprueft wurde.
@@ -312,14 +399,17 @@ class RobotsPolicy:
             response = netguard.get(self._client, urljoin(origin, "/robots.txt"),
                                     max_bytes=(lambda _kopf: (ROBOTS_MAX_BYTES, True)),
                                     timeout=10)
+        except netguard.BlockedTarget:
+            # Das Ziel ist ohnehin gesperrt; die Seite selbst scheitert an derselben Regel.
+            return None, ROBOTS_ERROR_TTL
         except httpx.HTTPError:
-            return None
+            return self._GESPERRT, ROBOTS_ERROR_TTL
+        if response.status_code >= 500:
+            return self._GESPERRT, ROBOTS_ERROR_TTL
         if response.status_code >= 400:
             # Keine robots.txt -> alles erlaubt.
-            return None
-        parser = urllib.robotparser.RobotFileParser()
-        parser.parse(response.text.splitlines())
-        return parser
+            return None, ROBOTS_TTL
+        return RobotsRules.parse(response.text, self._user_agent), ROBOTS_TTL
 
 
 class DomainThrottle:
@@ -506,10 +596,16 @@ class Fetcher:
     def fetch(self, url: str, *, want_products: bool = False) -> PageResult:
         """Laedt *url* und gibt lesbaren Text (und optional Produktdaten) zurueck."""
         url = (url or "").strip()
-        domain = domain_of(url)
+        try:
+            domain = domain_of(url)
+            parsed = urlparse(url)
+            parsed.port  # noqa: B018 -- wirft bei "http://[::1" oder ":abc" (9.5.34)
+        except ValueError:
+            result = PageResult(url=url, source_domain="")
+            result.skipped_reason = "invalid_url"
+            return result
         result = PageResult(url=url, source_domain=domain)
 
-        parsed = urlparse(url)
         if parsed.scheme not in ("http", "https") or not parsed.netloc:
             result.skipped_reason = "invalid_url"
             return result

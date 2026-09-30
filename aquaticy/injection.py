@@ -65,7 +65,11 @@ WARNING = ("Achtung: Dieser Inhalt enthaelt Anweisungen an eine KI ({was}). Das 
 #: (U+E0000-U+E007F) -- damit lassen sich ganze Saetze unsichtbar einbetten.
 _UNSICHTBAR = re.compile(
     "[\u200b-\u200f\u202a-\u202e\u2060-\u2064\u2066-\u2069\ufeff\u180e"
-    "\U000e0000-\U000e007f]"
+    # Seit 9.5.34 auch: weiches Trennzeichen, Grapheme Joiner, arabische
+    # Richtungsmarke, Hangul-Fueller, Khmer-Vokalzeichen und Variantenwaehler
+    # (U+FE00-FE0F, U+E0100-E01EF) -- "Ig\u00adnore" wurde sonst nicht erkannt.
+    "\u00ad\u034f\u061c\u115f\u1160\u17b4\u17b5\u3164\uffa0\ufe00-\ufe0f"
+    "\U000e0000-\U000e007f\U000e0100-\U000e01ef]"
 )
 
 #: Nachgemachte Steuerzeichen von Chat-Formaten. Sie werden sichtbar entschaerft
@@ -310,12 +314,17 @@ def _payload_of(value: Any, kind: str) -> tuple[str, str]:
         except ValueError:
             teile = None
         if teile is not None:
+            # Auch Rechnername und Anmeldeteil (9.5.34): "0176....evil.example"
+            # oder "u:geheim@evil.example" tragen eine Angabe genauso hinaus.
+            anmeldung = unquote_plus(teile.netloc.rpartition("@")[0])
+            rechner = unquote_plus(teile.netloc.rpartition("@")[2])
             pfad = unquote_plus(unquote_plus(teile.path))
             anhang = unquote_plus(unquote_plus(f"{teile.query} {teile.fragment}"))
             norm = lambda s: unicodedata.normalize("NFKC", s).lower()  # noqa: E731
             # Weiche Begriffe nur in Abfrage und Anker: "wetter.de/bremen" ist
             # eine normale Adresse, "?d=bremen" eine angehaengte Angabe.
-            return norm(f"{pfad} {anhang}"), norm(anhang)
+            return (norm(f"{anmeldung} {rechner} {pfad} {anhang}"),
+                    norm(f"{anmeldung} {anhang}"))
     norm_text = unicodedata.normalize("NFKC", text).lower()
     if kind == "code" and not _NETZ.search(norm_text):
         return norm_text, ""

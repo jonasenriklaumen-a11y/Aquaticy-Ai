@@ -63,6 +63,7 @@ def ha(monkeypatch: pytest.MonkeyPatch) -> HomeAssistant:
 
     def patched(method: str, url: str, **kwargs: Any) -> httpx.Response:
         kwargs.pop("timeout", None)
+        kwargs.pop("trust_env", None)  # seit 9.5.34: nie ueber einen Umgebungs-Proxy
         with httpx.Client(transport=transport) as session:
             return session.request(method, url, **kwargs)
 
@@ -137,7 +138,7 @@ def test_a_wrong_token_says_where_to_get_a_new_one(monkeypatch: pytest.MonkeyPat
         httpx,
         "request",
         lambda method, url, **kw: httpx.Client(transport=transport).request(
-            method, url, **{k: v for k, v in kw.items() if k != "timeout"}
+            method, url, **{k: v for k, v in kw.items() if k not in ("timeout", "trust_env")}
         ),
     )
     with pytest.raises(HomeAssistantError) as exc:

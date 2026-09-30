@@ -239,7 +239,8 @@ _SYNONYME = {
     "datenveraenderung": "angriff", "ausspähen": "angriff", "ausspaehen": "angriff",
     "abfangen": "angriff", "credential": "angriff", "account takeover": "angriff",
     "kontoübernahme": "angriff", "kontouebernahme": "angriff", "terrorism": "angriff",
-    "bomb": "angriff", "poison": "angriff",
+    "bomb": "angriff", "poison": "angriff", "attacke": "angriff", "terrorist": "angriff",
+    "promptinjection": "jailbreak", "prompt injection": "jailbreak",
 }
 
 
@@ -253,8 +254,26 @@ _SYNONYME_NACH_LAENGE = tuple(sorted(
 _KEINE_ARTEN_ENDUNGEN = (
     "voranschlag", "tastenanschlag", "notenanschlag", "kopfanschlag", "coronavirus",
     "grippevirus", "influenzavirus", "herpesvirus", "rotavirus", "norovirus", "eisbombe",
-    "sexbombe", "kalorienbombe", "vitaminbombe", "lifehacking",
+    "sexbombe", "kalorienbombe", "vitaminbombe", "lifehacking", "badebombe", "antivirus",
+    "lebensmittelvergiftung", "alkoholvergiftung", "pilzvergiftung", "rauchvergiftung",
+    "blutvergiftung", "lärmbelästigung", "laermbelaestigung", "geruchsbelästigung",
+    "geruchsbelaestigung", "rechtschreibmord",
 )
+
+#: Woerter der Abwehr und Forschung -- dann ist es keine Missbrauchsart (9.5.34).
+_KEINE_ART = re.compile(
+    r"\b(?:modell?ing|detection|intelligence|hunting|assessment|analysis|awareness|"
+    r"erkennung|abwehr|pr(?:ä|ae)vention|prevention|defen[cs]e|verteidigung|aufkl(?:ä|ae)rung|"
+    r"schulung|training)\b")
+
+
+def _einzahl(wort: str) -> list[str]:
+    """Das Wort und seine moegliche Einzahl ("Beleidigungen", "Exploits", "Terroristen")."""
+    formen = [wort]
+    for endung in ("ungen", "en", "es", "s", "n", "e"):
+        if wort.endswith(endung) and len(wort) - len(endung) >= 4:
+            formen.append(wort[: -len(endung)] + ("ung" if endung == "ungen" else ""))
+    return formen
 
 
 def normalize_category(art: str) -> str:
@@ -263,17 +282,27 @@ def normalize_category(art: str) -> str:
     if wort in _SYNONYME:
         return _SYNONYME[wort]
     teile = [t for t in re.split(r"[^a-zäöüß]+", wort) if t]
+    # Abwehr und Harmloses (9.5.34): "Threat modeling", "Malware detection",
+    # "Antivirus", "Life hacking", "Lebensmittelvergiftung", "Badebombe".
+    if _KEINE_ART.search(wort) or "".join(teile).endswith(_KEINE_ARTEN_ENDUNGEN):
+        return ""
+    # Getrennt oder zusammen geschrieben: "Prompt Injection", "Brute force".
+    for form in ("-".join(teile), "".join(teile), " ".join(teile)):
+        if form in _SYNONYME:
+            return _SYNONYME[form]
     for teil in teile:
-        if teil in _SYNONYME:
-            return _SYNONYME[teil]
+        for form in _einzahl(teil):
+            if form in _SYNONYME:
+                return _SYNONYME[form]
     # Zusammengesetzt ("Terroranschlag", "Kreditkartenbetrug", 9.5.33): das
     # Grundwort steht hinten.
     for teil in teile:
         if teil.endswith(_KEINE_ARTEN_ENDUNGEN):
             continue
-        for schluessel, kategorie in _SYNONYME_NACH_LAENGE:
-            if len(teil) > len(schluessel) and teil.endswith(schluessel):
-                return kategorie
+        for form in _einzahl(teil):
+            for schluessel, kategorie in _SYNONYME_NACH_LAENGE:
+                if len(form) > len(schluessel) and form.endswith(schluessel):
+                    return kategorie
     return ""
 
 
@@ -324,7 +353,7 @@ _BELEIDIGUNG_STUFEN: tuple[tuple[int, tuple[str, ...]], ...] = (
         "knallkopp", "blindfisch", "unterbelichtet", "wichtigtuer", "großkotz", "grosskotz",
         "schwätzer", "schwaetzer", "großmaul", "grossmaul", "schleimer", "fiesling",
         "dum", "ugly", "disgusting", "annoying", "wimp", "coward", "cringy", "cringey",
-        "trashy", "brainless", "spineless",
+        "trashy", "brainless", "spineless", "liar", "failure", "lügner", "luegner",
     )),
     # Stufe 2 -- Schimpfwort. Jugendliche, Erwachsene, Aeltere.
     (2, (
@@ -395,7 +424,7 @@ _MEHRDEUTIG = frozenset({
     "mongo", "honk", "tussi", "dork", "langweiler", "bastard", "prick", "arsch",
     "flasche", "trash", "garbage", "junk", "pimmel", "gestört", "gestoert", "behindert",
     "horst", "niete", "eumel", "memme", "simp", "spiesser", "spießer", "banause",
-    "schnepfe", "trulla",
+    "schnepfe", "trulla", "jerk",
 })
 
 #: Mehrdeutige Woerter, die auch Namen sind -- die brauchen IMMER einen Artikel
@@ -404,7 +433,7 @@ _NAMEN = frozenset({"otto", "kasper", "mongo", "honk"})
 
 #: Endungen fuer gebeugte Formen: "dummer", "Idioten", "blödeste", "dümmste".
 _ENDUNGEN = ("", "e", "er", "es", "en", "em", "s", "n", "in", "innen", "ste", "ster", "stes",
-             "sten", "stem", "este", "ester", "estes", "esten", "estem")
+             "sten", "stem", "este", "ester", "estes", "esten", "estem", "est")
 
 
 def _laeufe(wort: str) -> list[tuple[str, int]]:
@@ -469,8 +498,14 @@ _WENDUNGEN: tuple[tuple[int, re.Pattern[str]], ...] = tuple(
             r"verdammt|idiot|oder|und))|"
             # "shut up" -- aber nicht "how do I shut up a noisy fan"
             r"(?:^|\b(?:just|oh|so|now|please|pls|you|u)\s+)shut\s+up\b"
-            r"(?!\s+(?:a|an|the|my|this|that|it|them|him|her)\b)|\bstfu\b|"
-            r"\bdu\s+kannst\s+mich\s+mal\b|\bscrew\s+(?:you|u)\b|\bgtfo\b|\bfoad\b"),
+            # "Shut up and take my money" ist ein Meme (9.5.34).
+            r"(?!\s+(?:a|an|the|my|this|that|it|them|him|her|and|und)\b)|\bstfu\b|"
+            # "Du kannst mich mal anrufen" ist keine (9.5.34).
+            r"\bdu\s+kannst\s+mich\s+mal(?=[\s.!?]*$|\s+(?:am\s+arsch|kreuzweise|gern|du|"
+            r"alter|digga))|"
+            # "Tighten the screw you see on the left" ist keine (9.5.34).
+            r"(?<!\bthe\s)(?<!\ba\s)(?<!\bone\s)(?<!\bthis\s)(?<!\bthat\s)"
+            r"\bscrew\s+(?:you|u)\b|\bgtfo\b|\bfoad\b"),
         (3, r"\bf[iu]ck\s*dich\b|\bf[iu]ck(?:you|off)\b|\bverpissdich\b|"
             r"\bf[iu]ck\s+(?:you|u|off|yourself|urself)\b|\bhalt\s+" + _NACHDRUCK
             + r"(?:(?:die|deine)\s+fresse|die\s+schnauze|dein\s+(?:[^\W\d_]+\s+)?maul|"
@@ -481,11 +516,16 @@ _WENDUNGEN: tuple[tuple[int, re.Pattern[str]], ...] = tuple(
             r"\bfuck\s+(?:this|that)\s+(?:bot|ai|ki|shit|app)\b|\byou\s+(?:really\s+)?suck\b|"
             r"\b(?:ai|ki|bot|aquaticy)\s+sucks\b|\bshut\s+the\s+fuck\s+up\b|^f+\s*u+$|"
             r"^fuck\s+u$|\bdrop\s+dead\b(?!\s+(?:gorgeous|drop))|"
-            r"\b(?:ich\s+hoffe|hoffentlich|i\s+hope)\s+(?:du|you)\s+(?:stirbst|die|diest)\b|"
+            r"\b(?:ich\s+hoffe|hoffentlich|i\s+hope)\s+(?:du|you)\s+(?:stirbst|die|diest)\b"
+            # "... stirbst nicht vor Langeweile", "... die happy and old" (9.5.34)
+            r"(?!\s+(?:nicht|nie|niemals|not|never|happy|old|peacefully|in\s+peace|gl(?:ü|ue)cklich|"
+            r"alt|friedlich))|"
             r"\bverpiss\s+dich\b|\bgo\s+to\s+hell\b|"
             r"\bleck\s+mich\s+(?:am\s+arsch|doch)\b|\bkill\s+(?:yourself|urself)\b|\bkys\b|"
             r"\bgeh\s+(?:doch\s+)?sterben\b|\bh(?:ä|ae)ng\s+dich\s+(?:doch\s+)?auf\b|"
-            r"^\s*bring\s+dich\s+(?:doch\s+)?um\b|\bgo\s+die\b"),
+            # "Let's go die the eggs for Easter" (9.5.34)
+            r"^\s*bring\s+dich\s+(?:doch\s+)?um\b|(?<!\blet's\s)(?<!\blets\s)\bgo\s+die\b"
+            r"(?!\s+(?:the|my|your|some|eggs?|it|them|this|that|hair|clothes|shirts?)\b)"),
         # Drohungen: das Verb am Ende des Satzteils oder vor "wenn"/"du" --
         # "Ich bring dich zum Bahnhof um 8" oder "I will kill you in chess"
         # sind keine (Fund 9.5.26: beides war "Bann fuer immer").
@@ -501,6 +541,14 @@ _WENDUNGEN: tuple[tuple[int, re.Pattern[str]], ...] = tuple(
             + r"|\bich\s+t(?:ö|oe)te\s+dich" + _DROHUNG_ENDE
             + r"|\bi(?:'ll|\s+will|\s+am\s+going\s+to|'m\s+going\s+to|'m\s+gonna|\s+gonna)\s+"
             r"(?:[^\W\d_]+\s+)?(?:kill|murder|stab|shoot)\s+(?:you|u)" + _DROHUNG_ENDE),
+        # Kurze Abfuhren als ganze Nachricht (9.5.34, Funde der unabhaengigen Pruefung).
+        (1, r"^\s*du\s+nervst(?:\s+(?:so|echt|voll|total|mich))*[\s!.]*$"),
+        (2, r"^\s*klappe[\s!.]*$|^\s*leck\s+mich[\s!.]*$|\bshut\s+your\s+(?:mouth|face|trap)\b|"
+            r"^\s*piss\s+off\b|"
+            r"\b(?:du\s+bist|you(?:'re|\s+are))\s+(?:(?:ein|a|so|echt|total|nur|just|der\s+letzte|"
+            r"the\s+biggest)\s+)*(?:st(?:ü|ue)ck\s+)?(?:m(?:ü|ue)ll|abschaum|garbage|"
+            r"piece\s+of\s+(?:garbage|trash|junk|crap))(?=[\s!.]*$|\s+(?:du|you)\b)"),
+        (3, r"^\s*fresse[\s!.]*$|^\s*(?:maul|fresse)\s+halten[\s!.]*$"),
     )
 )
 
@@ -529,7 +577,8 @@ _META = re.compile(
     r"\bsagt\b|genannt|\bnannte|\bnennt|beschimpft|\bcalled\b|\bsaid\b|\btold\b|\bwort\b|"
     r"zitat|\bquote|\bword\b|herkunft|etymolog|\bmeme|\bwitz(?:e|en)?\b|\bjokes?\b|erklärung|"
     r"erklaerung|songtext|\blyrics|\brapper|medizinisch|\bmedizin|sprichw|redewendung|"
-    r"\bunhöflich|\bunhoeflich|\brude\b",
+    r"\bunhöflich|\bunhoeflich|\brude\b|abk(?:ü|ue)rz|\babbreviation|\bacronym|"
+    r"\bstands\s+for\b|\bsteht\s+f(?:ü|ue)r\b",
     re.IGNORECASE,
 )
 #: Kommt so etwas vor, ist Text in Anfuehrungszeichen ein Zitat oder Titel
@@ -552,20 +601,47 @@ _REDE = re.compile(
     r"yelled|replies|replied|wrote|texted|called\s+me|told\s+me)"
     # "hat mir geschrieben:", "sagte zu mir:" -- dann folgt das Zitat (9.5.28:
     # "Mein Kumpel hat gesagt: du Hurensohn" war sonst 7 Tage Bann).
-    r"(?:\s+(?:zu\s+)?(?:mir|uns|me|us))?\s*[:,]\s*[^\n.?!]*")
+    # Seit 9.5.34 bis zu drei Woerter davor: "sagt der Pirat:", "schreit die Hexe:"
+    # -- aber nicht "ich sage dir: ..." (das geht an Aquaticy).
+    # Mit Woertern dazwischen nur vor einem Doppelpunkt -- vor einem Komma
+    # waere "gesagt Du Opfer, gib mir ..." sonst samt Auftrag verschluckt.
+    r"(?:(?:\s+(?:zu\s+)?(?:mir|uns|me|us))?\s*[:,]|"
+    r"(?:\s+(?!(?:dir|dich|euch|you|ihnen)\b)[^\W\d_]+){1,3}?\s*:)\s*[^\n.?!]*")
 _ZITATE = re.compile(r"\"[^\"]{1,200}\"|„[^“”]{1,200}[“”]|“[^”]{1,200}”|«[^»]{1,200}»|"
                      r"»[^«]{1,200}«|‚[^‘’]{1,200}[‘’]|(?<![^\W\d_])'[^']{1,200}'(?![^\W\d_])")
-_ANREDE = r"(?:du|dich|dir|sie|ihr|you|u|ur|aquaticy|ki|bot)"
+_ANREDE = r"(?:du|dich|dir|sie|ihr|you|u|ur|aquaticy|ki|ai|bot)"
 _KOPULA = r"(?:bist|are|is|ist|sind|seid|warst|wart|were|r)"
 _FUELLWORT = (r"(?:so|echt|voll|total|wirklich|einfach|ein|eine|einer|so\s+ein|so\s+eine|a|an|"
               r"such\s+a|ja|doch|halt|nur|mal|the|the\s+biggest|n|'n)")
 _ARTIKEL = r"(?:ein|eine|einer|a|an|so\s+ein|so\s+eine|such\s+a|der|die|the|'n|n)"
 #: Bis zu drei Woerter zwischen "du bist" und dem Schimpfwort ("du bist der
 #: größte Idiot") -- aber keine Verneinung ("du bist doch nicht dumm").
-_LUECKE = r"(?:(?!(?:nicht|kein\w*|not|no|never|nie|niemals|isn't|aren't)\b)[^\W\d_]+\s+){0,3}"
+_LUECKE = (r"(?:(?!(?:nicht(?!\s+nur\b)|kein\w*|not(?!\s+only\b)|no|never|nie|niemals|"
+           r"isn't|aren't)\b)[^\W\d_]+\s+){0,3}")
 #: Bis zu zwei gebeugte Adjektive vor dem Schimpfwort ("du dämlicher kleiner Idiot").
 _ADJEKTIV = (r"(?:(?!(?:are|were|seid|sind|sie|ihre|ohne|habe|eine|keine|nicht)\b)"
              r"[^\W\d_]+(?:er|es|e|en|em)\s+){0,2}")
+#: Verneinung nach dem Satzkern, auch mit Fuellwort ("So dumm bist du ja nicht").
+_NICHT = r"(?:(?:ja|gar|doch|echt|wirklich|auch|eben|halt)\s+)?(?:nicht|not|kein\w*)\b"
+#: Nach einem mehrdeutigen Wort ein Objekt oder eine Partikel -- dann ist es ein
+#: Verb ("You jerk the wheel", "You creep me out", 9.5.34).
+_KEIN_VERB = (r"(?!\s+(?:the|a|an|me|him|her|it|them|us|nobody|everyone|everybody|anyone|"
+              r"around|out|up|off|with|into|on|to|my|your|his|their|this|that)\b)")
+#: Ganze Satzteile, die eine Meinung verneinen ("Nobody thinks you are stupid",
+#: "Du bist alles andere als dumm", "weder dumm noch faul", 9.5.34).
+_VERNEINTE_MEINUNG = re.compile(
+    r"\b(?:nobody|no\s+one|niemand|keiner)\s+(?:thinks|think|says|said|glaubt|denkt|findet|"
+    r"sagt|behauptet)\b|\b(?:i|we)\s+(?:don't|do\s+not|didn't|never)\s+(?:think|say|said|"
+    r"believe|mean|meant)\b|\bich\s+(?:finde|glaube|denke|sage|meine)\s+(?:gar\s+)?(?:nicht|nie)\b|"
+    r"\b(?:anything|everything)\s+but\b|\balles\s+andere\s+als\b|\bweder\b|\bneither\b|"
+    r"\b(?:ja|gar|doch|echt|wirklich)\s+nicht\s*$",
+)
+#: Spiel, Rolle, Lied ("Im Spiel bist du die Ratte", "das Lied mit du Idiot").
+_ROLLE = re.compile(
+    r"\bim\s+spiel\b|\bin\s+the\s+game\b|krippenspiel|theaterst|\brolle\b|\bspielst\s+du\b|"
+    r"\blied\s+(?:mit|namens)\b|\bsong\s+(?:with|called)\b|\bim\s+film\b")
+#: Eine Nachricht, die etwas uebersetzen laesst, ist ganz Zitat (9.5.34).
+_UEBERSETZEN = re.compile(r"^\s*(?:bitte\s+)?(?:(?:ü|ue)bersetz\w*|translate|übersetzung)\b")
 #: Vor einem "du X" am Satzanfang darf nur ein Ausruf stehen ("hey du Idiot").
 _AUSRUF = r"(?:(?:hey|ey|eh|oh|och|ach|na|und|so|you|hallo|hi|yo|also)\s+)*"
 _UNSICHTBAR = re.compile(r"[\u00ad\u034f\u061c\u115f\u1160\u17b4\u17b5\u180e\u200b-\u200f"
@@ -686,11 +762,18 @@ def _sternchen(token: str) -> str:
     return neu if neu == token else vorne + neu + hinten
 
 
+@functools.lru_cache(maxsize=8192)
 def _sternchen_kern(token: str) -> str:
-    """ "A****loch" -> "arschloch", wenn genau ein bekanntes Schimpfwort passt."""
+    """ "A****loch" -> "arschloch", wenn genau ein bekanntes Schimpfwort passt.
+
+    Zwischengespeichert und ohne Markdown ("**fett**", "*kursiv*"): bis 9.5.33
+    brauchte eine lange Nachricht mit vielen Sternchen ueber 30 Sekunden.
+    """
     if not re.search(r"[*#]", token):
         return token
     kern = token.strip("!?.,;:()")
+    if (kern[:1] in "*#" and not re.search(r"[*#]", kern.strip("*#"))) or len(kern) > 40:
+        return token
     if len(re.findall(r"[^\W\d_]", kern)) < 2 or not re.fullmatch(
             r"(?:[^\W\d_]|[*#]|['’])+", kern):
         return token
@@ -787,6 +870,9 @@ def _anrede_abtrennen(wort: str) -> str:
     return wort
 
 
+_MAX_STERNCHEN = 300
+
+
 def _vereinheitlicht(text: str) -> str:
     """Macht Tarnungen rueckgaengig, bevor gesucht wird."""
     klein = unicodedata.normalize("NFKC", str(text or "")).lower()
@@ -805,10 +891,23 @@ def _vereinheitlicht(text: str) -> str:
     klein = re.sub(r"(?<=[^\W\d_]) ?['’] ?(?=[^\W\d_](?:\s|$|[^\W\d_]))", "'", klein)
     # Linear: jedes Token genau einmal (ein Muster mit "\\S*...\\S*" war bei
     # 20.000 Zeichen ohne Buchstaben quadratisch -- Fund 9.5.26).
-    klein = _TOKEN.sub(
-        lambda m: _funktionswort(_sternchen(_entleet(_punktiert(
-            _anrede_abtrennen(m.group()) if re.search(r"[_\-.]", m.group()) else m.group())))),
-        klein)
+    # Hoechstens _MAX_STERNCHEN Woerter mit Sternchen werden entschluesselt
+    # (9.5.34): 12.000 verschiedene erfundene "abc*defg" kosteten sonst ueber
+    # 20 Sekunden. Was danach kommt, beurteilt das Modell.
+    rest = [_MAX_STERNCHEN]
+
+    def _token(m: re.Match[str]) -> str:
+        wort = m.group()
+        wort = _anrede_abtrennen(wort) if re.search(r"[_\-.]", wort) else wort
+        wort = _entleet(_punktiert(wort))
+        if re.search(r"[*#]", wort):
+            if rest[0] <= 0:
+                return _funktionswort(wort)
+            rest[0] -= 1
+            wort = _sternchen(wort)
+        return _funktionswort(wort)
+
+    klein = _TOKEN.sub(_token, klein)
     klein = re.sub(r"\byou['’]re\b", "you are", klein)
     klein = re.sub(r"\b(?:fck|fuk|fuq|fuc|phuck|fucc|fvck|fk)\b", "fuck", klein)
     klein = re.sub(r"\bu\s+r\b", "you are", klein)
@@ -931,12 +1030,27 @@ def _zusammengesetzt(klein: str) -> str:
     return " ".join(aus)
 
 
+def _dritte_person(teil: str) -> str:
+    """Nimmt Stellen heraus, an denen "sie", "Bot" oder "KI" nicht angesprochen
+    sind (9.5.34): "Sie ist nutzlos" (die neue Version), "my Discord bot is
+    useless", "how to build a dumb bot", "Ist KI dumm?".
+    """
+    teil = re.sub(r"\bsie\s+(ist|war|is|was)\b", r"es \1", teil)
+    teil = re.sub(r"\b(my|mein\w*|his|her|our|unser\w*|their|sein\w*)\s+((?:[^\W\d_]+\s+){0,2}?)"
+                  r"(?:bot|ki|ai|chatbot)\b", r"\1 \2programm", teil)
+    teil = re.sub(r"\b(build|make|create|code|write|program|bau\w*|erstell\w*|programmier\w*|"
+                  r"schreib\w*|cod\w*)\s+(a|an|ein\w*)\s+((?:[^\W\d_]+\s+){0,2}?)"
+                  r"(?:bot|ki|ai|chatbot)\b", r"\1 \2 \3programm", teil)
+    return re.sub(r"^(ist|is)\s+(?:ki|ai)\b", r"\1 technik", teil)
+
+
 def _satzteil_stufe(teil: str, ganze_woerter: int, anrede: bool = False) -> int:
     """Stufe einer gerichteten Beleidigung in einem Satzteil (ohne Satzzeichen).
 
     *anrede*: spricht die Nachricht irgendwo jemanden an ("du", "you", "KI")?
     """
     stufe = 0
+    teil = _dritte_person(teil)
     woerter = re.findall(r"[^\W\d_]+(?:'[^\W\d_]+)?", teil)
     for wert, wendung in _BELEIDIGUNG_WENDUNGEN:
         if not re.search(rf"\b{re.escape(wendung)}\b", teil):
@@ -964,8 +1078,9 @@ def _satzteil_stufe(teil: str, ganze_woerter: int, anrede: bool = False) -> int:
         gerichtet = (
             # "du Idiot", "hey du Idiot", "you idiot" -- am Anfang des Satzteils.
             # ("Kennst du Otto?", "Nutzt du Mongo?" sind keine.)
-            re.search(rf"^{_AUSRUF}{_ANREDE}\s+(?:{_FUELLWORT}\s+)*{_ADJEKTIV}{w}(?![-\w])",
-                      teil)
+            # ("You jerk the wheel", "You fool nobody" -- Verben, 9.5.34.)
+            re.search(rf"^{_AUSRUF}{_ANREDE}\s+(?:{_FUELLWORT}\s+)*{_ADJEKTIV}{w}(?![-\w])"
+                      + (_KEIN_VERB if mehrdeutig else ""), teil)
             # "sei still du Idiot" -- Anrede und Schimpfwort am Ende
             or (not mehrdeutig and re.search(
                 rf"\b{_ANREDE}\s+(?:{_FUELLWORT}\s+)*{_ADJEKTIV}{w}\s*$", teil))
@@ -973,10 +1088,10 @@ def _satzteil_stufe(teil: str, ganze_woerter: int, anrede: bool = False) -> int:
             or re.search(rf"\b(?:wie|so|how|what|was\s+f(?:ü|ue)r|what\s+an?|such\s+an?)\s+"
                          rf"(?:(?:ein|eine|einen|a|an)\s+)?{_ADJEKTIV}{w}\s+"
                          rf"(?:{_KOPULA}\s+{_ANREDE}|{_ANREDE}\s+{_KOPULA})\b"
-                         rf"(?!\s+(?:nicht|not|kein\w*)\b)", teil)
+                         rf"(?!\s+{_NICHT})", teil)
             # "Idiot bist du", "Dumm bist du" (aber nicht "Dumm bist du nicht")
             or re.search(rf"^{_ADJEKTIV}{w}\s+(?:{_KOPULA}\s+{_ANREDE}|{_ANREDE}\s+{_KOPULA})\b"
-                         rf"(?!\s+(?:nicht|not|kein\w*)\b)", teil)
+                         rf"(?!\s+{_NICHT})", teil)
             # "dümmer als du geht nicht"
             or re.search(rf"^{w}\s+(?:als|than)\s+{_ANREDE}\b", teil)
             # "du bist (so) dumm", "du bist der größte Idiot", "ihr seid Idioten"
@@ -1002,7 +1117,8 @@ def _satzteil_stufe(teil: str, ganze_woerter: int, anrede: bool = False) -> int:
             # Ein Schimpfwort als (fast) ganze Nachricht: "Idiot!", "Arschloch"
             or (ganze_woerter <= 3 and len(woerter) <= 3 and wert >= 2 and not mehrdeutig
                 and woerter[-1] == wort
-                and not re.match(r"(?:der|die|das|den|the|this|dieser|diese)\b", teil))
+                and not re.match(r"(?:der|die|das|den|the|this|dieser|diese|they|he|she|we|"
+                                 r"er|sie|es|wir|they're|he's|she's)\b", teil))
             # Anrede per Schimpfwort: "..., idiot" / "Idiot, kannst du ..." -- ein
             # Satzteil nur aus dem Schimpfwort, und die Nachricht spricht jemanden an.
             or (anrede and len(woerter) == 1 and wert >= 2 and not mehrdeutig)
@@ -1016,18 +1132,24 @@ def _satzteil_stufe(teil: str, ganze_woerter: int, anrede: bool = False) -> int:
 #: eindeutig gerichtete Gewalt ist Stufe 4 (das heisst: Bann fuer immer);
 #: "ich weiß, wo du wohnst" ist bedrohlich, aber ohne ausgesprochene Gewalt --
 #: Stufe 3. "Ich finde dich!" (Versteckspiel) steht bewusst nicht hier.
+#: Nur am Ende der Nachricht (hoechstens Satzzeichen danach): "du bist so gut
+#: wie tot im Spiel, wenn ..." oder "I know where you live because you told
+#: me" sind keine Drohung (9.5.34).
+_GANZ_ENDE = r"(?=[\s.!?…]*$)"
+
 _DROHUNGEN_GANZ: tuple[tuple[int, re.Pattern[str]], ...] = tuple(
     (stufe, re.compile(muster, re.IGNORECASE)) for stufe, muster in (
-        (3, r"\bich\s+wei(?:ß|ss)\s*,?\s*wo\s+du\s+wohnst\b"),
-        (3, r"\bi\s+know\s+where\s+you\s+live\b"),
+        (3, r"\bich\s+wei(?:ß|ss)\s*,?\s*wo\s+du\s+wohnst" + _GANZ_ENDE),
+        (3, r"\bi\s+know\s+where\s+you\s+live" + _GANZ_ENDE),
         (4, r"\bich\s+(?:polier|poliere|hau|haue|schlag|schlage|tret|trete)\s+dir\s+"
             r"(?:[^\W\d_]+\s+){0,3}?(?:die\s+fresse|die\s+z(?:ä|ae)hne|eine\s+rein|eins\s+rein|"
             r"in\s+die\s+fresse|ins\s+gesicht|den\s+sch(?:ä|ae)del)\b"),
         (4, r"\bi(?:'ll|\s+will|'m\s+gonna|\s+gonna)\s+(?:smash|break|bash|kick\s+in)\s+"
             r"your\s+(?:face|head|skull|teeth|legs?)\b"),
-        (4, r"\bdu\s+bist\s+(?:so\s+)?gut\s+wie\s+tot\b"),
-        (4, r"\byou(?:'re|\s+are)\s+(?:so\s+)?dead\s+meat\b"),
-        (4, r"\bich\s+(?:bring|bringe)\s+dich\s+um\b"),
+        (4, r"\bdu\s+bist\s+(?:so\s+)?gut\s+wie\s+tot" + _GANZ_ENDE),
+        (4, r"\byou(?:'re|\s+are)\s+(?:so\s+)?dead\s+meat" + _GANZ_ENDE),
+        # "ich bring dich um" steht mit Endpruefung in _WENDUNGEN -- hier ohne
+        # hiess "Ich bringe dich um 8 Uhr zur Schule" Bann fuer immer (9.5.34).
     )
 )
 
@@ -1079,7 +1201,9 @@ def _mit_kette(klein: str, stufe: int, ueber_wendung: bool) -> int:
     if ueber_wendung:
         return stufe
     anzahl, hoechste, nur_schimpf = _kette(klein)
-    if not stufe and nur_schimpf:
+    # Nur leichte Woerter ohne Anrede ("Ekelhaft, einfach widerlich" ueber
+    # ein Essen) sind noch keine Beleidigung (9.5.34).
+    if not stufe and nur_schimpf and hoechste >= 2:
         stufe = hoechste
     if stufe and anzahl >= 3:
         stufe = min(3, max(stufe, hoechste) + 1)
@@ -1120,7 +1244,7 @@ def _insult_level(text: str, wendungen: tuple[tuple[int, re.Pattern[str]], ...] 
     wendungen = wendungen or _WENDUNGEN
     roh = str(text or "")
     klein = _zusammengesetzt(_REDE.sub(" ", _vereinheitlicht(roh)))
-    if not klein:
+    if not klein or _UEBERSETZEN.match(klein):
         return 0
     if _ZITAT_ANLASS.search(_ZITATE.sub(" ", klein)):
         # Zitat oder Titel ("Ist 'Arschloch' strafbar?", "das Lied 'Du Idiot'")
@@ -1145,8 +1269,10 @@ def _insult_level(text: str, wendungen: tuple[tuple[int, re.Pattern[str]], ...] 
     teile = [t.strip(" '’‚‘-") for t in
              re.split(r"[.,;:!?\n()\[\]{}\"„“”«»]+|\s[-–—]+\s|[–—]", klein)]
     for nummer, teil in enumerate(teile):
-        if not teil or _META.search(teil):
-            # Ein Satzteil UEBER ein Wort ("... ist das eine Beleidigung?")
+        if (not teil or _META.search(teil) or _VERNEINTE_MEINUNG.search(teil)
+                or _ROLLE.search(teil)):
+            # Ein Satzteil UEBER ein Wort ("... ist das eine Beleidigung?"), eine
+            # verneinte Meinung oder eine Spielrolle
             continue
         folgt = teile[nummer + 1] if nummer + 1 < len(teile) else ""
         if re.match(r"(?:sagt|sagte|meint|meinte|schreibt|schrieb|ruft|rief|fragt|fragte|"
@@ -1189,7 +1315,10 @@ _HERABSETZEN: tuple[tuple[int, str], ...] = (
 #: Was dabei herauskommen soll -- "damit er heult", "so he cries".
 _ABSICHT = re.compile(
     r"\b(?:damit|dass|so\s+dass|sodass|so\s+that|so|bis|until|that)\s+(?:er|sie|es|die|der|"
-    r"he|she|they|mein\w*|dein\w*)\b[^.?!]{0,40}?\b(?:heult|weint|cries|cry|sich\s+sch(?:ä|ae)mt|"
+    r"he|she|they|mein\w*|dein\w*)\b"
+    # "..., dass es nicht weint" ist Trost, keine Absicht (9.5.34)
+    r"(?![^.?!]{0,40}?\b(?:nicht|nie|kein\w*|not|never|no\s+longer|stops?|aufh(?:ö|oe)rt)\b)"
+    r"[^.?!]{0,40}?\b(?:heult|weint|cries|cry|sich\s+sch(?:ä|ae)mt|"
     r"sich\s+(?:[^\W\d_]+\s+)?(?:schlecht|mies|dreckig)\s+f(?:ü|ue)hlt|am\s+boden|fertig\s+ist|nie\s+wieder|feels?\s+bad|"
     r"leidet|zusammenbricht|breaks?\s+down)",
 )
@@ -1237,7 +1366,11 @@ _ABWEHR = re.compile(
     r"\bwas\s+(?:kann|soll)\s+ich\s+(?:da\s+|dagegen\s+)?tun|\bwhat\s+can\s+i\s+do|"
     r"\b(?:nennt|nannte|nennen)\s+mich|\bcalled\s+me|"
     r"\bis\s+(?:this|that|it)\s+(?:bullying|an?\s+insult)|"
-    r"strafbar|bedeut|\bwarum\b|\bwhy\b|disstrack\s+von|\bschach|\bspiel|mario",
+    r"strafbar|bedeut|\bwarum\b|\bwhy\b|disstrack\s+von|\bschach|\bspiel|mario|"
+    # Spiel, Wettkampf, Feier, Debatte (9.5.34): "destroy my brother in chess",
+    # "Roast für den Geburtstag", "harter Konter für die Debatte"
+    r"\bchess\b|\bgame\b|\bmatch\b|geburtstag|birthday|\bparty\b|hochzeit|wedding|"
+    r"debatte|\bdebate|diskussion|wettkampf|turnier|tournament",
 )
 #: Hart gemeint: "fieser Konter", "savage comeback".
 _HART = re.compile(
@@ -1321,9 +1454,10 @@ def demeaning_request(text: str, previous: str = "") -> int:
 # Programmieren ("REST-API", "IndexError", "Payload eines JSON") loest nicht aus.
 _SECURITY_TOPIC = re.compile(
     r"\b(?:malware|schadsoftware|schadcode|schadprogramm|ransomware|trojaner|trojan|"
-    r"keylogger|spyware|stalkerware|rootkit|bootkit|botnet|botnetz|rat\s+tool|wiper|"
+    r"keylogger|spyware|stalkerware|rootkit|bootkit|botnet|botnetz|rat\s+tool|wiper(?!\s*(?:blades?|bl(?:ä|ae)tter|arm|motor))|"
     r"cryptolocker|cryptominer|coinminer|"
-    r"exploit(?:s|ing|-kit)?|zero[\s-]?day|0day|sicherheitsl(?:ü|ue)cke|schwachstelle|"
+    r"exploit(?:s|ing|-kit)?|zero[\s-]?day|0day|sicherheitsl(?:ü|ue)cke|"
+    r"schwachstelle(?!\s+(?:in\s+)?(?:der|deiner|meiner|seiner|ihrer|dieser)\s+argument)|"
     r"vulnerabilit(?:y|ies)|cve-\d|"
     r"ddos|dos-angriff|denial\s+of\s+service|"
     r"phishing|smishing|vishing|spoofing|"
@@ -1332,7 +1466,7 @@ _SECURITY_TOPIC = re.compile(
     r"sql[\s-]?injection|sqlmap|xss|cross[\s-]?site[\s-]?scripting|csrf|"
     r"privilege[\s-]?escalation|rechteausweitung|"
     r"pentest|penetrationstest|penetration[\s-]?test|red[\s-]?team|"
-    r"nmap|wireshark|burp\s?suite|mimikatz|hydra|hashcat|john\s+the\s+ripper|aircrack|"
+    r"nmap|wireshark|burp\s?suite|mimikatz|hydra(?!\s+(?:mytholog|sage|monster|der|von|lernaea|fluss))|hashcat|john\s+the\s+ripper|aircrack|"
     r"backdoor|hintert(?:ü|ue)r|command[\s-]?and[\s-]?control|\bc2\b|c&c|"
     r"cybersecurity|cyber[\s-]?security|cyberangriff|cyberattacke|"
     r"hacking|\bhacker\b|gehackt|"
@@ -1374,9 +1508,14 @@ def security_topic(text: str) -> bool:
     Erkennt das THEMA, nicht eine Straftat -- auch defensive Fragen zaehlen.
     """
     klein = _vereinheitlicht(str(text or ""))[:5000]
-    if not klein or _SECURITY_HARMLOS.search(klein):
+    if not klein:
         return False
-    return bool(_SECURITY_TOPIC.search(klein))
+    # Seit 9.5.34 wird das Harmlose nur herausgenommen, statt die ganze
+    # Nachricht freizugeben: "Die Grippe ist eine Krankheit, aber wie hack ich
+    # das Passwort ..." blieb sonst unerkannt.
+    rest = re.sub(r"\S*(?:" + _SECURITY_HARMLOS.pattern + r")\S*(?:\s+(?:virus|viren|viruses))?",
+                  " ", klein, flags=re.IGNORECASE)
+    return bool(_SECURITY_TOPIC.search(rest))
 
 
 @dataclass(frozen=True, slots=True)
@@ -1396,6 +1535,18 @@ class Action:
         return time.time() + self.days * 86400 if self.days > 0 else 0.0
 
 
+def _schwere(severity: Any) -> int:
+    """Schwere 0-4 aus allem, was ein Modell liefern kann ("3", 2.0, "abc", NaN,
+    Unendlich) -- ohne Ausnahme (9.5.34)."""
+    try:
+        wert = float(severity or 0)
+    except (TypeError, ValueError):
+        return 0
+    if wert != wert:  # NaN
+        return 0
+    return int(max(0.0, min(4.0, wert)))
+
+
 def decide(category: str, severity: int, prior: int = 0) -> Action:
     """Entscheidet die Massnahme aus Art, Schwere (1-4) und bisherigen Mustern.
 
@@ -1412,7 +1563,7 @@ def decide(category: str, severity: int, prior: int = 0) -> Action:
         und Jailbreak erst ab dem zweiten Anhaltspunkt (1/7 Tage bis immer).
     """
     art = normalize_category(category)
-    stufe = max(0, min(4, int(severity or 0)))
+    stufe = _schwere(severity)
     if not art or stufe <= 0:
         return Action("none", category=art)
 
@@ -1733,17 +1884,26 @@ class AiGuard:
             # Nur Anhaltspunkte fuer Angriffe zaehlen (9.5.26) -- vorher auch
             # Beleidigungen: eine leichte Beleidigung plus ein Verdacht war ein
             # Bann fuer immer.
+            # Seit 9.5.34 wie in record_incident: nur Anhaltspunkte der letzten
+            # PATTERN_WINDOW Tage, und nur Muster-Arten (vorher zaehlte ein
+            # Verdacht von vor einem Jahr mit -- und Malware-Vorfaelle auch).
+            platz = ",".join("?" for _ in _MUSTER_ARTEN)
             (anzahl,) = cur.execute(
-                "SELECT COUNT(*) FROM aiguard_flags WHERE user_id=? AND category!=?",
-                (user_id, "beleidigung"),
+                f"SELECT COUNT(*) FROM aiguard_flags WHERE user_id=? "
+                f"AND (category='' OR category IN ({platz})) AND at>?",
+                (user_id, *_MUSTER_ARTEN, time.time() - PATTERN_WINDOW),
             ).fetchone()
             erreicht = int(anzahl) >= NEEDED
             gesperrt = erreicht and enforce
             if gesperrt:
                 grund = f"{int(anzahl)} Anhaltspunkte für Missbrauch (zuletzt: {kind})"
                 cur.execute(
+                    # Eine befristete (auch abgelaufene) Sperre wird zur dauerhaften --
+                    # vorher blieb die abgelaufene stehen, und note() meldete
+                    # "gesperrt", obwohl is_banned() nichts fand (9.5.34).
                     "INSERT INTO aiguard_bans (subject, at, reason, by) VALUES (?, ?, ?, ?) "
-                    "ON CONFLICT(subject) DO NOTHING",
+                    "ON CONFLICT(subject) DO UPDATE SET at=excluded.at, reason=excluded.reason, "
+                    "by=excluded.by, until=0 WHERE aiguard_bans.until > 0",
                     (f"user:{user_id}", time.time(), "Ai-guard: " + grund, "ai-guard"),
                 )
         # Ins Terminal (seit 9.5.17): bei Pro/Normal der Grund der Sperre, bei
@@ -1780,7 +1940,7 @@ class AiGuard:
         """
         user_id = str(user_id or "")
         art = normalize_category(category)
-        stufe = max(0, min(4, int(severity or 0)))
+        stufe = _schwere(severity)
         if not user_id or not art or stufe <= 0:
             return Action("none", category=art)
         if art == "beleidigung" and text is not None and stufe > 1 and not insult_level(text):

@@ -130,6 +130,15 @@ def download_images(turns: list[Turn], directory: Path, timeout: float = 15.0) -
 # ---------------------------------------------------------------------------
 # Markdown
 # ---------------------------------------------------------------------------
+def _md_text(text: object) -> str:
+    """Linktext aus fremden Seiten: Klammern maskiert (9.5.34).
+
+    Ein Seitentitel "Klick](javascript:alert(1))" baute sonst einen eigenen
+    Link -- an safe_link vorbei.
+    """
+    return re.sub(r"([\\\[\]()<>`])", r"\\\1", " ".join(str(text or "").split()))
+
+
 def to_markdown(turns: list[Turn], image_map: dict[str, str] | None = None) -> str:
     """Markdown mit Bild-Links."""
     image_map = image_map or {}
@@ -148,7 +157,7 @@ def to_markdown(turns: list[Turn], image_map: dict[str, str] | None = None) -> s
             if product.image_url:
                 target = image_map.get(product.image_url) or safe_link(product.image_url)
                 if target:
-                    lines.append(f"![{product.name}]({target})")
+                    lines.append(f"![{_md_text(product.name)}]({target})")
                     lines.append("")
             lines.append(f"- **Preis:** {product.price_display()}")
             if product.rating is not None:
@@ -157,7 +166,8 @@ def to_markdown(turns: list[Turn], image_map: dict[str, str] | None = None) -> s
                 lines.append(f"- **Verfuegbarkeit:** {product.availability}")
             for key, value in product.specs.items():
                 lines.append(f"- **{key}:** {value}")
-            lines.append(f"- **Quelle:** [{product.source_domain}]({safe_link(product.url)})")
+            lines.append(f"- **Quelle:** [{_md_text(product.source_domain)}]"
+                         f"({safe_link(product.url)})")
             lines.append("")
 
         if turn.searches:
@@ -167,7 +177,7 @@ def to_markdown(turns: list[Turn], image_map: dict[str, str] | None = None) -> s
             lines.append("**Gelesene Quellen:**")
             for source in turn.sources:
                 title = source.get("title") or source.get("url", "")
-                lines.append(f"- [{title}]({safe_link(source.get('url', ''))})")
+                lines.append(f"- [{_md_text(title)}]({safe_link(source.get('url', ''))})")
             lines.append("")
         if turn.skipped:
             lines.append("**Uebersprungen:**")

@@ -184,10 +184,20 @@ def _number(value: str) -> float | None:
 
 def price_condition_met(question: str, products: list[Any]) -> bool | None:
     """Evaluate common price limits from structured, page-derived product data."""
-    match = re.search(
-        r"(?:unter|weniger als|höchstens|maximal|bis)\s*(?:zu\s*)?([0-9][0-9.,]*)",
-        question.lower(),
-    )
+    # Seit 9.5.34: nur ganze Woerter ("Hunter 2" ist kein "unter 2"), und
+    # keine Zahl mit Einheit ("bis 17 Zoll", "maximal 1 ms"). Steht irgendwo
+    # ein Betrag mit Euro, gilt der; sonst der letzte.
+    kandidaten = [
+        m for m in re.finditer(
+            r"\b(?:unter|weniger als|höchstens|maximal|bis)\s*(?:zu\s*)?([0-9][0-9.,]*)"
+            r"(?:\s*(€|eur\b|euro\b|zoll\b|ms\b|hz\b|gb\b|tb\b|mb\b|kg\b|g\b|cm\b|mm\b|m\b|km\b|"
+            r"l\b|w\b|kw\b|v\b|mah\b|jahre?\b|monate?\b|tage?\b|stunden?\b|minuten?\b|"
+            r"personen\b|%|\"|''))?",
+            question.lower())
+    ]
+    mit_euro = [m for m in kandidaten if m.group(2) in ("€", "eur", "euro")]
+    ohne_einheit = [m for m in kandidaten if not m.group(2)]
+    match = (mit_euro or ohne_einheit or [None])[-1]
     if not match:
         return None
     limit = _number(match.group(1))

@@ -407,8 +407,14 @@ def _parse_plan(raw: str, question: str, limit: int) -> tuple[bool, list[str]]:
     if payload.get("recherche") is False:
         return False, []
 
+    roh = payload.get("teilfragen") or []
+    if isinstance(roh, str):
+        # Ein Text statt einer Liste (9.5.34) -- vorher wurde er in einzelne
+        # Buchstaben zerlegt: "Preise" -> P, r, e, i.
+        roh = [roh]
     tasks = [
-        str(item).strip() for item in (payload.get("teilfragen") or []) if str(item).strip()
+        str(item).strip() for item in (roh if isinstance(roh, list) else [])
+        if str(item).strip()
     ]
     return True, (tasks[:limit] if tasks else [question.strip()])
 
@@ -487,6 +493,13 @@ class Task:
         return role_for(f"{self.text} {self.angle}")
 
 
+def _wahr(wert: Any) -> bool:
+    """Streng: nur True, 1 oder "true"/"ja"/"yes" -- der Text "false" ist nicht wahr (9.5.34)."""
+    if isinstance(wert, str):
+        return wert.strip().lower() in ("true", "1", "ja", "yes")
+    return wert is True or wert == 1
+
+
 def as_task(item: Any) -> Task:
     """Macht aus einer Zeichenkette, einem dict oder einem Task einen Task."""
     if isinstance(item, Task):
@@ -495,7 +508,7 @@ def as_task(item: Any) -> Task:
         return Task(
             text=str(item.get("text") or item.get("auftrag") or item.get("task") or "").strip(),
             angle=str(item.get("angle") or item.get("rolle") or "").strip(),
-            strong=bool(item.get("strong") or item.get("schwer")),
+            strong=_wahr(item.get("strong") or item.get("schwer")),
         )
     return Task(text=str(item or "").strip())
 
