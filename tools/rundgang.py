@@ -1590,7 +1590,9 @@ def rundgang(pg: Any, log: Protokoll, agent: FakeAgent, bilder: Path | None,
             pg.wait_for_timeout(150)
             for pid in ("", "mono"):
                 pg.click(f'.pal[data-palette="{pid}"]')
-                pg.wait_for_timeout(120)
+                # Der Untergrund blendet weich ueber -- erst danach ablesen
+                # (unter Last waren 120 ms zu knapp).
+                pg.wait_for_timeout(450)
                 gesetzt = pg.get_attribute("html", "data-palette") or ""
                 if gesetzt != pid:
                     log.pruefe(False, f"Design {pid or 'standard'} wird nicht gesetzt")
@@ -1865,6 +1867,54 @@ def rundgang(pg: Any, log: Protokoll, agent: FakeAgent, bilder: Path | None,
         pg.evaluate("document.body.classList.remove('tracing')")
         pg.wait_for_timeout(200)
         foto("10a-denken")
+
+    if dran("ablauf"):
+        log.abschnitt("10c. Laufanzeige (9.6.0)")
+        pg.click('#modes .mode[data-mode="normal"]')
+        pg.wait_for_timeout(300)
+        pg.click("#btn-new")
+        pg.wait_for_timeout(600)
+        pg.fill("#input", "zwischen-probe warte")
+        pg.click("#send")
+        pg.wait_for_selector(".interim", timeout=10_000)
+        log.pruefe("neuesten Nachrichten" in pg.inner_text(".interim"),
+                   "die Zwischennachricht steht da, solange gearbeitet wird")
+        log.pruefe(pg.locator(".phase.aktiv").count() == 1,
+                   "genau eine Phase laeuft (mit animiertem Logo)")
+        log.pruefe(pg.locator(".phase.aktiv .phase-logo img").count() == 1,
+                   "links daneben das Logo")
+        pg.wait_for_selector("#stop", state="hidden", timeout=20_000)
+        pg.wait_for_timeout(600)
+        log.pruefe(pg.locator(".interim").count() == 0,
+                   "mit der Antwort ist die Zwischennachricht weg")
+        namen = [n.strip() for n in pg.locator(
+            ".msg.bot >> nth=-1").locator(".phase-name").all_inner_texts()]
+        log.pruefe("Websuche" in namen and namen.count("Gedacht") >= 2,
+                   f"Denken, Websuche, Denken: {namen}")
+        log.pruefe(pg.locator(".phase.aktiv").count() == 0, "danach laeuft nichts mehr")
+        denken = pg.locator(".msg.bot >> nth=-1").locator(".phase.think").last
+        log.pruefe(not denken.locator(".phase-detail").is_visible(),
+                   "die Gedanken sind erst zugeklappt")
+        denken.locator(".phase-kopf").click()
+        pg.wait_for_timeout(250)
+        log.pruefe("zusammenfassen" in denken.locator(".phase-detail").inner_text(),
+                   "ein Klick auf 'Denken' zeigt, was gedacht wurde")
+        log.pruefe("Hier sind die neuesten Nachrichten" in pg.inner_text(".msg.bot >> nth=-1"),
+                   "die richtige Antwort steht da")
+        # Code-Modus: statt "Denken" wechselnde Woerter wie bei Claude.
+        pg.click('#modes .mode[data-mode="code"]')
+        pg.wait_for_timeout(500)
+        pg.fill("#input", "zwischen-probe warte")
+        pg.click("#send")
+        pg.wait_for_selector(".msg.bot >> nth=-1 >> .phase.think", timeout=10_000)
+        wort = pg.locator(".msg.bot >> nth=-1").locator(
+            ".phase.think .phase-name").first.inner_text()
+        log.pruefe(wort.strip("… ") not in ("Denken", "Gedacht") and len(wort) > 3,
+                   f"im Code-Modus heisst Denken anders: {wort!r}")
+        pg.wait_for_selector("#stop", state="hidden", timeout=20_000)
+        pg.click('#modes .mode[data-mode="normal"]')
+        pg.wait_for_timeout(300)
+        foto("10c-ablauf")
 
     if dran("einchat"):
         log.abschnitt("10b. Ein Chat bleibt ein Chat")

@@ -438,13 +438,12 @@ body:not(.start) .hint{display:none}
   25%{transform:translateY(-1.5px) rotate(-7deg) scale(1.07)}
   50%{transform:translateY(0) rotate(0) scale(.94)}
   75%{transform:translateY(1px) rotate(7deg) scale(1.05)}}
-.phase.aktiv .phase-name{background:linear-gradient(90deg,var(--text-3) 0%,var(--text) 38%,
-  var(--accent) 50%,var(--text) 62%,var(--text-3) 100%);background-size:260% 100%;
-  -webkit-background-clip:text;background-clip:text;color:transparent;
-  animation:phase-glanz 2.3s linear infinite}
-.phase-name.wechsel{animation:phase-wort .35s var(--ease-out, ease-out)}
-.phase.aktiv .phase-name.wechsel{animation:phase-glanz 2.3s linear infinite,phase-wort .35s ease-out}
-@keyframes phase-glanz{from{background-position:100% 0}to{background-position:-160% 0}}
+/* Der Name atmet mit (nur Deckkraft -- das kostet den Browser nichts). */
+.phase-name{display:inline-block}
+.phase.aktiv .phase-name{color:var(--text);animation:phase-atem 1.9s ease-in-out infinite}
+.phase-name.wechsel{animation:phase-wort .35s ease-out}
+.phase.aktiv .phase-name.wechsel{animation:phase-atem 1.9s ease-in-out infinite,phase-wort .35s ease-out}
+@keyframes phase-atem{0%,100%{opacity:1}50%{opacity:.55}}
 @keyframes phase-wort{from{opacity:0;transform:translateY(4px)}to{opacity:1;transform:none}}
 .phase-zeit{color:var(--text-3);font-size:calc(12px * var(--fs))}
 .phase-pfeil{color:var(--text-3);font-size:calc(15px * var(--fs));line-height:1;transition:transform .15s}
@@ -469,7 +468,6 @@ body.tracing .phase:not(.think) .phase-pfeil{transform:rotate(90deg)}
 @media (prefers-reduced-motion:reduce){
   .phase.aktiv .phase-logo::before,.phase.aktiv .phase-logo::after,
   .phase.aktiv .phase-logo img,.phase.aktiv .phase-name,.phase-name.wechsel{animation:none}
-  .phase.aktiv .phase-name{color:var(--text);background:none}
 }
 
 /* ========================== Zwischenschritte ============================ */
@@ -677,11 +675,12 @@ body:not(.pro-mode) .only-pro{display:none}
 /* Interne/Test-Fassung (9.6.0): gelb, klein, mittig unter der Eingabe. */
 .intern-hinweis{display:block;width:max-content;max-width:100%;margin:6px auto 0;
   padding:3px 12px;border-radius:999px;text-align:center;
-  font:600 calc(11.5px * var(--fs))/1.4 var(--sans);color:#6b5200;background:#ffe27a;
-  border:1px solid #f0c419}
+  font:600 calc(11.5px * var(--fs))/1.4 var(--sans);color:var(--intern-fg);
+  background:var(--intern-bg);border:1px solid var(--intern-line)}
 .intern-hinweis[hidden]{display:none}
-:root[data-theme="dark"] .intern-hinweis{color:#ffe27a;background:rgba(255,214,0,.12);
-  border-color:rgba(255,214,0,.45)}
+:root{--intern-fg:#6b5200;--intern-bg:#ffe27a;--intern-line:#f0c419}
+:root[data-theme="dark"]{--intern-fg:#ffe27a;--intern-bg:rgba(255,214,0,.12);
+  --intern-line:rgba(255,214,0,.45)}
 body.dragging::after{content:"Datei hier ablegen";position:fixed;inset:14px;z-index:40;
   border:2px dashed var(--accent);border-radius:20px;background:var(--bg);opacity:.94;
   color:var(--accent-text);display:grid;place-items:center;font:400 calc(19px * var(--fs)) var(--serif);

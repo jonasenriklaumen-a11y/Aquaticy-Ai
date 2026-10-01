@@ -311,6 +311,35 @@ aquaticy web --lan    # zeigt alle Adressen, unter denen es im Heimnetz erreichb
 **Chat.** Links die letzten Chats (durchsuchbar), in der Mitte das Gespräch, unten die
 Eingabe mit den drei Arbeitsweisen Normal, Pro und Code. Dateien und Bilder hängst du mit 📎 an.
 Ein vollständig geschriebener Slash-Befehl leuchtet im Akzentton; der Text dahinter bleibt normal.
+Oben links steht das **Logo** (seit 9.6.0), darunter „Aquaticy“, daneben die Version; im
+Browser-Tab steht nur das Logo.
+
+**Neuer Chat (seit 9.6.0).** Jeder neue Chat begrüßt dich mit einem anderen Satz — „Guten
+Morgen, Anna. Wobei kann ich dir helfen?“ ist einer von über 50 je Modus (Normal, Pro und Code
+haben eigene) — und darunter stehen drei zufällige Vorschläge, ebenfalls aus über 50 je Modus.
+
+**Während Aquaticy arbeitet (seit 9.6.0)** stehen statt einer langen Schrittliste nur wenige
+Zeilen da, zum Beispiel:
+
+```
+🅰 Denken
+   „Ich suche jetzt nach den neuesten Nachrichten.“   ← Zwischennachricht
+🅰 Websuche
+🅰 Denken
+Hier sind die neuesten Nachrichten …                    ← die richtige Antwort
+```
+
+- Links neben der laufenden Zeile bewegt sich das **Logo** (ein Lichtbogen kreist, das A schwebt),
+  solange Aquaticy daran arbeitet. Wer weniger Bewegung eingestellt hat, sieht es ruhig.
+- Die **Zwischennachricht** verschwindet, sobald die richtige Antwort da ist.
+- Ein **Klick** auf eine Zeile klappt auf, was darin passiert ist — bei „Denken“ die Gedanken,
+  bei „Websuche“ Suchanfragen und gelesene Seiten.
+- Im **Code-Modus** heißt „Denken“ wie bei Claude: *Noodling*, *Aquaticing*, *Pondering*,
+  *Schlepping*, *Booping* und über 45 weitere Wörter, die sich abwechseln.
+- Fehler, Sperren und Abbrüche bleiben immer offen sichtbar.
+
+**Interne Versionen.** Eine interne oder Test-Fassung trägt das im Namen („9.6.0 Spark
+Intern“), und unten mittig unter der Eingabe steht ein gelber Hinweis.
 
 **Modellauswahl** (unten, links neben dem Senden-Knopf; das Menü öffnet sich nach oben):
 - Oben die **Modelle** zur Wahl.
@@ -324,6 +353,11 @@ Ein vollständig geschriebener Slash-Befehl leuchtet im Akzentton; der Text dahi
   **Öffentliche Webcams & Satellitenbilder**, **Denken** (mitlesen, wie Aquaticy überlegt),
   **Strukturieren**, **Gegenprüfen** — und im Code-Modus **Code wirklich ausprobieren** in der
   virtual machine.
+
+**Einstellungen (seit 9.6.0)** speichern sich selbst: Schalter sofort, Textfelder beim
+Verlassen des Feldes (oder mit Enter). Oben im Fenster erscheint dann kurz ein kleines
+„Gespeichert“ in der Farbe deines Designs; einen Speichern-Knopf gibt es nicht mehr, „‹ Zurück“
+steht oben links. Die Schalter zeigen ihren Zustand über Füllung und Rand (ohne „I/O“).
 
 **Design** (links unten): Hell, Dunkel oder wie das System. Dazu:
 - **Standard** — das grüne Papier.
@@ -672,6 +706,40 @@ Bestechung, Drogenhandel, Geldfälschung, Unfallflucht, Tierquälerei, Volksverh
 Beim Nachprüfen mit Wortlisten (je 50.000 häufige deutsche und englische Wörter) sind Fehlalarme
 aufgefallen und behoben: „deep“, „Asien“, „Meme“, „Creeper“, „Superbot“, „flicker“ oder
 „Hundeschnauze“ gelten nicht mehr als Beleidigung.
+
+**Geprüft wie ein Angreifer und wie ein Nutzer (9.6.0).** Drei Prüfer haben die App angegriffen,
+jede Funktion im Browser ausprobiert und Netguard und Ai-guard durchgesehen; alles Bestätigte ist
+behoben und hat einen Test:
+- **Netguard:** eine „Zip-Bombe“ (389 KB, die zu 400 MB werden) belegt nicht mehr 149 MB, sondern
+  wenige MB — gepackte Antworten werden Stück für Stück und gedeckelt ausgepackt, angefragt wird
+  nur noch gzip/deflate. Ein Server, der die Kopfzeilen Byte für Byte tröpfeln lässt, hält einen
+  Abruf nicht mehr über die Gesamtfrist hinaus fest. `fec0::/10` (veraltetes internes IPv6) ist
+  gesperrt, NAT64-Adressen (`64:ff9b::/96`) werden nach ihrer IPv4-Adresse beurteilt. Ein
+  `AQUATICY_PROXY`, der nicht `http://` ist, führt nicht mehr still am Proxy vorbei, sondern
+  stoppt den Abruf. Ändert sich httpx so, dass der Schutz nicht greifen kann, startet kein Client.
+- **Ai-guard, weniger Fehlalarme:** „die Präsentation für meinen Chef fertig machen“, „meinen
+  Freund in Minecraft fertig machen“, „damit meine Oma vor Freude weint“, „mock the database in
+  my coworker's test“ oder „Kann man jemanden wegen ‚Halt die Fresse‘ anzeigen?“ zählen nicht
+  mehr — im Prüfsatz von 309 harmlosen Sätzen von 13 auf 1 Fehlalarm. Person und Verb müssen
+  jetzt direkt zusammenstehen; „fertig machen“ allein ist nur noch eine Chatsperre, kein Bann.
+- **Ai-guard, mehr Treffer:** „Ich zünde dein Haus an“, „I'm going to hurt you“, „you should
+  die“, „Stirb“, „Du wirst es bereuen“, behindertenfeindliche Beschimpfungen und „Du bist nicht
+  schlau, sondern ein Idiot“ werden erkannt (verpasst: von 17 auf 6 von 87).
+- **Ai-guard, Sperren:** eine automatische Sperre ersetzt nie eine längere (vorher machte eine
+  Beleidigung aus „für immer“ einen Tag); wiederholte schwere Beleidigungen werden länger
+  gesperrt (7 Tage → 30 Tage → für immer); beide Prüfwege zählen Anhaltspunkte gleich.
+- **Antwortprüfung:** Rohrbombe, Schusswaffe, Rizin, Sarin, Erpressungstrojaner, Keylogger im
+  Code und Entmenschlichung gehen jetzt zum Modell; bei langen Antworten sieht es die Stellen um
+  jedes Stichwort statt nur den Anfang. Dialoge („**Tom:** …“) und berichtete Drohungen
+  („soll gedroht haben: …“) werden nicht mehr zurückgezogen. Lange Zeichenketten ohne Leerzeichen
+  (base64) brauchen keine 1,7 Sekunden Prüfzeit mehr.
+- **Webserver:** Fehlertexte gehen immer durch den Schlüsselfilter (vorher nicht bei 500ern);
+  die Speichern-Meldung verrät keinen Serverpfad mehr; `HEAD /logo.png` geht; das Logo zählt
+  nicht zum Anfragen-Limit.
+- **Oberfläche:** Nach dem kleinen schnellen Modell lässt sich das große wieder wählen; das
+  Modellmenü bleibt auf kleinen Bildschirmen im Bild, ist per Tastatur erreichbar (Fokus springt
+  hinein, Pfeiltasten, Escape zurück) und die kleinen Fenster halten den Fokus; „Überall sonst
+  abmelden“ fragt nach.
 
 **Unabhängig geprüft (9.5.34).** Vier Prüfer ohne Vorwissen über den Code haben Webserver,
 Agent, Netz und Ai-guard durchgesehen und jeden Fund ausprobiert; alles Bestätigte ist behoben
