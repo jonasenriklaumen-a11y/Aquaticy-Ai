@@ -841,6 +841,70 @@ def web_command(
     console.print("[dim]Beendet.[/dim]")
 
 
+@app.command("cluster")
+def cluster_command() -> None:
+    """Server-Verbund: offene Anfragen zum Verbinden beantworten (yes/no) und Stand zeigen.
+
+    Fuer Server ohne offenes Terminal, etwa im Container:
+    ``docker compose exec aquaticy aquaticy cluster``.
+    """
+    import json as _json
+    import secrets as _secrets
+
+    ordner = get_settings().data_dir / "cluster"
+    try:
+        zustand = _json.loads((ordner / "state.json").read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        zustand = {}
+    verbund = zustand.get("cluster") or {}
+    if not zustand.get("enabled"):
+        console.print("Der Server-Verbund ist aus (Einstellungen → Dev settings, nur Ultra).")
+    elif verbund:
+        console.print(f"Im Verbund mit {len(verbund.get('members', []))} Servern.")
+    else:
+        console.print("Der Server-Verbund ist an, aber noch nicht verbunden.")
+    try:
+        offen = _json.loads((ordner / "pending.json").read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        offen = []
+    offen = [e for e in offen if isinstance(e, dict) and e.get("status") == "pending"]
+    if not offen:
+        console.print("[dim]Keine offenen Anfragen.[/dim]")
+        return
+    (ordner / "answers").mkdir(parents=True, exist_ok=True)
+    for einladung in offen:
+        peer = einladung.get("peer") or {}
+        console.print(f"\nServer „{peer.get('name') or '?'}“ ({peer.get('address')}) möchte "
+                      "diesen Server in seinen Verbund aufnehmen und wird Master.")
+        console.print("[dim]Die bisherigen Daten dieses Servers werden gesichert und durch "
+                      "die des Verbunds ersetzt.[/dim]")
+        while True:
+            antwort = typer.prompt("Annehmen? [yes/no]").strip().lower()
+            if antwort in ("yes", "y", "ja", "j", "no", "n", "nein"):
+                break
+        ja = antwort in ("yes", "y", "ja", "j")
+        datei = ordner / "answers" / f"{_secrets.token_hex(6)}.json"
+        datei.write_text(_json.dumps({"id": einladung.get("id"),
+                                      "answer": "yes" if ja else "no"}), encoding="utf-8")
+        if ja:
+            console.print("Angenommen. Der Code für den Master erscheint gleich im Log des "
+                          "Servers und hier:")
+            import time as _time
+
+            for _ in range(20):
+                _time.sleep(0.5)
+                with contextlib.suppress(OSError, ValueError):
+                    for e in _json.loads((ordner / "pending.json").read_text(encoding="utf-8")):
+                        if e.get("id") == einladung.get("id") and e.get("code"):
+                            console.print(f"[bold]Code: {e['code']}[/bold]")
+                            break
+                    else:
+                        continue
+                    break
+        else:
+            console.print("Abgelehnt.")
+
+
 @app.command("google")
 def google_command(
     client_id: str = typer.Option("", "--client-id", help="OAuth-Client-ID der Anwendung."),
@@ -1629,6 +1693,7 @@ HELP_TEXT = """\
   aquaticy install-browser      Browser einrichten
   aquaticy install-model        Lokales Modell einrichten
   aquaticy export               Recherchen exportieren
+  aquaticy cluster              Server-Verbund: Anfrage annehmen (yes/no)
 """
 
 

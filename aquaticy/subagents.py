@@ -450,7 +450,25 @@ def _parse_task_list(raw: str) -> list[str]:
     return [str(item).strip() for item in data if str(item).strip()]
 
 
-def _subagent_kwargs(settings: Settings, model: str) -> dict[str, Any]:
+#: Normal-Modus (seit 9.6.1): Obergrenzen, damit die Suche nicht auf den
+#: langsamsten Agenten wartet. Bis 9.6.0 durfte jeder Agent bis zu sieben
+#: Modellrunden drehen, jeder Aufruf bis zu 90 Sekunden haengen und jede Seite
+#: 15 Sekunden laden -- ein einziger haengender Agent hielt die ganze Antwort
+#: auf. Jetzt gibt es eine Frist je Agent: ist sie um, sucht er nicht weiter,
+#: sondern fasst zusammen, was er gefunden hat -- mit Quellen wie immer. Der
+#: Pro-Modus bleibt bewusst ohne Frist: dort geht Genauigkeit vor Tempo.
+NORMAL_DEADLINE = 40.0
+NORMAL_CALL_TIMEOUT = 45.0
+NORMAL_FETCH_TIMEOUT = 8.0
+#: So viele Agenten fuellt der Normal-Modus hoechstens auf (der Planer selbst
+#: darf mehr Teilfragen liefern -- die laufen alle). Zwoelf Kopien derselben
+#: Frage unter anderen Blickwinkeln stauen sich sonst an der Ratenbremse des
+#: Anbieters und kosten Wartezeit, ohne viel Neues zu finden.
+NORMAL_FILL = 6
+
+
+def _subagent_kwargs(settings: Settings, model: str, *, timeout: float = 0.0
+                     ) -> dict[str, Any]:
     """Aufrufargumente fuer einen Subagenten.
 
     Volles Kontextfenster (sie lesen ganze Seiten), aber ohne Denk-Modus:
@@ -464,6 +482,8 @@ def _subagent_kwargs(settings: Settings, model: str) -> dict[str, Any]:
 
     if provider_of(model) in ("ollama", "ollama_chat"):
         kwargs["reasoning_effort"] = "disable"
+    if timeout > 0:
+        kwargs["timeout"] = min(float(kwargs.get("timeout") or timeout), timeout)
     kwargs.setdefault("timeout", 90.0)
     kwargs.setdefault("drop_params", True)
     return kwargs
@@ -570,6 +590,7 @@ def _run_one(
     kind: str = "subagent",
     angle: str = "",
     model: str = "",
+    deadline: float = 0.0,
 ) -> SubagentResult:
     """Fuehrt einen Subagenten aus -- eigene Toolbox, eigenes Budget.
 
@@ -583,6 +604,8 @@ def _run_one(
             Technik der bekannten Rolle im Auftrag.
         model: Ein anderes Modell als das eingestellte -- so laufen die
             starken Agenten auf dem starken Modell.
+        deadline: Sekunden, nach denen der Agent nicht weiter sucht, sondern
+            zusammenfasst (Normal-Modus, 9.6.1). 0 = keine Frist.
     """
     import litellm
 
@@ -619,9 +642,14 @@ def _run_one(
     # uebernimmt das Hauptmodell -- langsamer, aber die Teilfrage wird
     # beantwortet statt verworfen.
     model_in_use = model or settings.effective_subagent_model
+    ende = time.monotonic() + deadline if deadline > 0 else 0.0
+    call_timeout = NORMAL_CALL_TIMEOUT if deadline > 0 else 0.0
 
     try:
         while used < budget:
+            if ende and used and time.monotonic() >= ende:
+                # Frist um: nicht weiter suchen, sondern zusammenfassen (unten).
+                break
             if stop is not None and stop.is_set():
                 # Abgebrochen. Was bis hierher gefunden wurde, geht mit --
                 # der Hauptagent kann es noch verwenden.
@@ -635,7 +663,7 @@ def _run_one(
                         messages=messages,
                         tools=TOOL_SCHEMAS,
                         tool_choice="auto",
-                        **_subagent_kwargs(settings, model_in_use),
+                        **_subagent_kwargs(settings, model_in_use, timeout=call_timeout),
                     )
             except Exception as exc:
                 if model_in_use != settings.model:
@@ -740,7 +768,7 @@ def _run_one(
                         settings,
                         model=model_in_use,
                         messages=messages,
-                        **_subagent_kwargs(settings, model_in_use),
+                        **_subagent_kwargs(settings, model_in_use, timeout=call_timeout),
                     )
                 result.summary = (response.choices[0].message.content or "").strip()
             except Exception as exc:
@@ -818,6 +846,7 @@ def run_subagents(
     checkers: int = 0,
     budget: int = 0,
     strong_model: str = "",
+    fast: bool = False,
 ) -> list[SubagentResult]:
     """Bearbeitet *tasks* nebenlaeufig und gibt die Ergebnisse in Reihenfolge zurueck.
 
@@ -838,6 +867,8 @@ def run_subagents(
         budget: Werkzeug-Aufrufe je Agent. 0 = die Einstellung.
         strong_model: Modell fuer die als `strong` markierten Auftraege. Leer
             heisst: alle arbeiten mit demselben Modell.
+        fast: Normal-Modus (9.6.1): Frist je Agent, kuerzere Zeitlimits fuer
+            Modellaufrufe und Seiten. Der Pro-Modus laesst das aus.
     """
     ceiling = max(1, int(limit if limit is not None else settings.max_subagents))
     clean = _distinct(tasks)[:ceiling]
@@ -873,7 +904,8 @@ def run_subagents(
 
     shared_fetcher = Fetcher(
         user_agent=settings.user_agent,
-        timeout=settings.fetch_timeout,
+        timeout=(min(settings.fetch_timeout, NORMAL_FETCH_TIMEOUT) if fast
+                 else settings.fetch_timeout),
         delay_seconds=settings.request_delay_seconds,
         enable_browser=settings.enable_playwright,
     )
@@ -951,6 +983,7 @@ def run_subagents(
                 angle=task.angle,
                 budget=(budget + STRONG_EXTRA_BUDGET) if stark else budget,
                 model=strong_model if stark else "",
+                deadline=NORMAL_DEADLINE if fast else 0.0,
             )
 
         workers = max(1, min(parallel, len(clean)) + checkers)

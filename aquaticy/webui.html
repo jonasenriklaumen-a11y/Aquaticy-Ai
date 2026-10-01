@@ -108,11 +108,13 @@ body.collapsed aside{margin-left:-260px}
 .brand-logo{display:flex;flex-direction:column;align-items:center;gap:2px;flex:0 0 auto}
 .mark{width:40px;height:40px;flex:0 0 auto;display:block;object-fit:contain}
 .brand .name{font-weight:600;letter-spacing:-.01em;font-size:calc(13px * var(--fs));line-height:1.1}
-.brand .ver{font-size:calc(11px * var(--fs));color:var(--text-3);font-variant-numeric:tabular-nums;
-  border:1px solid var(--line-2);border-radius:999px;padding:1px 7px}
+/* Seit 9.6.1 groesser: neben dem grossen Logo ging die kleine Plakette unter. */
+.brand .ver{font-size:calc(13.5px * var(--fs));font-weight:600;color:var(--text-2);
+  font-variant-numeric:tabular-nums;white-space:nowrap;
+  border:1px solid var(--line-2);border-radius:999px;padding:4px 11px;line-height:1.2}
 /* Versionsnummer und darunter -- nur bei einer Sperre -- das rote „Info“ (9.5.24). */
-.ver-stack{display:flex;flex-direction:column;align-items:flex-start;gap:3px;align-self:center;
-  margin-top:-14px}
+.ver-stack{display:flex;flex-direction:column;align-items:flex-start;gap:4px;align-self:center;
+  min-width:0;margin-top:-12px}
 .ban-info{background:none;border:0;padding:0 2px;cursor:pointer;color:var(--err);
   font:700 calc(11px * var(--fs))/1.2 inherit;text-decoration:underline;text-underline-offset:2px}
 .ban-info[hidden]{display:none}
@@ -608,6 +610,7 @@ body:not(.code-mode) .only-code{display:none}
 body.code-mode .only-normal{display:none}
 body.pro-mode .only-standard{display:none}
 body:not(.pro-mode) .only-pro{display:none}
+.pro-hinweis{color:var(--text-2);font-weight:500;margin-top:2px}
 .picker-effort{padding:11px 16px;border-top:1px solid var(--line)}
 .eff-head{font-size:calc(13px * var(--fs))}
 .eff-head .why{display:block;color:var(--text-3);font-size:calc(11.5px * var(--fs));line-height:1.5;
@@ -1208,6 +1211,19 @@ input:focus,select:focus{border-color:var(--accent)}
 #addonbox{z-index:90}#screenbox{z-index:95}
 .addon-sheet{max-width:44rem}
 .addon-list{display:flex;flex-direction:column;gap:10px;margin-top:12px}
+/* KI-Konten (9.6.1) */
+.linked-title{font-size:calc(14px * var(--fs));margin:18px 0 0}
+.linked-lead{margin-top:6px}
+.linked-list{display:flex;flex-direction:column;gap:10px;margin-top:10px}
+.linked{background:var(--surface);border:1px solid var(--line-2);border-radius:13px;padding:12px 14px}
+.linked .kopf{display:flex;align-items:baseline;gap:8px;flex-wrap:wrap}
+.linked .kopf strong{font-size:calc(14px * var(--fs))}
+.linked .kopf .stufe{font-size:calc(12px * var(--fs));color:var(--accent-text);font-weight:600}
+.linked .info{font-size:calc(12.5px * var(--fs));color:var(--text-2);margin-top:6px;white-space:pre-line}
+.linked .reihe{display:flex;gap:8px;margin-top:8px;flex-wrap:wrap;align-items:center}
+.linked .reihe input{flex:1 1 220px;min-width:0}
+.linked .meldung{font-size:calc(12px * var(--fs));margin-top:6px}
+.linked .meldung.bad{color:var(--err)}
 .addon-group{font-size:calc(11px * var(--fs));letter-spacing:.08em;text-transform:uppercase;color:var(--text-3);
   margin:10px 0 0}
 .addon{background:var(--surface);border:1px solid var(--line-2);border-radius:13px;
@@ -1288,6 +1304,20 @@ input:focus-visible,select:focus-visible,.side-search input:focus-visible,
 .danger-zone .btn.danger{border-color:var(--err);color:var(--err)}
 .device-list{list-style:none;padding:0;margin:8px 0;font-size:calc(13px * var(--fs))}
 .device-list li{padding:6px 0;border-bottom:1px solid var(--line)}
+/* Server-Verbund (9.6.1) */
+.cluster-box{margin-top:14px;padding-top:12px;border-top:1px solid var(--line)}
+.cluster-title{font-size:calc(12px * var(--fs));font-weight:600;color:var(--text-2);margin-top:12px}
+.cluster-list li{display:flex;align-items:center;gap:10px;flex-wrap:wrap}
+.cluster-list li .wer{flex:1 1 200px;min-width:0}
+.cluster-list li .wer small{display:block;color:var(--text-3)}
+.cluster-list .punkt{width:8px;height:8px;border-radius:50%;background:var(--err);flex:0 0 auto}
+.cluster-list .punkt.an{background:var(--accent)}
+.cluster-add{display:grid;grid-template-columns:minmax(0,1fr) 90px auto;gap:8px;margin-top:10px}
+.cluster-invite{margin-top:10px;padding:10px 12px;border:1px solid var(--line-2);border-radius:12px}
+.cluster-invite .code-row{display:flex;gap:8px;margin-top:8px;flex-wrap:wrap}
+.cluster-invite input{width:9em;letter-spacing:.15em}
+@media (max-width:560px){.cluster-add{grid-template-columns:1fr 80px}
+  .cluster-add .btn{grid-column:1/-1}}
 .security-banner{background:var(--accent-soft);color:var(--text);border:1px solid var(--warn);
   border-radius:12px;padding:10px 14px;margin:10px auto;max-width:760px;
   font-size:calc(13.5px * var(--fs))}
@@ -1575,6 +1605,9 @@ input:focus-visible,select:focus-visible,.side-search input:focus-visible,
       <button type="button" class="chip">Baue eine kleine REST-API mit FastAPI</button>
     </div>
     <div class="hint">Enter senden · Shift+Enter Zeilenumbruch · /help zeigt die Befehle</div>
+    <!-- 9.6.1: im Normal-Modus ist die Suche schneller geworden; Pro bleibt
+         bewusst gruendlich -- das soll man vorher wissen. -->
+    <div class="hint pro-hinweis only-pro" role="note">Im Pro-Modus dauert die Suche länger — wegen der höheren Genauigkeit.</div>
     <div class="intern-hinweis" id="intern-hinweis" role="note" hidden>Interne Testversion —
       nicht für den Alltag gedacht, hier kann noch etwas haken.</div>
     <div class="hint ki-hinweis">Die Texte hier sind KI-generiert und können Fehler
@@ -1658,6 +1691,17 @@ input:focus-visible,select:focus-visible,.side-search input:focus-visible,
       selbst — Aquaticy kennt deine Passwörter nie. Aus dem Chat heraus lässt sich hier
       nichts ändern.</p>
     <div class="note" id="addon-note" role="status" aria-live="polite"></div>
+    <!-- KI-Konten (9.6.1): Claude, ChatGPT, Gemini mit dem eigenen API-Schluessel. -->
+    <h3 class="linked-title">KI-Konten</h3>
+    <p class="note linked-lead">Verknüpfe dein Claude-, ChatGPT- oder Gemini-Konto. Aquaticy
+      zeigt dann deine Modelle, deine Stufe und wie viele Tokens gerade frei sind — und die
+      Modelle stehen in der Modellauswahl. Verknüpft wird mit dem API-Schlüssel deines Kontos
+      (ein Klick auf „Schlüssel holen“, bei Gemini reicht die Google-Anmeldung). Er liegt
+      verschlüsselt bei deinem Konto und geht nur an den Anbieter. Mit E-Mail und Passwort
+      geht es nicht: das erlauben die Anbieter nicht, und Aquaticy soll dein Passwort nie
+      kennen.</p>
+    <div class="linked-list" id="linked-list"></div>
+    <h3 class="linked-title">Programme und Dienste</h3>
     <div class="addon-list" id="addon-list"></div>
     <div class="actions">
       <button type="button" class="btn primary" id="addon-close">Fertig</button>
@@ -2263,6 +2307,48 @@ input:focus-visible,select:focus-visible,.side-search input:focus-visible,
               Helfer bleiben dieselben. Die Wahl geht blitzschnell und kostet nichts extra;
               im Verlauf siehst du, welches Modell dran war.</span></label>
         </div>
+        <!-- AI Council (9.6.1): ein normaler Schalter des Formulars. -->
+        <div class="check">
+          <input type="checkbox" role="switch" class="schalter" id="council"
+                 name="AQUATICY_COUNCIL">
+          <label for="council" style="margin:0">AI Council
+            <span class="why">Mehrere KI-Modelle arbeiten zusammen: zwei verknüpfte Modelle
+              (z. B. Claude und ChatGPT) lösen die Aufgabe, eines (Gemini, wenn verknüpft)
+              prüft auf Fehler, und Aquaticy ist der Richter — es entscheidet, ob die Lösung
+              trägt, oder schickt sie zum Nachbessern und Ausdiskutieren zurück. Ohne
+              Agenten, nur mit dem Hauptmodell als Richter. Dauert länger und kostet auf
+              allen Konten Tokens.</span></label>
+        </div>
+        <div class="note" id="council-note"></div>
+        <!-- Server-Verbund (9.6.1): nur Ultra. Die Felder haben keinen Namen --
+             sie gehoeren nicht zum Einstellungsformular, sondern zu /api/cluster. -->
+        <div class="cluster-box" id="cluster-box">
+          <div class="check">
+            <input type="checkbox" role="switch" class="schalter" id="cluster-on">
+            <label for="cluster-on" style="margin:0">Server-Verbund
+              <span class="why">Bis zu 10 Server mit Aquaticy arbeiten zusammen: eine
+                gemeinsame Datenbank, die auf jedem Server vollständig liegt, und die Arbeit
+                wird gleichmäßig verteilt. Der Server, der einlädt, wird Master.</span></label>
+          </div>
+          <p class="note" id="cluster-lock" hidden>🔒 Der Server-Verbund gehört zu Ultra.</p>
+          <div id="cluster-panel" hidden>
+            <div class="note" id="cluster-status" role="status"></div>
+            <ul class="device-list cluster-list" id="cluster-members"></ul>
+            <div class="cluster-title">Server im lokalen Netz</div>
+            <ul class="device-list cluster-list" id="cluster-found"></ul>
+            <div class="cluster-add">
+              <input type="text" id="cluster-ip" autocomplete="off" spellcheck="false"
+                     placeholder="IP-Adresse, z. B. 192.168.1.20" aria-label="IP-Adresse">
+              <input type="text" id="cluster-port" inputmode="numeric" autocomplete="off"
+                     placeholder="8765" aria-label="Port">
+              <button type="button" class="btn" id="cluster-add">Verbinden</button>
+            </div>
+            <div id="cluster-invites"></div>
+            <div class="note">Verbinde nur eigene Server: der andere Server bekommt eine
+              vollständige Kopie aller Daten. Auf ihm musst du im Terminal mit „yes“
+              zustimmen und dann hier den Code eingeben, den er anzeigt.</div>
+          </div>
+        </div>
         <details class="note" id="legal-rules"><summary>Welche Regeln gelten?</summary>
           <ul id="legal-rule-list"></ul></details>
         <div class="note">Dieser Schalter betrifft nur die Rechts-Leitplanken. Manche
@@ -2287,7 +2373,7 @@ input:focus-visible,select:focus-visible,.side-search input:focus-visible,
 const $ = (s) => document.querySelector(s);
 const thread = $("#thread"), main = $("#main"), input = $("#input"), send = $("#send");
 let busy = false;
-const aquaticyVersion = window.__AQUATICY_VERSION__ || "9.6.0 Spark Intern";
+const aquaticyVersion = window.__AQUATICY_VERSION__ || "9.6.1 Spark Intern";
 $("#version").textContent = "v" + aquaticyVersion;
 // Interne oder Test-Fassung (9.6.0): unten mittig ein gelber Hinweis.
 const aquaticyIntern = window.__AQUATICY_INTERNAL__ === true
@@ -3600,6 +3686,20 @@ async function verfolge(hole, steps, bubble, text){
         step(steps, "[Karte]", `${ev.hits} ${ev.hits === 1 ? "Ort" : "Orte"}`); break;
       case "note":
         step(steps, "[Hinweis]", ev.text, "warn"); break;
+      case "council": {
+        // AI Council (9.6.1): Bearbeiter, Pruefer, Richter -- Runde fuer Runde.
+        const kurz = (m) => String(m || "").split("/").pop();
+        const texte = {
+          start: `${(ev.workers || []).map(kurz).join(" + ")} arbeiten, ${kurz(ev.checker)} prüft, ${kurz(ev.judge)} richtet`,
+          work: `Runde ${ev.round}: die Bearbeiter arbeiten`,
+          check: `Runde ${ev.round}: ${kurz(ev.model)} prüft auf Fehler`,
+          judge: `Runde ${ev.round}: Aquaticy entscheidet`,
+          verdict: ev.ok ? `Runde ${ev.round}: Lösung trägt` : `Runde ${ev.round}: nachbessern — ${ev.feedback || ""}`,
+          final: "Aquaticy schreibt die Antwort",
+        };
+        step(steps, "[AI Council]", texte[ev.phase] || ev.phase);
+        break;
+      }
       case "guard":
         // Die Absage selbst steht in der Antwort. Hier steht, WAS abgelehnt
         // wurde -- die ganze Anfrage oder ein einzelner Schritt unterwegs.
@@ -4335,6 +4435,7 @@ const EN = {
 "Hier stellst du Aquaticy so ein, wie du es magst. Alles gilt sofort und wird automatisch gespeichert.": "Set Aquaticy up the way you like it. Everything applies right away and is saved automatically.",
 "‹ Zurück": "‹ Back",
 "Interne Testversion — nicht für den Alltag gedacht, hier kann noch etwas haken.": "Internal test version — not meant for everyday use, things may still break.",
+"Im Pro-Modus dauert die Suche länger — wegen der höheren Genauigkeit.": "In Pro mode the search takes longer — for higher accuracy.",
 "Gespeichert": "Saved",
 "Abschnitte": "Sections",
 "Konto": "Account",
@@ -4796,7 +4897,12 @@ async function loadRecents(){
 // dafuer und kostet eine Abfrage, die ohnehin nur in die eigene Datenbank
 // geht. Waehrend einer laufenden Anfrage nicht: dann wird die Liste sowieso
 // gleich neu geladen.
-setInterval(() => { if (!busy && !chatQuery) loadRecents(); }, 60_000);
+// Seit 9.6.1 nicht, solange der Tab im Hintergrund liegt -- das spart dem
+// Server Abfragen, die niemand sieht; beim Zurueckkehren wird nachgeholt.
+setInterval(() => { if (!busy && !chatQuery && !document.hidden) loadRecents(); }, 60_000);
+document.addEventListener("visibilitychange", () => {
+  if (!document.hidden && !busy && !chatQuery) loadRecents();
+});
 
 // Erst tippen lassen, dann fragen: bei jedem Tastendruck eine Anfrage waere
 // eine Anfrage je Buchstabe.
@@ -5336,6 +5442,8 @@ $("#btn-settings").addEventListener("click", async () => {
   $("#lager-note").textContent = ""; $("#lager-note").className = "note";
   $("#ha-hint").textContent = cfg.ha_connected ? "(gesetzt)" : "";
   showLegalRules(cfg.legal_rules || []);
+  verbundLaden();
+  kontenLaden();
   $("#savenote").textContent = ""; $("#savenote").className = "note";
   $("#ha-note").textContent = ""; $("#ha-note").className = "note";
   openOverlay(overlay);
@@ -5858,7 +5966,86 @@ $("#btn-addons").addEventListener("click", () => {
   $("#addon-note").textContent = "";
   openOverlay(addonBox);
   addonsLaden();
+  kontenLaden();
 });
+
+/* ---------- KI-Konten (9.6.1) ---------- */
+async function kontenLaden(){
+  try { kontenZeigen(await (await api("/api/linked")).json()); } catch {}
+}
+async function kontoTun(body, karte){
+  const meldung = karte.querySelector(".meldung");
+  meldung.className = "meldung"; meldung.textContent = "Einen Moment — frage beim Anbieter nach …";
+  try {
+    const res = await api("/api/linked", {
+      method: "POST", headers: {"Content-Type": "application/json"}, body: JSON.stringify(body),
+    });
+    const daten = await res.json();
+    if (!daten.ok){ meldung.className = "meldung bad"; meldung.textContent = daten.error || "Das hat nicht geklappt."; return; }
+    kontenZeigen(daten);
+  } catch { meldung.className = "meldung bad"; meldung.textContent = "Keine Verbindung zu Aquaticy."; }
+}
+function zahl(n){ return typeof n === "number" ? n.toLocaleString("de-DE") : "?"; }
+function kontenZeigen(daten){
+  const liste = $("#linked-list");
+  liste.innerHTML = "";
+  for (const k of daten.accounts || []){
+    const karte = document.createElement("div");
+    karte.className = "linked";
+    karte.innerHTML = '<div class="kopf"><strong></strong><span class="stufe"></span></div>'
+      + '<div class="info"></div><div class="reihe"></div><div class="meldung" role="status"></div>';
+    karte.querySelector("strong").textContent = `${k.label} (${k.company})`;
+    karte.querySelector(".stufe").textContent = k.linked ? (k.tier ? `verknüpft · ${k.tier}` : "verknüpft") : "";
+    const info = karte.querySelector(".info");
+    const reihe = karte.querySelector(".reihe");
+    const knopf = (text, klasse, tun) => {
+      const b = document.createElement("button");
+      b.type = "button"; b.className = "btn" + (klasse ? " " + klasse : ""); b.textContent = text;
+      b.addEventListener("click", async () => { b.disabled = true; await tun(); b.disabled = false; });
+      reihe.appendChild(b);
+    };
+    if (k.linked){
+      const zeilen = [];
+      if (k.tokens) zeilen.push(`Tokens frei: ${zahl(k.tokens.remaining)} von ${zahl(k.tokens.limit)} je ${k.tokens.per}`);
+      if (k.models.length) zeilen.push(`Modelle: ${k.models.join(", ")}`);
+      if (k.note) zeilen.push(k.note);
+      if (k.warning) zeilen.push("⚠ " + k.warning);
+      if (k.checked) zeilen.push(`Stand: ${k.checked}`);
+      info.textContent = zeilen.join("\n");
+      knopf("Aktualisieren", "", () => kontoTun({ action: "refresh", provider: k.provider }, karte));
+      knopf("Trennen", "", async () => {
+        if (await frage(`${k.label} trennen?`, "Der Schlüssel wird gelöscht, die Modelle verschwinden aus der Auswahl.", "Trennen"))
+          await kontoTun({ action: "unlink", provider: k.provider }, karte);
+      });
+    } else {
+      info.textContent = "Nicht verknüpft.";
+      const feld = document.createElement("input");
+      feld.type = "password"; feld.autocomplete = "off"; feld.spellcheck = false;
+      feld.placeholder = `${k.form}  API-Schlüssel einfügen`;
+      feld.setAttribute("aria-label", `${k.label}: API-Schlüssel`);
+      for (const a of ["data-lpignore", "data-1p-ignore", "data-bwignore"]) feld.setAttribute(a, "true");
+      reihe.appendChild(feld);
+      const holen = document.createElement("a");
+      holen.className = "btn"; holen.href = k.get_key; holen.target = "_blank"; holen.rel = "noopener";
+      holen.textContent = "Schlüssel holen";
+      reihe.appendChild(holen);
+      const verknuepfen = async () => {
+        const wert = feld.value.trim();
+        if (!wert){ feld.focus(); return; }
+        feld.value = "";
+        await kontoTun({ action: "link", provider: k.provider, key: wert }, karte);
+      };
+      knopf("Verknüpfen", "primary", verknuepfen);
+      feld.addEventListener("keydown", (e) => { if (e.key === "Enter"){ e.preventDefault(); verknuepfen(); } });
+    }
+    liste.appendChild(karte);
+  }
+  const rat = daten.council || {};
+  const hinweis = $("#council-note");
+  if (hinweis) hinweis.textContent = rat.possible
+    ? `Bearbeiter: ${(rat.workers || []).join(", ")} · Prüfer: ${rat.checker} · Richter: ${rat.judge}`
+    : "Dafür braucht es mindestens zwei verknüpfte KI-Konten (Add-ons → KI-Konten).";
+}
 $("#addon-close").addEventListener("click", addonsSchliessen);
 addonBox.addEventListener("click", (e) => { if (e.target === addonBox) addonsSchliessen(); });
 
@@ -6124,7 +6311,149 @@ form.addEventListener("change", (e) => {
 function closeSettings(){
   closeOverlay(overlay);
   stopLoad();   // sonst fragt die Auslastung im Hintergrund weiter
+  clearTimeout(verbundTakt);
 }
+
+/* ---------- Server-Verbund (9.6.1) ---------- */
+let verbundTakt = null;
+function verbundZeile(liste, punkt, titel, unter, knopfText, tun){
+  const li = document.createElement("li");
+  if (punkt !== null){
+    const p = document.createElement("span");
+    p.className = "punkt" + (punkt ? " an" : "");
+    li.appendChild(p);
+  }
+  const wer = document.createElement("span");
+  wer.className = "wer";
+  wer.textContent = titel;
+  const klein = document.createElement("small");
+  klein.textContent = unter;
+  wer.appendChild(klein);
+  li.appendChild(wer);
+  if (knopfText){
+    const b = document.createElement("button");
+    b.type = "button"; b.className = "btn"; b.textContent = knopfText;
+    b.addEventListener("click", async () => { b.disabled = true; await tun(); b.disabled = false; });
+    li.appendChild(b);
+  }
+  liste.appendChild(li);
+}
+async function verbundTun(body){
+  const status = $("#cluster-status");
+  try {
+    const res = await api("/api/cluster", {
+      method: "POST", headers: {"Content-Type": "application/json"}, body: JSON.stringify(body),
+    });
+    const daten = await res.json();
+    if (daten.error){ status.textContent = daten.error; status.className = "note bad"; return null; }
+    verbundZeigen(daten);
+    return daten;
+  } catch {
+    status.textContent = "Keine Verbindung zu Aquaticy."; status.className = "note bad";
+    return null;
+  }
+}
+async function verbundLaden(){
+  clearTimeout(verbundTakt);
+  let daten = null;
+  try { daten = await (await api("/api/cluster")).json(); } catch {}
+  verbundZeigen(daten || {});
+  if (overlay.classList.contains("open") && daten && daten.enabled && !daten.locked)
+    verbundTakt = setTimeout(verbundLaden, 3000);
+}
+function verbundZeigen(d){
+  const gesperrt = !kontoUltra || d.locked;
+  $("#cluster-lock").hidden = !gesperrt;
+  $("#cluster-on").disabled = gesperrt;
+  $("#cluster-on").checked = !gesperrt && !!d.enabled;
+  $("#cluster-panel").hidden = gesperrt || !d.enabled;
+  if (gesperrt || !d.enabled) return;
+  const status = $("#cluster-status");
+  status.className = "note";
+  status.textContent = d.joining ? "Tritt gerade bei — die Daten werden übernommen …"
+    : !d.lan ? "Dieser Server ist nur lokal erreichbar. Für den Verbund mit „aquaticy web --lan“ starten."
+    : d.joined ? (d.master ? "Dieser Server ist der Master." : "Dieser Server ist Mitglied im Verbund.")
+      + ` ${d.members.length} von ${d.max} Servern.` + (d.notice ? " " + d.notice : "")
+    : "Noch kein Verbund. Lade einen anderen Server ein — dieser wird dann Master.";
+  const mitglieder = $("#cluster-members");
+  mitglieder.innerHTML = "";
+  for (const m of d.members || []){
+    const rolle = (m.master ? "Master" : "Mitglied") + (m.self ? " · dieser Server" : "");
+    const last = m.alive ? ` · ${m.accounts} Konten · ${m.runs} laufende Antworten`
+      + (typeof m.cpu === "number" ? ` · CPU ${Math.round(m.cpu * 100)} %` : "") : " · nicht erreichbar";
+    let knopf = "", tun = null;
+    if (d.master && !m.self){
+      knopf = "Entfernen";
+      tun = async () => {
+        if (await frage(`„${m.name}“ aus dem Verbund nehmen?`, "Der Server behält seine Kopie der Daten, bekommt aber keine neuen mehr.", "Entfernen"))
+          await verbundTun({ action: "remove", node: m.node });
+      };
+    } else if (m.self && d.members.length > 1){
+      knopf = d.master ? "Verbund auflösen" : "Verlassen";
+      tun = async () => {
+        if (await frage(d.master ? "Den Verbund auflösen?" : "Den Verbund verlassen?", "Jeder Server arbeitet danach allein mit seiner Kopie der Daten weiter.", d.master ? "Auflösen" : "Verlassen"))
+          await verbundTun({ action: "leave" });
+      };
+    }
+    verbundZeile(mitglieder, m.alive, `${m.name || "Server"} (${m.address || "?"}:${m.port})`,
+                 rolle + last, knopf, tun);
+  }
+  const gefunden = $("#cluster-found");
+  gefunden.innerHTML = "";
+  const kandidaten = (d.found || []).filter(f => !f.member);
+  if (!kandidaten.length){
+    verbundZeile(gefunden, null, "Keine weiteren Server gefunden.",
+                 "Auf dem anderen Server muss der Server-Verbund ebenfalls an sein.", "", null);
+  }
+  for (const f of kandidaten){
+    const darf = !d.joined || d.master;
+    verbundZeile(gefunden, true, `${f.name || "Server"} (${f.address}:${f.port})`,
+                 `Aquaticy ${f.version || "?"}` + (f.cluster ? " · schon in einem Verbund" : ""),
+                 darf && !f.cluster && d.lan ? "Verbinden" : "",
+                 async () => { await verbundTun({ action: "invite", address: f.address, port: f.port }); });
+  }
+  $("#cluster-add").disabled = !d.lan || (d.joined && !d.master);
+  const einladungen = $("#cluster-invites");
+  einladungen.innerHTML = "";
+  for (const e of d.invites || []){
+    const box = document.createElement("div");
+    box.className = "cluster-invite";
+    const text = document.createElement("div");
+    const ziel = `${e.peer.name || "Server"} (${e.peer.address})`;
+    text.textContent = e.status === "pending"
+      ? `Warte auf ${ziel}: dort im Terminal mit „yes“ oder „no“ antworten.`
+      : `${ziel}: ${e.message}`;
+    box.appendChild(text);
+    if (e.needs_code){
+      const reihe = document.createElement("div");
+      reihe.className = "code-row";
+      const feld = document.createElement("input");
+      feld.type = "text"; feld.inputmode = "numeric"; feld.autocomplete = "off";
+      feld.placeholder = "123 456"; feld.setAttribute("aria-label", "Code vom anderen Server");
+      const b = document.createElement("button");
+      b.type = "button"; b.className = "btn primary"; b.textContent = "Bestätigen";
+      b.addEventListener("click", async () => {
+        b.disabled = true;
+        await verbundTun({ action: "confirm", id: e.id, code: feld.value });
+        b.disabled = false;
+      });
+      feld.addEventListener("keydown", (ev) => { if (ev.key === "Enter"){ ev.preventDefault(); b.click(); } });
+      reihe.append(feld, b);
+      box.appendChild(reihe);
+    }
+    einladungen.appendChild(box);
+  }
+}
+$("#cluster-on").addEventListener("change", async (e) => {
+  await verbundTun({ action: "enable", on: e.currentTarget.checked });
+  verbundLaden();
+});
+$("#cluster-add").addEventListener("click", async () => {
+  const adresse = $("#cluster-ip").value.trim();
+  if (!adresse){ $("#cluster-ip").focus(); return; }
+  const port = parseInt($("#cluster-port").value.trim() || "8765", 10);
+  if (await verbundTun({ action: "invite", address: adresse, port })) $("#cluster-ip").value = "";
+});
 $("#cancel").addEventListener("click", closeSettings);
 overlay.addEventListener("click", (e) => { if (e.target === overlay) closeSettings(); });
 
@@ -6846,7 +7175,7 @@ $("#showload").addEventListener("change", (e) => {
   merkeZustand({ load: !!on });
   if (!on){ $("#usage-note").innerHTML = ""; return; }
   showLoad();
-  loadTimer = setInterval(showLoad, 4000);
+  loadTimer = setInterval(() => { if (!document.hidden) showLoad(); }, 4000);
 });
 
 async function showLoad(){

@@ -60,6 +60,14 @@ SLOTS: tuple[Slot, ...] = (
          "Für die NVIDIA-Modelle (nvidia_nim/…), zum Beispiel Llama 3.3 70B."),
     Slot("MISTRAL_API_KEY", "Mistral", "modell", "",
          "Für die Mistral-Modelle (mistral/…), zum Beispiel Mistral Large und Codestral."),
+    # Verknuepfte KI-Konten (seit 9.6.1): bequemer unter Add-ons → KI-Konten,
+    # dort mit Modellen, Stufe und freien Tokens.
+    Slot("ANTHROPIC_API_KEY", "Claude (Anthropic)", "modell", "sk-ant-…",
+         "Für die Claude-Modelle deines Anthropic-Kontos (anthropic/…)."),
+    Slot("OPENAI_API_KEY", "ChatGPT (OpenAI)", "modell", "sk-…",
+         "Für die GPT-Modelle deines OpenAI-Kontos (openai/…)."),
+    Slot("GEMINI_API_KEY", "Gemini (Google)", "modell", "AIza…",
+         "Für die Gemini-Modelle deines Google-Kontos (gemini/…)."),
     Slot("AQUATICY_API_KEY", "Anderer Anbieter", "modell", "",
          "Für ein Modell eines anderen Anbieters, den LiteLLM kennt (zum Beispiel "
          "openai/…, anthropic/…, groq/…) — trag die Modell-ID oben unter Hauptmodell ein."),

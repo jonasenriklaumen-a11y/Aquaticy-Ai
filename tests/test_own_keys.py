@@ -80,7 +80,7 @@ def test_another_account_can_neither_see_nor_use_the_keys(tmp_path: Path) -> Non
 def test_only_known_slots_and_real_looking_keys_are_taken(tmp_path: Path) -> None:
     tresor = _tresor(tmp_path)
     for name, wert in [
-        ("OPENAI_API_KEY", "sk-abcdefgh1234"),        # kein Platz dafuer
+        ("GROQ_API_KEY", "gsk-abcdefgh1234"),         # kein Platz dafuer
         ("AQUATICY_HA_TOKEN", "x" * 20),               # erst recht nicht
         ("MISTRAL_API_KEY", ""),
         ("MISTRAL_API_KEY", "kurz"),
@@ -456,7 +456,7 @@ def test_the_key_area_says_what_is_stored_and_never_the_key(server: dict[str, An
         "Du hast 2 API-Schlüssel hinzugefügt: NVIDIA NIM, Tavily.")
 
     # Was nicht passt, wird nicht angenommen -- mit einem Satz dazu.
-    for falsch in ({"action": "set", "name": "OPENAI_API_KEY", "value": "sk-abcdefgh1234"},
+    for falsch in ({"action": "set", "name": "GROQ_API_KEY", "value": "gsk-abcdefgh1234"},
                    {"action": "set", "name": "MISTRAL_API_KEY", "value": "zu kurz"},
                    {"action": "loeschen", "name": "MISTRAL_API_KEY"}):
         status, daten = _req(port, "POST", "/api/keys", falsch, anna)

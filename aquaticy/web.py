@@ -13,7 +13,9 @@ from __future__ import annotations
 import base64
 import binascii
 import contextlib
+import gzip
 import hmac
+import io
 import json
 import logging
 import os
@@ -35,7 +37,7 @@ from pathlib import Path
 from typing import Any
 from urllib.parse import parse_qs, urlsplit
 
-from aquaticy import INTERNAL, VERSION_LABEL, __version__, webview
+from aquaticy import INTERNAL, VERSION_LABEL, __version__, cluster, webview
 from aquaticy.auth import Account, AuthStore, RateLimiter, pro_code_for
 from aquaticy.cache import Cache
 from aquaticy.config import (
@@ -298,6 +300,7 @@ SETTING_KEYS: tuple[str, ...] = (
     "AQUATICY_VM_LAN",
     "AQUATICY_LEGAL_GUARD",
     "AQUATICY_AUTO_MODEL",
+    "AQUATICY_COUNCIL",
 )
 
 #: Zahlenfelder mit dem Bereich, in dem sie sinnvoll sind. Geprueft wird
@@ -462,6 +465,14 @@ CONSENT_COOKIE = "aquaticy_consent"
 AUTH: AuthStore | None = None
 #: Ai-guard: erkennt Missbrauch über mehrere Chats und sperrt (9.5.16 Lion).
 AIGUARD: Any = None
+#: Der Server-Verbund (seit 9.6.1, aquaticy/cluster.py) -- None ohne Konten.
+CLUSTER: Any = None
+#: Der laufende HTTP-Server (fuer den Neustart nach dem Beitritt zu einem Verbund).
+SERVER: Any = None
+#: Diese Pfade bedient jeder Server selbst, auch im Verbund: Anmeldung,
+#: Zustimmung, Logo, Rechtstexte und die Verbund-Einstellungen dieses Servers.
+CLUSTER_LOCAL = frozenset({"/api/auth/status", "/api/auth/login", "/api/auth/register",
+                           "/api/auth/logout", "/api/consent", "/api/cluster"})
 
 #: Was ein gesperrtes Konto noch schicken darf (9.5.26): abmelden, das Design
 #: aendern, einen Lauf anhalten und die eigenen Chats ansehen, umbenennen oder
@@ -492,6 +503,8 @@ REQUEST_LIMIT = RateLimiter(attempts=240, window_seconds=60)
 #: probieren -- zu wenig, um den Server als Pruefstelle fuer fremde Schluessel
 #: zu missbrauchen (jeder Test ist eine Anfrage beim Anbieter).
 KEY_TEST_LIMIT = RateLimiter(attempts=10, window_seconds=60)
+#: Einladungen im Verbund kommen ohne Schluessel -- also knapp (9.6.1).
+CLUSTER_HELLO_LIMIT = RateLimiter(attempts=30, window_seconds=60)
 
 _STRING_SETTINGS = {
     "AQUATICY_MODEL": "model",
@@ -526,6 +539,7 @@ _BOOL_SETTINGS = {
     "AQUATICY_VM_INTERNET": "vm_internet",
     "AQUATICY_VM_LAN": "vm_lan",
     "AQUATICY_AUTO_MODEL": "auto_model",
+    "AQUATICY_COUNCIL": "council",
 }
 _INT_SETTINGS = {
     "AQUATICY_SEARCH_VARIANTS": "search_variants",
@@ -924,6 +938,8 @@ def _profile_settings(profile: Path, plan: str, account: Account | None = None) 
     for name, wert in eigene.items():
         (settings.search_keys if name in SEARCH_KEY_NAMES else settings.api_keys)[name] = wert
     settings.own_key_names = frozenset(eigene)
+    # Verknuepfte KI-Konten (9.6.1) gehoeren zum Profil, nicht zum Server.
+    settings.linked_models = None
     # Das GitHub-Token des Kontos liegt verschluesselt im Schluesselbund (seit
     # 9.5.16) -- ein altes aus der .env wandert einmal hinein. Das Token des
     # Betreibers bekommt ein Konto nie: es koennte dessen private Repos lesen.
@@ -1896,7 +1912,11 @@ def start_user_scheduler(account: Account) -> None:
         konto_id = account.id
         scheduler = Scheduler(
             SESSIONS.get(account).settings,
-            paused=lambda: AIGUARD is not None and AIGUARD.is_banned(user_id=konto_id) is not None,
+            # Im Verbund laeuft ein Auftrag nur auf dem Heimserver (9.6.1) --
+            # sonst liefe er auf jedem Server einmal.
+            paused=lambda: (AIGUARD is not None
+                            and AIGUARD.is_banned(user_id=konto_id) is not None)
+            or (CLUSTER is not None and not CLUSTER.is_home(konto_id)),
             on_abuse=lambda job, payload: job_abuse(account, job, payload),
         )
         scheduler.start()
@@ -2016,6 +2036,7 @@ def current_values() -> dict[str, str]:
         "AQUATICY_VM_LAN": "true" if settings.vm_lan else "false",
         "AQUATICY_LEGAL_GUARD": "true" if settings.legal_guard else "false",
         "AQUATICY_AUTO_MODEL": "true" if settings.auto_model else "false",
+        "AQUATICY_COUNCIL": "true" if getattr(settings, "council", False) else "false",
     }
 
 
@@ -2389,6 +2410,86 @@ def keys_view(session: Any) -> dict[str, Any]:
     }
 
 
+def linked_view(session: Any) -> dict[str, Any]:
+    """Add-ons → KI-Konten (9.6.1): was verknuepft ist, mit Modellen, Stufe, Tokens."""
+    from aquaticy import linked
+
+    settings = session.settings()
+    stand = linked.load(settings.data_dir)
+    aktiv = set(linked.linked_providers(settings))
+    konten = []
+    for provider, d in linked.PROVIDERS.items():
+        info = stand.get(provider) or {}
+        konten.append({
+            "provider": provider, "label": d["label"], "company": d["company"],
+            "get_key": d["get_key"], "form": d["form"], "linked": provider in aktiv,
+            "tier": info.get("tier", "") if provider in aktiv else "",
+            "tokens": info.get("tokens") if provider in aktiv else None,
+            "models": [m.get("label") or m.get("id") for m in info.get("models", [])]
+            if provider in aktiv else [],
+            "note": info.get("note", ""), "warning": info.get("warning", ""),
+            "checked": webview.moment_text(info["checked"]) if info.get("checked") else "",
+        })
+    arbeiter, pruefer = linked.council_roles(settings)
+    return {"accounts": konten, "council": {
+        "possible": bool(arbeiter) and pruefer is not None,
+        "on": bool(getattr(settings, "council", False)),
+        "workers": [m for _, m in arbeiter], "checker": pruefer[1] if pruefer else "",
+        "judge": settings.model}}
+
+
+def linked_action(payload: dict[str, Any]) -> tuple[dict[str, Any], int]:
+    """Verknuepfen, aktualisieren, trennen. Der Schluessel geht in den Schluesselbund."""
+    from aquaticy import linked
+    from aquaticy.keyvault import VaultError, check_key
+
+    session = SESSION.current() if isinstance(SESSION, SessionProxy) else SESSION
+    aktion = str(payload.get("action") or "")
+    provider = str(payload.get("provider") or "")
+    if provider not in linked.PROVIDERS:
+        return {"ok": False, "error": "Diesen Anbieter gibt es hier nicht."}, 400
+    name = linked.PROVIDERS[provider]["key"]
+    wer = getattr(session.account, "id", "") or "lokal"
+    try:
+        if aktion in ("link", "refresh"):
+            if not KEY_TEST_LIMIT.allow(wer):
+                return {"ok": False, "error": "Das waren viele Versuche in kurzer Zeit — bitte "
+                                              "in einer Minute noch einmal."}, 429
+            if aktion == "link":
+                wert = check_key(name, str(payload.get("key") or ""))
+            else:
+                settings = session.settings()
+                wert = (settings.api_keys.get(name, "") if session.profile is None
+                        or name in settings.own_key_names else "")
+                wert = wert or (os.environ.get(name, "").strip() if session.profile is None
+                                else "")
+                if not wert:
+                    return {"ok": False, "error": "Dieses Konto ist nicht verknüpft."}, 400
+            info = linked.inspect(provider, wert)
+            if aktion == "link":
+                # Gespeichert wird erst, wenn der Anbieter den Schluessel angenommen hat.
+                if session.profile is not None:
+                    account_vault(session.profile, session.account).set(name, wert)
+                else:
+                    ziel = write_env_file({name: wert}, find_env_file() or DEFAULT_ENV_PATH)
+                    load_env(ziel, override=True)
+            linked.save(session.settings().data_dir, provider, info)
+        elif aktion == "unlink":
+            if session.profile is not None:
+                account_vault(session.profile, session.account).remove(name)
+            else:
+                os.environ.pop(name, None)
+                write_env_file({name: ""}, find_env_file() or DEFAULT_ENV_PATH)
+            linked.save(session.settings().data_dir, provider, None)
+        else:
+            return {"ok": False, "error": "Unbekannte Aktion."}, 400
+    except (VaultError, linked.LinkError) as exc:
+        return {"ok": False, "error": scrub_error(str(exc))}, 400
+    session.reload()
+    forget_strong_models(session.settings().data_dir)
+    return {"ok": True, **linked_view(session)}, 200
+
+
 def keys_action(payload: dict[str, Any]) -> tuple[dict[str, Any], int]:
     """Schluessel hinzufuegen, entfernen oder testen -- nur im eigenen Konto.
 
@@ -2460,7 +2561,17 @@ def _test_key(session: Any, name: str, getippt: str) -> tuple[bool, str]:
         wert = os.environ.get(name, "").strip()
     if not wert:
         return False, fehlt
-    if slot.art == "suche":
+    from aquaticy import linked
+
+    if name in linked.KEY_NAMES:
+        anbieter = next(p for p, d in linked.PROVIDERS.items() if d["key"] == name)
+        try:
+            info = linked.inspect(anbieter, wert)
+            ok, meldung = True, (f"Funktioniert — {len(info['models'])} Modelle"
+                                 + (f", {info['tier']}" if info.get("tier") else "") + ".")
+        except linked.LinkError as exc:
+            ok, meldung = False, str(exc)
+    elif slot.art == "suche":
         dienst = "brave" if name == "BRAVE_API_KEY" else "tavily"
         ok, meldung = check_search(dienst, wert, "", "")
     else:
@@ -2751,6 +2862,52 @@ def _design_style(design: dict[str, Any]) -> str:
     return ";".join(teile)
 
 
+#: (Stempel der Datei, Inhalt) -- als ein Eintrag, damit beides immer zusammenpasst.
+_UI_CACHE: dict[str, Any] = {"entry": None}
+_STATIC_CACHE: dict[str, bytes] = {}
+_CACHE_LOCK = threading.Lock()
+
+
+def ui_template() -> str:
+    """Die Oberflaeche aus dem Speicher statt bei jedem Aufruf von der Platte (9.6.1).
+
+    Neu gelesen wird nur, wenn sich die Datei geaendert hat -- wer an
+    webui.html arbeitet, sieht seine Aenderung also weiterhin sofort.
+    """
+    try:
+        stat = UI_FILE.stat()
+        stempel = (stat.st_mtime_ns, stat.st_size)
+    except OSError:
+        stempel = None
+    with _CACHE_LOCK:
+        eintrag = _UI_CACHE["entry"]
+        if stempel is None or eintrag is None or eintrag[0] != (str(UI_FILE), stempel):
+            eintrag = ((str(UI_FILE), stempel), UI_FILE.read_text(encoding="utf-8"))
+            _UI_CACHE["entry"] = eintrag if stempel is not None else None
+        return str(eintrag[1])
+
+
+def _static_bytes(name: str) -> bytes:
+    """Logo und Symbole -- einmal gelesen, danach aus dem Speicher (9.6.1)."""
+    with _CACHE_LOCK:
+        daten = _STATIC_CACHE.get(name)
+    if daten is None:
+        daten = (STATIC_DIR / name).read_bytes()
+        with _CACHE_LOCK:
+            _STATIC_CACHE[name] = daten
+    return daten
+
+
+def accepts_gzip(header: str) -> bool:
+    """Nimmt der Browser gzip an? ("gzip;q=0" heisst ausdruecklich nein.)"""
+    for teil in header.lower().split(","):
+        name, _, rest = teil.strip().partition(";")
+        if name.strip() in ("gzip", "*"):
+            q = rest.strip()
+            return not (q.startswith("q=") and q[2:].strip() in ("0", "0.0", "0.00", "0.000"))
+    return False
+
+
 def with_state(html: str, *, nonce: str = "") -> str:
     """Gibt der Seite den Zustand gleich mit auf den Weg.
 
@@ -2907,9 +3064,12 @@ class Handler(BaseHTTPRequestHandler):
         self.responded = False
         route = self._route()
         client = self._client_ip()
+        weitergereicht = bool(getattr(self, "_cluster_user", ""))
         # Das Logo zaehlt nicht mit (9.6.0): jede Seite laedt es mehrfach, und es
         # ist eine feste, kleine Datei -- sonst frass es das Anfragen-Limit auf.
-        if route not in STATIC_FILES and not REQUEST_LIMIT.allow(client):
+        # Im Verbund weitergereichte Anfragen hat der Eingang schon gezaehlt.
+        if (route not in STATIC_FILES and not weitergereicht
+                and not REQUEST_LIMIT.allow(client)):
             self._json({"error": "Zu viele Anfragen. Bitte warte kurz."}, 429)
             return
         account = self._account()
@@ -2939,6 +3099,8 @@ class Handler(BaseHTTPRequestHandler):
                 self._json({"error": BANNED_MESSAGE, "code": "banned",
                             "ban": ban_info(sperre)}, 403)
                 return
+        if account is not None and self._cluster_dispatch(route, account, weitergereicht):
+            return
         previous = getattr(_REQUEST, "session", None)
         if account is not None:
             _REQUEST.session = SESSIONS.get(account)
@@ -2966,6 +3128,146 @@ class Handler(BaseHTTPRequestHandler):
                     del _REQUEST.session
             else:
                 _REQUEST.session = previous
+
+    # -- Server-Verbund (9.6.1) ----------------------------------------------
+    def _cluster_dispatch(self, route: str, account: Account, weitergereicht: bool) -> bool:
+        """Reicht die Anfrage an den Heimserver des Kontos weiter.
+
+        Returns: True, wenn hier nichts mehr zu tun ist (weitergereicht oder
+        abgewiesen); False, wenn dieser Server die Anfrage selbst bedient.
+        """
+        verbund = CLUSTER
+        if verbund is None or not verbund.joined:
+            return False
+        if weitergereicht:
+            if verbund.is_home(account.id):
+                start_user_scheduler(account)
+                return False
+            # Das Konto ist inzwischen woanders zuhause -- der Eingang fragt neu.
+            body = b'{"error": "Bitte gleich noch einmal."}'
+            self.send_response(409)
+            self.send_header(cluster.MOVED_HEADER, "moved")
+            self.send_header("Content-Type", "application/json")
+            self.send_header("Content-Length", str(len(body)))
+            self.end_headers()
+            self.wfile.write(body)
+            return True
+        if (route in CLUSTER_LOCAL or route in STATIC_FILES or route in LEGAL_ROUTES
+                or route.startswith("/cluster/")):
+            return False
+        roh = (self.headers.get("Content-Length") or "0").strip()
+        if (not roh.isdigit() or len(roh) > 12 or int(roh) > MAX_BODY_BYTES
+                or self.headers.get("Transfer-Encoding")):
+            return False  # das lehnt die Route hier selbst sauber ab
+        body = self.rfile.read(int(roh)) if int(roh) else b""
+        direkt = str(self.client_address[0] if self.client_address else "")
+        try:
+            if verbund.forward(self, account.id, body, self._https(), direkt):
+                return True
+        except Exception as exc:  # pragma: no cover - der Verbund darf nie den Server kosten
+            print(f"  [Verbund] Weiterleitung: {type(exc).__name__}: {exc}")
+            if self.responded:
+                self.close_connection = True
+                return True
+        # Selbst bedienen -- der Koerper ist schon gelesen, also neu bereitstellen.
+        self.rfile = io.BytesIO(body)
+        return False
+
+    def _cluster_route(self) -> None:
+        """/cluster/... -- Aufrufe anderer Server, nicht des Browsers."""
+        self.responded = False
+        verbund = CLUSTER
+        route = self._route()
+        direkt = str(self.client_address[0] if self.client_address else "")
+        if verbund is None or not verbund.enabled:
+            self._json({"error": "Kein Verbund."}, 404)
+            return
+        if self.command == "GET" and route == "/cluster/info":
+            if not CLUSTER_HELLO_LIMIT.allow(direkt):
+                self._json({"error": "Zu viele Anfragen."}, 429)
+                return
+            self._json(verbund.beacon())
+            return
+        if self.command != "POST":
+            self._json({"error": "unbekannter Pfad"}, 404)
+            return
+        roh = (self.headers.get("Content-Length") or "0").strip()
+        grenze = MAX_BODY_BYTES * 2 if route == "/cluster/proxy" else 4 * cluster.CHUNK
+        if not roh.isdigit() or len(roh) > 12 or int(roh) > grenze:
+            self._json({"error": "Anfrage zu gross."}, 413)
+            return
+        daten = self.rfile.read(int(roh)) if int(roh) else b""
+        try:
+            if route == "/cluster/rpc":
+                self._send(200, verbund.handle_rpc(daten, direkt), "application/octet-stream")
+            elif route == "/cluster/proxy":
+                self._cluster_proxy(verbund, daten, direkt)
+            elif route in ("/cluster/hello", "/cluster/hello-status", "/cluster/hello-join"):
+                # Ohne Verbundschluessel erreichbar -- darum knapp begrenzt.
+                if not CLUSTER_HELLO_LIMIT.allow(direkt):
+                    self._json({"error": "Zu viele Anfragen."}, 429)
+                    return
+                try:
+                    anfrage = json.loads(daten or b"{}")
+                except ValueError:
+                    anfrage = {}
+                if not isinstance(anfrage, dict):
+                    anfrage = {}
+                handler = {"/cluster/hello": verbund.handle_hello,
+                           "/cluster/hello-status": verbund.hello_status,
+                           "/cluster/hello-join": verbund.hello_join}[route]
+                self._json(handler(anfrage, direkt))
+            else:
+                self._json({"error": "unbekannter Pfad"}, 404)
+        except (cluster.ClusterError, ValueError, binascii.Error) as exc:
+            if not self.responded:
+                self._json({"error": str(exc) if isinstance(exc, cluster.ClusterError)
+                            else "Ungültige Anfrage."}, 403)
+
+    def _cluster_proxy(self, verbund: Any, daten: bytes, direkt: str) -> None:
+        """Heimserver: bedient eine weitergereichte Anfrage wie eine eigene.
+
+        Die ganze HTTP-Antwort -- Kopf und Inhalt, auch ein laufender Chat --
+        geht verschluesselt in Stuecken zurueck; der Eingang schreibt sie
+        unveraendert an den Browser.
+        """
+        from http.client import HTTPMessage
+
+        anfrage, nonce, key = verbund.open_proxy(daten, direkt)
+        salz = secrets.token_bytes(16)
+        roh = self.wfile
+        roh.write(b"HTTP/1.1 200 OK\r\nContent-Type: application/octet-stream\r\n"
+                  b"Cache-Control: no-store\r\nConnection: close\r\n"
+                  b"X-Aquaticy-Salt: " + base64.b64encode(salz) + b"\r\n\r\n")
+        roh.flush()
+        self.responded = True
+        strom = cluster.FrameWriter(roh, key, salz, f"stream:{nonce}")
+        kopf = HTTPMessage()
+        for eintrag in anfrage.get("h") or []:
+            if isinstance(eintrag, list) and len(eintrag) == 2:
+                kopf[str(eintrag[0])[:200]] = str(eintrag[1])[:8000]
+        koerper = base64.b64decode(str(anfrage.get("b") or ""))
+        kopf["Content-Length"] = str(len(koerper))
+        methode = str(anfrage.get("m", "GET")).upper()
+        ausfuehren = {"GET": self.do_GET, "POST": self.do_POST, "DELETE": self.do_DELETE,
+                      "HEAD": self.do_HEAD}.get(methode)
+        self.command, self.path, self.headers = methode, str(anfrage.get("p", "/")), kopf
+        self.rfile = io.BytesIO(koerper)
+        self.client_address = (str(anfrage.get("ip", "")), 0)
+        self._cluster_user = str(anfrage["u"])
+        self._cluster_https = bool(anfrage.get("https"))
+        self.wfile = strom
+        try:
+            if ausfuehren is None:
+                self.send_response(405)
+                self.send_header("Content-Length", "0")
+                self.end_headers()
+            else:
+                ausfuehren()
+        finally:
+            strom.end()
+            self.wfile = roh
+            self.close_connection = True
 
     # -- Hilfen -----------------------------------------------------------
     def _send(self, status: int, body: bytes, content_type: str) -> None:
@@ -3040,6 +3342,10 @@ class Handler(BaseHTTPRequestHandler):
     def _account(self) -> Account | None:
         if AUTH is None:
             return None
+        if getattr(self, "_cluster_user", ""):
+            # Weitergereicht aus dem Verbund: der Eingang hat die Anmeldung
+            # geprueft, die Nachricht ist mit dem Verbundschluessel gesichert.
+            return AUTH.account(self._cluster_user)
         return AUTH.session_account(self._cookie(AUTH_COOKIE), self._device(),
                                     self._client_ip())
 
@@ -3073,6 +3379,8 @@ class Handler(BaseHTTPRequestHandler):
     def _https(self) -> bool:
         """Laeuft die Verbindung verschluesselt -- direkt oder hinter einem
         eingetragenen Proxy, der "X-Forwarded-Proto: https" meldet (9.5.22)?"""
+        if getattr(self, "_cluster_user", ""):
+            return bool(getattr(self, "_cluster_https", False))
         if isinstance(self.connection, __import__("ssl").SSLSocket):
             return True
         import ipaddress
@@ -3101,7 +3409,7 @@ class Handler(BaseHTTPRequestHandler):
         Ohne gesetztes TOKEN ist alles erlaubt; so bleibt der rein lokale
         Betrieb genauso einfach wie vorher.
         """
-        if not TOKEN:
+        if not TOKEN or getattr(self, "_cluster_user", ""):
             return True
         return any(
             candidate and same_secret(candidate, TOKEN)
@@ -3154,9 +3462,15 @@ class Handler(BaseHTTPRequestHandler):
     # -- Routen -----------------------------------------------------------
     # Namen von BaseHTTPRequestHandler vorgegeben.
     def do_GET(self) -> None:
+        if self._route().startswith("/cluster/") and not getattr(self, "_cluster_user", ""):
+            self._cluster_route()
+            return
         self._guarded(self._get)
 
     def do_POST(self) -> None:
+        if self._route().startswith("/cluster/") and not getattr(self, "_cluster_user", ""):
+            self._cluster_route()
+            return
         self._guarded(self._post)
 
     def do_DELETE(self) -> None:
@@ -3418,7 +3732,7 @@ class Handler(BaseHTTPRequestHandler):
     def _send_static(self, route: str) -> None:
         """Eine feste Datei aus aquaticy/static -- mit Zwischenspeicher im Browser."""
         try:
-            daten = (STATIC_DIR / STATIC_FILES[route]).read_bytes()
+            daten = _static_bytes(STATIC_FILES[route])
         except OSError:
             self._json({"error": "nicht gefunden"}, 404)
             return
@@ -3444,6 +3758,11 @@ class Handler(BaseHTTPRequestHandler):
             self._send_ui()
         elif route in LEGAL_ROUTES:
             self._send(200, legal_page(route), "text/html; charset=utf-8")
+        elif route == "/api/cluster":
+            antwort, status = cluster_view(SESSION.current())
+            self._json(antwort, status)
+        elif route == "/api/linked":
+            self._json(linked_view(SESSION.current()))
         elif route == "/api/auth/status":
             account = self._account()
             self._json(
@@ -3660,18 +3979,27 @@ class Handler(BaseHTTPRequestHandler):
             frage = parse_qs(urlsplit(self.path).query)
             zweck = (frage.get("purpose") or [""])[0].strip()
             modus = (frage.get("mode") or [""])[0].strip()
+            from aquaticy.linked import picker_models
+
             alle = available_models(SESSION.settings())
+            # Verknuepfte KI-Konten (9.6.1) stehen in jedem Modus mit zur Wahl.
+            verknuepft = []
+            with contextlib.suppress(Exception):
+                verknuepft = picker_models(SESSION.settings())
+            gesehen = {m.get("id") for m in alle}
+            alle = alle + [m for m in verknuepft if m["id"] not in gesehen]
             antwort: dict[str, Any] = {
                 "models": alle,
                 # Fuer den Code- und den Pro-Modus: nur die staerksten.
-                "strong": strong_models(3, purpose=zweck),
+                "strong": strong_models(3, purpose=zweck) + verknuepft,
             }
             if modus:
                 # Seit 9.5.14 entscheidet der Server, was die Auswahl zeigt: im
                 # Code- und Pro-Modus nur die drei staerksten (ein schwaches
                 # Modell ist dort am teuersten), und welches Feld die Wahl setzt.
                 antwort["picker"] = webview.picker_view(
-                    modus, alle, strong_models(3, purpose="code" if modus == "code" else ""),
+                    modus, alle,
+                    strong_models(3, purpose="code" if modus == "code" else "") + verknuepft,
                     limited=SESSION.settings().quota is not None,
                 )
             self._json(antwort)
@@ -3888,6 +4216,13 @@ class Handler(BaseHTTPRequestHandler):
             self._json_cookie({"ok": True}, AUTH_COOKIE, "", 0)
         elif route in ACCOUNT_ROUTES:
             self._account_action(route, self._read_json(limit=AUTH_BODY_BYTES))
+        elif route == "/api/cluster":
+            antwort, status = cluster_action(SESSION.current(),
+                                             self._read_json(limit=AUTH_BODY_BYTES))
+            self._json(antwort, status)
+        elif route == "/api/linked":
+            antwort, status = linked_action(self._read_json(limit=AUTH_BODY_BYTES))
+            self._json(antwort, status)
         elif route == "/api/chat":
             self._chat()
         elif route == "/api/clear":
@@ -4394,11 +4729,18 @@ p{{margin:0 0 8px;color:#57534a}}</style></head><body><main>
         Browser das Wort von selbst.
         """
         self._csp_nonce = secrets.token_urlsafe(18)
-        body = with_state(UI_FILE.read_text(encoding="utf-8"),
-                          nonce=self._csp_nonce).encode("utf-8")
+        body = with_state(ui_template(), nonce=self._csp_nonce).encode("utf-8")
+        # Gepackt (9.6.1): aus rund 370 kB werden etwa 80 kB -- spuerbar auf
+        # dem Handy und auf einem schwachen Server mit langsamer Leitung.
+        gepackt = accepts_gzip(self.headers.get("Accept-Encoding") or "")
+        if gepackt:
+            body = gzip.compress(body, compresslevel=5)
         self.send_response(200)
         self.send_header("Content-Type", "text/html; charset=utf-8")
         self.send_header("Content-Length", str(len(body)))
+        if gepackt:
+            self.send_header("Content-Encoding", "gzip")
+        self.send_header("Vary", "Accept-Encoding")
         self.send_header("Cache-Control", "no-store")
         if TOKEN:
             self._set_cookie(TOKEN_COOKIE, TOKEN, 30 * 86400)
@@ -4914,6 +5256,99 @@ def _warm_up() -> None:
         model_problem(SESSION.settings().model)
 
 
+def _cluster_load() -> dict[str, Any]:
+    """Wie viel dieser Server gerade zu tun hat -- fuer den Lastausgleich."""
+    with SESSIONS._lock:
+        sitzungen = list(SESSIONS._sessions.values())
+    laeufe = 0
+    for sitzung in sitzungen:
+        with contextlib.suppress(Exception):
+            buch = sitzung.runs
+            with buch._lock:
+                laeufe += sum(1 for lauf in buch._runs.values() if not lauf.done)
+    return {"runs": laeufe, "sessions": len(sitzungen)}
+
+
+def _cluster_release(user_id: str) -> bool:
+    """Gibt ein Konto an einen anderen Server ab -- nur, wenn hier nichts laeuft."""
+    with SESSIONS._lock:
+        sitzung = SESSIONS._sessions.get(user_id)
+    if sitzung is not None:
+        with contextlib.suppress(Exception), sitzung.runs._lock:
+            if any(not lauf.done for lauf in sitzung.runs._runs.values()):
+                return False
+    konto = AUTH.account(user_id) if AUTH is not None else None
+    if konto is not None:
+        forget_account_runtime(konto)
+    return True
+
+
+def _cluster_adopt(user_id: str) -> None:
+    konto = AUTH.account(user_id) if AUTH is not None else None
+    if konto is not None:
+        start_user_scheduler(konto)
+
+
+def _cluster_restart() -> None:
+    """Nach dem Beitritt: einmal neu starten, damit alles die Daten des Verbunds liest."""
+    import sys
+
+    print("  [Verbund] Starte neu, um die Daten des Verbunds zu laden ...", flush=True)
+    if SERVER is not None:
+        threading.Thread(target=SERVER.shutdown, daemon=True).start()
+        time.sleep(1.0)
+    with contextlib.suppress(Exception):
+        sys.stdout.flush()
+        sys.stderr.flush()
+    os.execv(sys.executable, [sys.executable, "-c", "from aquaticy.cli import main; main()",
+                              *sys.argv[1:]])
+
+
+def cluster_view(session: Any) -> tuple[dict[str, Any], int]:
+    """Der Verbund fuer die Dev settings -- nur fuer Ultra."""
+    if not getattr(session, "ultra", False):
+        return {"error": "Der Server-Verbund gehört zu Ultra.", "locked": True}, 403
+    if CLUSTER is None:
+        return {"error": "Der Verbund ist hier nicht verfügbar.", "enabled": False}, 200
+    return CLUSTER.view(), 200
+
+
+def cluster_action(session: Any, payload: dict[str, Any]) -> tuple[dict[str, Any], int]:
+    """Schalten, einladen, Code bestaetigen, entfernen, verlassen -- nur Ultra."""
+    if not getattr(session, "ultra", False):
+        return {"error": "Der Server-Verbund gehört zu Ultra.", "locked": True}, 403
+    if CLUSTER is None:
+        return {"error": "Der Verbund ist hier nicht verfügbar."}, 400
+    aktion = str(payload.get("action", ""))
+    try:
+        if aktion == "enable":
+            CLUSTER.set_enabled(bool(payload.get("on")))
+        elif aktion == "invite":
+            adresse = str(payload.get("address", "")).strip()
+            try:
+                port = int(payload.get("port") or DEFAULT_PORT)
+            except (TypeError, ValueError):
+                return {"error": "Ungültiger Port."}, 400
+            if not CLUSTER.enabled:
+                return {"error": "Schalte den Server-Verbund zuerst ein."}, 400
+            CLUSTER.invite(adresse, port)
+        elif aktion == "confirm":
+            CLUSTER.confirm(str(payload.get("id", "")), str(payload.get("code", "")))
+        elif aktion == "remove":
+            if not CLUSTER.is_master:
+                return {"error": "Entfernen kann nur der Master."}, 403
+            CLUSTER.remove(str(payload.get("node", "")))
+        elif aktion == "leave":
+            CLUSTER.leave()
+        else:
+            return {"error": "Unbekannte Aktion."}, 400
+    except cluster.ClusterError as exc:
+        return {"error": str(exc)}, 400
+    except (OSError, ValueError) as exc:
+        return {"error": f"Der andere Server ist nicht erreichbar ({type(exc).__name__})."}, 502
+    return CLUSTER.view(), 200
+
+
 def serve(
     host: str = "127.0.0.1",
     port: int = DEFAULT_PORT,
@@ -4962,6 +5397,24 @@ def serve(
     except Exception:  # pragma: no cover - Auftraege duerfen den Start nie kosten
         pass
     server = ThreadingHTTPServer((host, port), Handler)
+    global SERVER, CLUSTER
+    SERVER = server
+    # Server-Verbund (9.6.1): laeuft nur, wenn er in den Dev settings an ist.
+    try:
+        frage = cluster.TerminalPrompt()
+        CLUSTER = cluster.Cluster(data_dir, host=host, port=port, version=VERSION_LABEL,
+                                  hooks=cluster.Hooks(load=_cluster_load,
+                                                      release=_cluster_release,
+                                                      adopt=_cluster_adopt,
+                                                      restart=_cluster_restart, ask=frage))
+        frage.cluster = CLUSTER
+        CLUSTER.start()
+        if CLUSTER.joined:
+            rolle = "Master" if CLUSTER.is_master else "Mitglied"
+            print(f"  Verbund:    {rolle}, {len(CLUSTER.members())} Server")
+    except Exception as exc:  # pragma: no cover - der Verbund darf nie den Start kosten
+        print(f"  [Verbund] nicht gestartet: {type(exc).__name__}: {exc}")
+        CLUSTER = None
     threading.Thread(target=_warm_up, daemon=True).start()
     if open_browser:
         # Auf dem eigenen Rechner ist 127.0.0.1 die zuverlaessigste Adresse --
@@ -4974,5 +5427,7 @@ def serve(
         pass
     finally:
         server.server_close()
+        if CLUSTER is not None:
+            CLUSTER.stop()
         TOKEN = ""
         AUTH = None

@@ -3961,7 +3961,10 @@ def test_the_sidebar_glows_until_it_is_read() -> None:
     assert "body.hat-neues #btn-side::after" in html
     assert 'classList.toggle("hat-neues"' in html
     # Und es wird nachgesehen, ohne dass jemand die Seite neu lädt.
-    assert "setInterval(() => { if (!busy && !chatQuery) loadRecents(); }, 60_000);" in html
+    # Seit 9.6.1 nicht im Hintergrund-Tab -- beim Zurueckkehren wird nachgeholt.
+    assert ("setInterval(() => { if (!busy && !chatQuery && !document.hidden) loadRecents(); "
+            "}, 60_000);") in html
+    assert 'addEventListener("visibilitychange"' in html
 
 
 def test_the_picker_offers_only_the_strong_ones_in_code_and_pro() -> None:

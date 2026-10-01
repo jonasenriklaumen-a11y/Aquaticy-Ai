@@ -917,3 +917,43 @@ def test_the_place_lands_in_every_subtask(
     _, tasks = plan_request("Wo kann ich arbeiten?", settings)
     assert tasks == ["Cafés mit WLAN Bremen", "Cafés in Bremen"]
 
+
+
+def test_normal_mode_deadline_stops_searching_and_summarises(monkeypatch, settings) -> None:
+    """9.6.1: ist die Frist um, sucht der Agent nicht weiter, sondern fasst zusammen."""
+    import types
+
+    from aquaticy import subagents
+
+    aufrufe: list[dict] = []
+
+    def completion(settings_, **kwargs):
+        aufrufe.append(kwargs)
+        if kwargs.get("tools"):
+            call = types.SimpleNamespace(
+                id="c1", function=types.SimpleNamespace(
+                    name="web_search", arguments='{"query": "x"}'))
+            msg = types.SimpleNamespace(content="", tool_calls=[call])
+        else:
+            msg = types.SimpleNamespace(content="Zusammenfassung", tool_calls=None)
+        return types.SimpleNamespace(choices=[types.SimpleNamespace(message=msg)])
+
+    monkeypatch.setattr(subagents.metering, "completion", completion)
+
+    class Box:
+        stats = types.SimpleNamespace(sources=[], searches=[])
+        guard = None
+
+        def call(self, name, args):
+            return {"results": []}
+
+        def close(self, **_):
+            pass
+
+    uhr = iter([0.0, 0.0, 100.0, 100.0, 100.0, 100.0])
+    monkeypatch.setattr(subagents.time, "monotonic", lambda: next(uhr, 100.0))
+    ergebnis = subagents._run_one("frage", settings, None, None, toolbox=Box(),
+                                  budget=6, deadline=40.0)
+    assert ergebnis.summary == "Zusammenfassung"
+    assert ergebnis.tool_calls == 1, "nach Ablauf der Frist keine weitere Suche"
+    assert all(a["timeout"] <= subagents.NORMAL_CALL_TIMEOUT for a in aufrufe)

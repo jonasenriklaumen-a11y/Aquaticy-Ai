@@ -607,10 +607,12 @@ def test_every_question_is_split_automatically(
     agent = Agent(settings, cache=None, toolbox=toolbox)
     result = agent.ask("Zusammengesetzte Frage", stream=False)
 
-    # Die Teilfragen des Planers stehen vorn -- der Rest wird auf die Zahl der
-    # Agenten aufgefuellt, damit nicht zwoelf Agenten zu zweit suchen.
+    # Die Teilfragen des Planers stehen vorn -- der Rest wird aufgefuellt, im
+    # Normal-Modus seit 9.6.1 aber nur bis NORMAL_FILL (schneller).
+    from aquaticy.subagents import NORMAL_FILL
+
     assert [task.text for task in seen[0][:2]] == ["Teil A", "Teil B"]
-    assert len(seen[0]) == settings.max_subagents
+    assert len(seen[0]) == min(settings.max_subagents, NORMAL_FILL)
     assert result.answer == "Endantwort"
     # Die Vorrecherche steht dem Hauptagenten zur Verfuegung -- als Text,
     # nicht als JSON.
@@ -1152,8 +1154,10 @@ def test_one_call_covers_triage_and_planning(
         or [{"task": getattr(t, "text", t), "summary": "ok"} for t in tasks],
     )
     Agent(settings, cache=None, toolbox=toolbox).ask("Zusammengesetzte Frage", stream=False)
+    from aquaticy.subagents import NORMAL_FILL
+
     assert [task.text for task in seen[0][:2]] == ["Teil A", "Teil B"]
-    assert len(seen[0]) == settings.max_subagents
+    assert len(seen[0]) == min(settings.max_subagents, NORMAL_FILL)
     assert planner_calls["n"] == 1, "kein zweiter Planungsaufruf"
 
 

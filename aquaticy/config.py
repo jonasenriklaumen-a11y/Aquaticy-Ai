@@ -47,6 +47,16 @@ PROVIDER_KEYS: dict[str, str] = {
     "lm_studio": "",
 }
 
+#: Verknuepfte KI-Konten (seit 9.6.1, aquaticy/linked.py). Bewusst NICHT in
+#: PROVIDER_KEYS: "openai/..." steht auch fuer lokale Server (LM Studio) und
+#: fuer den allgemeinen Schluessel. Diese Namen gelten nur fuer Modelle, die
+#: unter Add-ons → KI-Konten wirklich ausgelesen wurden.
+LINKED_KEYS: dict[str, str] = {
+    "anthropic": "ANTHROPIC_API_KEY",
+    "openai": "OPENAI_API_KEY",
+    "gemini": "GEMINI_API_KEY",
+}
+
 SEARCH_BACKEND_KEYS: dict[str, str] = {
     "duckduckgo": "",  # offene Metasuche, kein Key noetig
     "ddg": "",
@@ -385,6 +395,11 @@ class Settings:
     #: Betreiber stellt das ab, nie ein Konto und nie das Modell.
     answer_check: bool = True
     auto_model: bool = False
+    #: AI Council (seit 9.6.1, aquaticy/linked.py): die verknuepften Modelle
+    #: arbeiten und pruefen, das Hauptmodell richtet. Ohne Agenten.
+    council: bool = False
+    #: Modelle aus verknuepften KI-Konten -- beim ersten Gebrauch gelesen.
+    linked_models: frozenset[str] | None = None
     #: Das Kontingent des Kontos (aquaticy/quota.py: 5-Stunden-Sitzung und
     #: Woche) -- nur normale Konten haben eins. Gesetzt vom Webserver, nie aus
     #: der .env. None = unbegrenzt. Siehe aquaticy/metering.py.
@@ -508,12 +523,37 @@ class Settings:
     def api_key(self) -> str:
         return self.key_for(self.model)
 
+    def is_linked(self, model: str) -> bool:
+        """Laeuft *model* ueber ein verknuepftes KI-Konto (9.6.1)?
+
+        Nur, wenn es unter Add-ons ausgelesen wurde UND der Schluessel da ist --
+        mit Konto nur der eigene, nie einer aus der Umgebung des Betreibers.
+        """
+        name = LINKED_KEYS.get(provider_of(model), "")
+        if not name:
+            return False
+        if self.linked_models is None:
+            ids: set[str] = set()
+            with contextlib.suppress(Exception):
+                from aquaticy.linked import load
+
+                for info in load(self.data_dir).values():
+                    ids |= {str(m.get("id", "")) for m in (info or {}).get("models", [])}
+            self.linked_models = frozenset(ids)
+        if model not in self.linked_models:
+            return False
+        if self.account_email:
+            return name in self.own_key_names and bool(self.api_keys.get(name))
+        return bool(self.api_keys.get(name) or _env_str(name))
+
     def key_name_for(self, model: str) -> str:
         """Unter welchem Namen der Schluessel fuer *model* gesucht wird.
 
         Wie :func:`api_key_name_for` -- nur dass auch ein allgemeiner Schluessel
         des KONTOS zaehlt, nicht bloss einer in der Umgebung des Servers.
         """
+        if self.is_linked(model):
+            return LINKED_KEYS[provider_of(model)]
         provider = provider_of(model)
         if provider in PROVIDER_KEYS:
             return PROVIDER_KEYS[provider]
@@ -548,7 +588,8 @@ class Settings:
         Betreiber (in der Umgebung des Servers) oder -- nur Ultra -- das Konto
         selbst (``own_api_base``).
         """
-        if not self.api_base:
+        if not self.api_base or self.is_linked(model):
+            # Verknuepfte Konten gehen immer direkt zum Anbieter (9.6.1).
             return "", False
         des_kontos = self.api_base == self.own_api_base
         # Die Adresse des Betreibers gehoert zu SEINEM Modell -- nicht zu dem,
@@ -593,8 +634,8 @@ class Settings:
 
     def secrets(self) -> list[str]:
         """Alle Schluessel, die in keiner Meldung auftauchen duerfen -- eigene und gestellte."""
-        namen = set(PROVIDER_KEYS.values()) | set(SEARCH_BACKEND_KEYS.values()) | {
-            GENERIC_KEY_NAME}
+        namen = (set(PROVIDER_KEYS.values()) | set(SEARCH_BACKEND_KEYS.values())
+                 | set(LINKED_KEYS.values()) | {GENERIC_KEY_NAME})
         werte = {self.api_keys.get(n, "") for n in namen} | {self.search_keys.get(n, "")
                                                              for n in namen}
         werte |= {_env_str(n) for n in namen if n}
@@ -809,6 +850,7 @@ def get_settings() -> Settings:
         legal_guard=guard_on(_env_str("AQUATICY_LEGAL_GUARD")),
         answer_check=_env_bool("AQUATICY_ANSWER_CHECK", True),
         auto_model=_env_bool("AQUATICY_AUTO_MODEL", False),
+        council=_env_bool("AQUATICY_COUNCIL", False),
         lan_subnet=_env_str("AQUATICY_LAN_SUBNET"),
         fetch_timeout=float(_env_int("AQUATICY_FETCH_TIMEOUT", 15)),
         cache_ttl_hours=_env_int("AQUATICY_CACHE_TTL_HOURS", 24),

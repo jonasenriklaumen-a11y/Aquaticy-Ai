@@ -1,4 +1,4 @@
-# Aquaticy AI 9.6.0 Spark Intern
+# Aquaticy AI 9.6.1 Spark Intern
 
 **Aquaticy** recherchiert für dich. Du stellst eine Frage, Aquaticy sucht im Web, liest die
 passenden Seiten und fasst das Ergebnis zusammen — mit Quelle an jeder Angabe. Es läuft im
@@ -44,6 +44,7 @@ $ aquaticy
 - [Suche](#suche)
 - [Im Container](#im-container)
 - [Konfiguration](#konfiguration)
+- [Server-Verbund](#server-verbund-seit-961)
 - [Konten verwalten (Betreiber)](#konten-verwalten-betreiber)
 - [Entwicklung](#entwicklung)
 - [Lizenz](#lizenz)
@@ -70,8 +71,11 @@ $ aquaticy
   das Modell.
 
 **Arbeitsweisen**
-- **Normal** — ein ganz normales Gespräch, gesucht wird, wenn es nötig ist.
-- **Pro** — für große Fragen: das stärkste Modell und bis zu 50 Helfer. Der Master plant
+- **Normal** — ein ganz normales Gespräch, gesucht wird, wenn es nötig ist. Seit 9.6.1 deutlich
+  schneller: jeder Helfer hat eine Frist und fasst danach zusammen, was er gefunden hat (mit
+  Quellen), statt die ganze Antwort aufzuhalten.
+- **Pro** — für große Fragen: das stärkste Modell und bis zu 50 Helfer. Dauert bewusst länger —
+  wegen der höheren Genauigkeit (steht auch unter dem Eingabefeld). Der Master plant
   schon, während die Rechtsprüfung läuft — losgeschickt wird erst nach dem OK.
 - **Code** — schreibt Code statt langer Texte und probiert ihn in einer abgeschotteten
   **virtual machine** wirklich aus. Die virtual machine fährt schon hoch, während das Modell nachdenkt.
@@ -112,7 +116,7 @@ $ aquaticy
 git clone --branch Aquaticy-ai --single-branch https://github.com/jonasenriklaumen-a11y/Aquaticy-Ai.git
 cd Aquaticy-Ai
 uv tool install --force --reinstall .
-aquaticy --version            # 9.6.0 Spark Intern
+aquaticy --version            # 9.6.1 Spark Intern
 
 # 2. Einrichten — fragt nach Modell und Schlüssel und testet beide
 aquaticy setup
@@ -125,6 +129,15 @@ aquaticy web
 ```
 
 **Voraussetzungen:** Python 3.11 oder neuer und [uv](https://docs.astral.sh/uv/).
+
+**Mindest-Hardware:**
+
+| Betrieb | CPU | RAM | Speicher |
+|---|---|---|---|
+| Modell in der Cloud (Mistral, NVIDIA, verknüpfte Konten) | 1 Kern | 1 GB | 1 GB |
+| + Seiten mit echtem Browser | 2 Kerne | 2 GB | 2 GB |
+| + virtual machine (Code-Modus, Add-ons) | 2 Kerne | 4 GB | 10 GB |
+| Lokales Modell mit Ollama | 4 Kerne | 8 GB (GPU empfohlen) | 10 GB |
 
 **Aktualisieren** (im Repo-Ordner ausführen):
 
@@ -289,6 +302,7 @@ aquaticy google                 # Gmail und Kalender verbinden (--aendern: auch 
 aquaticy connect-ha             # Home Assistant verbinden
 aquaticy lan                    # Geräte im eigenen Netz anzeigen
 aquaticy sandbox                # zeigt, wie abgeschottet Aquaticy gerade läuft
+aquaticy cluster                # Server-Verbund: Anfrage zum Verbinden mit yes/no beantworten
 aquaticy list                   # Konten mit Adress-Kürzel (#…), Geräteanzahl, Nutzung und Ai-guard-Stand
 aquaticy remove "name"         # Konto samt Sitzungen, Verbrauch und privaten Daten löschen (fragt nach; --yes ohne Rückfrage)
 aquaticy ban "name"             # Konto, IP-Adresse oder Adress-Kürzel ("#1a2b3c4d") sperren
@@ -474,6 +488,32 @@ nicht seinen Verbrauch. Anfragen über **eigene Schlüssel** zählen nicht gegen
 ausschalten und wieder entfernen; aus dem Chat heraus lässt sich nichts davon ändern. Anmelden
 musst du dich immer selbst — Aquaticy kennt keine Passwörter. Unter jedem Add-on stellst du ein,
 was Aquaticy damit darf (**Rechte**).
+
+### KI-Konten: Claude, ChatGPT, Gemini (seit 9.6.1)
+
+*Add-ons → KI-Konten.* Verknüpfe dein Anthropic-, OpenAI- oder Google-Konto mit seinem
+**API-Schlüssel** („Schlüssel holen“ führt direkt hin; für Gemini reicht die Google-Anmeldung
+im AI Studio). Aquaticy liest danach selbst aus:
+
+- **Modelle**, die dein Konto freigeschaltet hat — sie stehen in der Modellauswahl im Normal-,
+  Pro- und Code-Modus wie alle anderen.
+- **Stufe (Tier)** und **freie Tokens** im laufenden Zeitfenster (Claude und ChatGPT; dafür
+  geht eine winzige Anfrage mit einem Token raus). Google gibt beides nicht über die
+  Schnittstelle heraus — das steht dann so da.
+
+Der Schlüssel liegt verschlüsselt im Schlüsselbund deines Kontos, geht nur an den Anbieter
+und ist jederzeit beim Anbieter widerrufbar. **E-Mail und Passwort** (oder „Mit Google
+anmelden“) für claude.ai oder chatgpt.com gehen bewusst nicht: die Anbieter verbieten das
+maschinelle Anmelden, es scheitert an Zwei-Faktor und Captchas, und Aquaticy soll dein
+Passwort nie kennen.
+
+**AI Council** (*Einstellungen → Dev settings*): mit mindestens zwei verknüpften Konten
+arbeiten die Modelle zusammen. Zwei lösen die Aufgabe (z. B. Claude und ChatGPT), eines prüft
+auf Fehler (Gemini, wenn verknüpft), und Aquaticy ist mit seinem Hauptmodell der **Richter**:
+es entscheidet, ob die Lösung trägt, oder schickt Einwände und die Lösungen der anderen zum
+Nachbessern und Ausdiskutieren zurück (bis zu drei Runden). Im Council laufen keine Agenten.
+
+### Programme und Dienste
 
 | Add-on | Was es kann | Anmeldung |
 |---|---|---|
@@ -800,6 +840,35 @@ aquaticy list                  # Konten mit Adress-Kürzel, Geräteanzahl und Ai
 aquaticy aiguard "du Idiot"    # Stufe und Folge eines Satzes testen -- ohne Vermerk
 aquaticy aiguard --konto "name"  # die letzten Vorfälle eines Kontos
 ```
+
+---
+
+## Server-Verbund (seit 9.6.1)
+
+*Einstellungen → Dev settings → Server-Verbund* (nur **Ultra**). Bis zu **10 Server**, auf
+denen Aquaticy läuft, arbeiten zusammen:
+
+- **Eine Datenbank, auf jedem Server vollständig.** Konten, Sitzungen und Ai-guard werden
+  Zeile für Zeile gespiegelt, die Profilordner (Chats, Speicher, Aufträge) vom zuständigen
+  Server auf alle anderen. Anmelden geht an jedem Server.
+- **Lastausgleich.** Jedes Konto hat einen Heimserver; der Master teilt neue und länger
+  untätige Konten dem Server mit der geringsten Auslastung zu. Kommt eine Anfrage woanders
+  an, wird sie verschlüsselt an den Heimserver weitergereicht. Aufträge laufen nur dort.
+- **Master** ist der Server, der eingeladen hat.
+
+**Verbinden:** auf allen Servern `aquaticy web --lan` starten und den Schalter einschalten.
+Die anderen Server im lokalen Netz erscheinen dann in der Liste (oder IP-Adresse eintragen) →
+**Verbinden**. Auf dem anderen Server fragt das Terminal `Annehmen? [yes/no]`; bei `yes`
+zeigt er einen sechsstelligen Code, den du auf dem Master eingibst. Läuft der Server ohne
+Terminal (Container im Hintergrund): `docker compose exec aquaticy aquaticy cluster`.
+
+**Gut zu wissen:** Der neue Server übernimmt die Daten des Verbunds und startet einmal neu;
+seine bisherigen Daten werden unter `cluster/backup-<Zeit>` gesichert, nicht gelöscht.
+Zwischen den Servern ist alles mit AES-GCM verschlüsselt; der Schlüssel entsteht per
+X25519-Schlüsseltausch und wird gewechselt, wenn ein Server entfernt wird. Das Finden läuft
+per UDP-Rundruf auf Port 8766 (`AQUATICY_CLUSTER_PORT`) — im Container dafür
+`compose.host.yaml` (Host-Netz) nutzen. Fällt der Master aus, arbeiten die anderen mit der
+letzten Zuteilung weiter.
 
 ---
 

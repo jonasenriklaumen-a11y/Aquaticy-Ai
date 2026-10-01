@@ -1409,7 +1409,11 @@ class Agent:
         # Agenten nicht, sondern vier. Die fehlenden kommen hier dazu:
         # dieselbe Frage unter einem anderen Blickwinkel. Genau die Seiten
         # fehlen sonst in der Antwort, weil niemand danach gesucht hat.
-        tasks = spread_tasks(question, tasks, limit)
+        # Aufgefuellt wird im Normal-Modus nur bis NORMAL_FILL (9.6.1) -- die
+        # Teilfragen des Planers laufen trotzdem alle.
+        from aquaticy.subagents import NORMAL_FILL
+
+        tasks = spread_tasks(question, tasks, max(len(tasks or []), min(limit, NORMAL_FILL)))
 
         if self.stopped:
             return 0
@@ -1703,6 +1707,8 @@ class Agent:
             budget=self.subagent_budget,
             strong_model=self._strongest_model("work") if self.strong_count else "",
             stop=self._stop,
+            # Normal-Modus: Frist je Agent und kuerzere Zeitlimits (9.6.1).
+            fast=not self.pro_mode,
         )
         for result in results:
             self.toolbox.stats.sources.extend(result.sources)
@@ -1882,6 +1888,35 @@ class Agent:
             # Turn und nur fuer den Master -- die Agenten bleiben, wie sie sind.
             return self._auto_pick
         return self.settings.model
+
+    def _council_turn(self, question: str, stream: bool) -> AgentResult | None:
+        """AI Council (9.6.1, aquaticy/linked.py): die verknuepften Modelle arbeiten,
+        eines prueft, das Hauptmodell richtet. Keine Agenten, keine Werkzeuge.
+
+        Returns: das Ergebnis -- oder None, wenn der Rat nicht zusammenkommt
+        (weniger als zwei verknuepfte Konten); dann laeuft die Frage normal.
+        """
+        from aquaticy import linked
+
+        arbeiter, pruefer = linked.council_roles(self.settings)
+        if not arbeiter or pruefer is None:
+            self._emit("note", text="AI Council: dafür braucht es mindestens zwei verknüpfte "
+                                    "KI-Konten (Add-ons → KI-Konten). Die Frage läuft normal.")
+            return None
+        self._emit("triage", decision="council", source="einstellung")
+        try:
+            antwort = linked.run_council(self.settings, question,
+                                         context=self._recent_context(include_last=True),
+                                         judge_model=self.settings.model, emit=self._emit,
+                                         stop=self._stop)
+        except Exception as exc:
+            antwort = ("Der AI Council konnte diesmal nicht arbeiten "
+                       f"({type(exc).__name__}). Versuch es gleich noch einmal oder schalte "
+                       "ihn in den Dev settings ab.")
+        self.messages.append({"role": "user", "content": question})
+        self.messages.append({"role": "assistant", "content": antwort})
+        self._type_out(antwort, stream)
+        return self._finish(AgentResult(answer=antwort), question)
 
     @property
     def pro_mode(self) -> bool:
@@ -2566,6 +2601,11 @@ class Agent:
                 self.messages.append({"role": "assistant", "content": kein_bild})
                 self._type_out(kein_bild, stream)
                 return self._finish(AgentResult(answer=kein_bild), question)
+
+        if getattr(self.settings, "council", False) and not self._image_turn:
+            beantwortet = self._council_turn(question, stream)
+            if beantwortet is not None:
+                return beantwortet
 
         if self.workshop_on:
             self._touch_workshop()
