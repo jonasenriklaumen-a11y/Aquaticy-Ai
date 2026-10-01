@@ -1488,7 +1488,7 @@ input:focus-visible,select:focus-visible,.side-search input:focus-visible,
             title="Zum Programmieren: Aquaticy schreibt Code statt langer Texte">Code</button>
         </div>
         <span class="spacer"></span>
-        <button class="modelpick" id="btn-model" title="Modell wechseln" aria-haspopup="true">
+        <button class="modelpick" id="btn-model" title="Modell wechseln" aria-haspopup="true" aria-expanded="false" aria-controls="picker-models">
           <span id="model-name">Modell</span><span class="caret">▴</span>
         </button>
         <button class="send" id="send" title="Senden (Enter)" aria-label="Nachricht senden">↑</button>
@@ -2386,8 +2386,10 @@ function setStructured(on, { merken = true } = {}){
 const EFFORTS = ["low", "medium", "high"];
 function setEffort(wanted, { merken = true } = {}){
   effort = EFFORTS.includes(wanted) ? wanted : "medium";
-  document.querySelectorAll("#efforts .eff").forEach(button =>
-    button.classList.toggle("on", button.dataset.effort === effort));
+  document.querySelectorAll("#efforts .eff").forEach(button => {
+    button.classList.toggle("on", button.dataset.effort === effort);
+    button.setAttribute("aria-pressed", button.dataset.effort === effort ? "true" : "false");
+  });
   if (merken) merkeZustand({ effort });
   refreshHeader();
 }
@@ -4773,8 +4775,12 @@ let backdrop = null;
 let pickerClosing = null;
 const pickerOpen = () => !modelBox.hidden && !modelBox.classList.contains("closing");
 
-function closePicker(){
+function closePicker(zurueck){
   if (!pickerOpen()) return;
+  $("#btn-model").setAttribute("aria-expanded", "false");
+  // Mit der Tastatur geschlossen: der Fokus geht zurueck auf den Knopf (9.6.0).
+  if (zurueck === true || modelBox.contains(document.activeElement))
+    $("#btn-model").focus({ preventScroll: true });
   modelBox.classList.add("closing");
   backdrop?.remove();
   backdrop = null;
@@ -4797,7 +4803,12 @@ function setzePickerHoehe(){
   const e = eingabe.getBoundingClientRect(), f = flaeche.getBoundingClientRect();
   modelBox.style.bottom = Math.round(f.bottom - e.top + 8) + "px";
   const oben = leiste ? leiste.getBoundingClientRect().bottom : f.top;
-  modelBox.style.maxHeight = Math.max(180, Math.round(e.top - oben - 16)) + "px";
+  // Reicht der Platz unter der Kopfzeile nicht (Handy quer, lange Eingabe), darf
+  // das Menue sie ueberdecken -- aber nie ueber den Bildschirmrand hinaus (9.6.0;
+  // vorher erzwang ein Mindestmass von 180 px genau das).
+  let platz = e.top - oben - 16;
+  if (platz < 180) platz = e.top - 16;
+  modelBox.style.maxHeight = Math.max(60, Math.round(platz)) + "px";
   if (senden && innerWidth > 640){
     modelBox.style.right = Math.max(10, Math.round(f.right - senden.getBoundingClientRect().right)) + "px";
   } else {
@@ -4812,6 +4823,7 @@ async function openPicker(){
   clearTimeout(pickerClosing);          // eine laufende Ausblende gilt nicht mehr
   modelBox.classList.remove("closing");
   modelBox.hidden = false;
+  $("#btn-model").setAttribute("aria-expanded", "true");
   setzePickerHoehe();
   backdrop = document.createElement("div");
   backdrop.className = "backdrop";
@@ -4874,7 +4886,35 @@ async function openPicker(){
     models.forEach(zeichne);
   }
   stagger(list.querySelectorAll(".pick"), 22);
+  // Tastatur (9.6.0): der Fokus springt ins Menue -- auf das gewaehlte Modell.
+  if (pickerOpen() && (document.activeElement === $("#btn-model")
+                       || document.activeElement === document.body))
+    (list.querySelector(".pick.active") || list.querySelector(".pick"))?.focus({ preventScroll: true });
 }
+
+// Tab bleibt in einem offenen Menue oder Fenster; Pfeile gehen durch die Liste (9.6.0).
+function fokusFalle(behaelter, e){
+  const ziele = [...behaelter.querySelectorAll(
+    'button:not([disabled]), input:not([disabled]), select:not([disabled]), textarea, [tabindex]:not([tabindex="-1"])')]
+    .filter(el => el.offsetParent !== null);
+  if (!ziele.length) return;
+  const i = ziele.indexOf(document.activeElement);
+  if (e.key === "Tab"){
+    e.preventDefault();
+    const n = e.shiftKey ? (i <= 0 ? ziele.length - 1 : i - 1) : (i + 1) % ziele.length;
+    ziele[n].focus();
+  } else if ((e.key === "ArrowDown" || e.key === "ArrowUp") && behaelter === modelBox){
+    e.preventDefault();
+    const n = e.key === "ArrowDown" ? (i + 1) % ziele.length : (i <= 0 ? ziele.length - 1 : i - 1);
+    ziele[n].focus();
+  }
+}
+document.addEventListener("keydown", (e) => {
+  if (e.key !== "Tab" && e.key !== "ArrowDown" && e.key !== "ArrowUp") return;
+  if (minwinOffen) { fokusFalle(minwinOffen, e); return; }
+  if (pickerOpen() && (modelBox.contains(document.activeElement)
+                       || document.activeElement === $("#btn-model"))) fokusFalle(modelBox, e);
+});
 
 async function chooseModel(model, feld){
   closePicker();
@@ -4961,7 +5001,7 @@ document.addEventListener("keydown", (e) => {
   if (screenBox.classList.contains("open")) { bildschirmSchliessen(); return; }
   if (addonBox.classList.contains("open")) { addonsSchliessen(); return; }
   if (minwinOffen) { minwinSchliessen(); return; }
-  if (pickerOpen()) { closePicker(); return; }
+  if (pickerOpen()) { closePicker(true); return; }
   if (vmBox.classList.contains("open")) { closeOverlay(vmBox); return; }
   if (memBox.classList.contains("open")) { closeOverlay(memBox); return; }
   if (themeBox.classList.contains("open")) { closeTheme(); return; }
@@ -5728,6 +5768,11 @@ function passwortAbfragen(titel, text = ""){
                        input: { type: "password", label: "Dein Passwort" } });
 }
 $("#account-logout-all").addEventListener("click", async () => {
+  const weiter = await guardDialog({
+    head: "Konto", title: "Überall sonst abmelden?",
+    text: "Alle anderen Geräte und Browser werden abgemeldet. Dieses Gerät bleibt angemeldet.",
+    ok: "Abmelden", cancel: "Abbrechen" });
+  if (!weiter) return;
   const daten = await kontoAktion("/api/account/logout-all");
   toast(daten.ok ? `Abgemeldet: ${daten.ended} andere Sitzung(en).`
         : (daten.error || "Das hat nicht geklappt."));

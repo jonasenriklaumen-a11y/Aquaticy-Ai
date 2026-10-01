@@ -30,11 +30,13 @@ eigenen, engeren Regeln.
 from __future__ import annotations
 
 import contextlib
+import contextvars
 import ipaddress
 import re
 import socket
 import threading
 import time
+import zlib
 from collections.abc import Callable, Iterator
 from contextlib import contextmanager
 from typing import Any
@@ -109,8 +111,19 @@ def ip_allowed(value: str) -> bool:
                 return False
         elif ip.teredo is not None:
             return False
+        elif ip in _NAT64:
+            # 9.6.0: DNS64 schreibt oeffentliche IPv4-Adressen so -- geprueft wird
+            # die eingebettete IPv4-Adresse, nicht der (reservierte) Praefix.
+            return ip_allowed(str(ipaddress.IPv4Address(int(ip) & 0xFFFFFFFF)))
+        if getattr(ip, "is_site_local", False):
+            # fec0::/10 -- veraltet, aber intern; Python nennt es "global" (9.6.0).
+            return False
     return bool(ip.is_global) and not (ip.is_multicast or ip.is_reserved or ip.is_loopback
                                        or ip.is_link_local or ip.is_private)
+
+
+#: Der bekannte NAT64-Praefix (RFC 6052).
+_NAT64 = ipaddress.ip_network("64:ff9b::/96")
 
 
 def _numeric_ipv4(name: str) -> str:
@@ -220,6 +233,10 @@ def check_url(url: str, request: httpx.Request | None = None) -> None:
 
 # -- Verbindungsaufbau: nur zu gepruften Adressen ----------------------------------------
 # -- Ein vorgeschalteter Proxy (seit 9.5.16) ---------------------------------------------
+class ProxySetupError(OSError):
+    """``AQUATICY_PROXY`` ist gesetzt, aber so nicht nutzbar (9.6.0)."""
+
+
 def upstream_proxy() -> tuple[str, int, str] | None:
     """Der Proxy, ueber den Aquaticy nach draussen geht -- oder None (direkt).
 
@@ -246,7 +263,10 @@ def upstream_proxy() -> tuple[str, int, str] | None:
             return None
     teile = urlsplit(wert if "://" in wert else f"http://{wert}")
     if teile.scheme != "http" or not teile.hostname:
-        return None
+        # Bis 9.5.34 ging es dann still direkt ins Netz -- am eingerichteten
+        # Proxy vorbei. Jetzt wird lieber gar nicht abgerufen.
+        raise ProxySetupError(
+            "AQUATICY_PROXY wird nicht unterstützt (nur http://host:port) -- kein Abruf.")
     anmeldung = ""
     if teile.username:
         import base64
@@ -288,15 +308,19 @@ class _GuardedBackend(httpcore.SyncBackend):
             adressen = checked_addresses(host, port)
         except BlockedTarget as exc:
             raise httpcore.ConnectError(str(exc)) from None
-        proxy = upstream_proxy()
+        try:
+            proxy = upstream_proxy()
+        except ProxySetupError as exc:
+            raise httpcore.ConnectError(str(exc)) from None
         fehler: Exception | None = None
         for adresse in adressen:
             try:
                 if proxy is None:
-                    return super().connect_tcp(adresse, port, timeout=timeout,
-                                               local_address=local_address,
-                                               socket_options=socket_options)
-                return self._through_proxy(proxy, adresse, port, timeout, socket_options)
+                    return _FristStream(super().connect_tcp(
+                        adresse, port, timeout=_restzeit(timeout),
+                        local_address=local_address, socket_options=socket_options))
+                return _FristStream(self._through_proxy(proxy, adresse, port,
+                                                        _restzeit(timeout), socket_options))
             except (httpcore.ConnectError, httpcore.ConnectTimeout) as exc:
                 fehler = exc
         assert fehler is not None
@@ -323,12 +347,60 @@ class _GuardedBackend(httpcore.SyncBackend):
         return stream
 
 
+#: Bis wann der laufende Abruf in diesem Thread fertig sein muss (9.6.0).
+_FRIST: contextvars.ContextVar[float | None] = contextvars.ContextVar(
+    "aquaticy_netguard_frist", default=None)
+
+
+def _restzeit(timeout: float | None) -> float | None:
+    """Die Zeitgrenze fuer einen Lese-/Schreibvorgang -- nie ueber die Gesamtfrist."""
+    frist = _FRIST.get()
+    if frist is None:
+        return timeout
+    rest = frist - time.monotonic()
+    if rest <= 0:
+        raise httpcore.ReadTimeout("Die Seite antwortet zu langsam.")
+    return rest if timeout is None else min(timeout, rest)
+
+
+class _FristStream(httpcore.NetworkStream):
+    """Haelt die Gesamtfrist auch beim Lesen der Kopfzeilen ein (9.6.0).
+
+    Bis 9.5.34 galt die Frist nur zwischen Weiterleitungen und zwischen den
+    Stuecken des Inhalts: ein Server, der die Kopfzeilen Byte fuer Byte
+    troepfeln liess, hielt einen Abruf beliebig lange fest.
+    """
+
+    def __init__(self, inner: httpcore.NetworkStream) -> None:
+        self._inner = inner
+
+    def read(self, max_bytes: int, timeout: float | None = None) -> bytes:
+        return self._inner.read(max_bytes, timeout=_restzeit(timeout))
+
+    def write(self, buffer: bytes, timeout: float | None = None) -> None:
+        self._inner.write(buffer, timeout=_restzeit(timeout))
+
+    def close(self) -> None:
+        self._inner.close()
+
+    def start_tls(self, ssl_context: Any, server_hostname: str | None = None,
+                  timeout: float | None = None) -> httpcore.NetworkStream:
+        return _FristStream(self._inner.start_tls(ssl_context, server_hostname,
+                                                  timeout=_restzeit(timeout)))
+
+    def get_extra_info(self, info: str) -> Any:
+        return self._inner.get_extra_info(info)
+
+
 def guarded_transport(**kwargs: Any) -> httpx.HTTPTransport:
     """Ein ``HTTPTransport``, der nur zu oeffentlichen Adressen verbindet."""
     transport = httpx.HTTPTransport(**kwargs)
     pool = getattr(transport, "_pool", None)
-    if pool is not None and hasattr(pool, "_network_backend"):
-        pool._network_backend = _GuardedBackend()
+    if pool is None or not hasattr(pool, "_network_backend"):
+        # Seit 9.6.0 fail-closed: ohne eigenes Backend gaebe es keinen Schutz
+        # gegen DNS-Rebinding -- dann lieber gar kein Client.
+        raise RuntimeError("httpx/httpcore hat sich geändert: Netzschutz nicht einsetzbar.")
+    pool._network_backend = _GuardedBackend()
     return transport
 
 
@@ -343,6 +415,11 @@ def guarded_client(**kwargs: Any) -> httpx.Client:
     haken = dict(kwargs.pop("event_hooks", {}) or {})
     haken["request"] = [_request_hook, *haken.get("request", [])]
     kwargs.setdefault("transport", guarded_transport())
+    # 9.6.0: nur Verfahren, die _lesen gedeckelt auspacken kann -- kein br/zstd,
+    # auch wenn das Paket dafuer irgendwann installiert ist.
+    kopf = httpx.Headers(kwargs.pop("headers", None) or {})
+    kopf.setdefault("Accept-Encoding", ACCEPT_ENCODING)
+    kwargs["headers"] = kopf
     return httpx.Client(event_hooks=haken, **kwargs)
 
 
@@ -373,6 +450,63 @@ def _gesamtfrist(client: httpx.Client, timeout: Any) -> float:
     return max(30.0, 4 * sekunden)
 
 
+#: Was ein abgesicherter Client annimmt (9.6.0).
+ACCEPT_ENCODING = "gzip, deflate"
+
+
+class _Entpacker:
+    """Packt gzip/deflate Stueck fuer Stueck aus -- nie mehr als erlaubt (9.6.0).
+
+    ``iter_bytes`` von httpx packt jedes Netzstueck vollstaendig aus, bevor die
+    Groesse gezaehlt wird: 64 KB gzip wurden so zu 67 MB im Speicher, eine
+    kleine "Zip-Bombe" belegte weit ueber 100 MB, bevor TooLarge kam.
+    """
+
+    def __init__(self, verfahren: str) -> None:
+        self._roh = verfahren == "deflate"
+        # 32 + MAX_WBITS: gzip und zlib werden erkannt; rohes deflate s. unten.
+        self._d = zlib.decompressobj(zlib.MAX_WBITS | 32)
+        self._erstes = True
+
+    def __call__(self, daten: bytes, hoechstens: int) -> bytes:
+        try:
+            aus = self._d.decompress(daten, hoechstens)
+        except zlib.error:
+            if not (self._roh and self._erstes):
+                raise
+            self._d = zlib.decompressobj(-zlib.MAX_WBITS)
+            aus = self._d.decompress(daten, hoechstens)
+        self._erstes = False
+        while self._d.unconsumed_tail and len(aus) < hoechstens:
+            aus += self._d.decompress(self._d.unconsumed_tail, hoechstens - len(aus))
+        return aus
+
+
+def _stuecke(response: httpx.Response, rest: Callable[[], int]) -> Iterator[bytes]:
+    """Der Inhalt in Stuecken -- gzip/deflate gedeckelt ausgepackt."""
+    if hasattr(response, "_content"):
+        # Schon im Speicher (z. B. eine fertige Antwort in Tests) -- nichts zu deckeln.
+        yield from response.iter_bytes()
+        return
+    verfahren = response.headers.get("content-encoding", "").strip().lower()
+    if verfahren in {"", "identity"}:
+        yield from response.iter_raw()
+        return
+    if verfahren not in {"gzip", "x-gzip", "deflate"}:
+        # Nicht angefragt (Accept-Encoding) -- httpx kuemmert sich, falls es kann.
+        yield from response.iter_bytes()
+        return
+    entpacker = _Entpacker("deflate" if verfahren == "deflate" else "gzip")
+    try:
+        for roh in response.iter_raw():
+            stueck = entpacker(roh, rest() + 1)
+            if stueck:
+                yield stueck
+    except zlib.error as exc:
+        raise httpx.DecodingError(f"Fehlerhaft gepackte Antwort: {exc}",
+                                  request=response.request) from None
+
+
 def _lesen(response: httpx.Response, limit: Limit, frist: float | None = None) -> bytes:
     """Liest hoechstens bis zur Grenze. Returns: die Bytes (bei "abschneiden" gekuerzt).
 
@@ -389,7 +523,11 @@ def _lesen(response: httpx.Response, limit: Limit, frist: float | None = None) -
         raise TooLarge(f"Die Antwort ist zu groß (mehr als {obergrenze // 1_000_000} MB).")
     teile: list[bytes] = []
     menge = 0
-    for stueck in response.iter_bytes():
+
+    def rest() -> int:
+        return max(0, obergrenze - sum(map(len, teile)))
+
+    for stueck in _stuecke(response, rest):
         if frist is not None and time.monotonic() > frist:
             raise httpx.ReadTimeout("Die Seite antwortet zu langsam.", request=response.request)
         menge += len(stueck)
@@ -430,8 +568,18 @@ def get(
         httpx.TooManyRedirects: zu viele Weiterleitungen.
         httpx.HTTPError: alles andere, wie gewohnt.
     """
-    aktuell = str(url)
     frist = time.monotonic() + _gesamtfrist(client, timeout)
+    marke = _FRIST.set(frist)
+    try:
+        return _get(client, str(url), frist, max_bytes, follow_redirects, max_redirects,
+                    headers, timeout)
+    finally:
+        _FRIST.reset(marke)
+
+
+def _get(client: httpx.Client, aktuell: str, frist: float, max_bytes: Limit,
+         follow_redirects: bool, max_redirects: int, headers: dict[str, str] | None,
+         timeout: Any) -> httpx.Response:
     for _ in range(max(0, int(max_redirects)) + 1):
         if time.monotonic() > frist:
             raise httpx.ReadTimeout("Die Seite antwortet zu langsam.", request=None)

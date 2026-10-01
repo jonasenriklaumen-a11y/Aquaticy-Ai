@@ -446,7 +446,8 @@ TOKEN_COOKIE = "aquaticy_token"
 
 #: Wird gezeigt, wenn jemand ohne gueltiges Zugangswort anklopft.
 DENIED_PAGE = """<!doctype html><html lang="de"><meta charset="utf-8">
-<title>Aquaticy AI</title><link rel="icon" type="image/png" href="/favicon-32.png">
+<title>Aquaticy AI</title>
+<link rel="icon" type="image/png" href="/favicon-32.png">
 <body style="background:#0d0f0e;color:#e8ece9;font:15px/1.6 system-ui;
              display:grid;place-items:center;height:100vh;margin:0">
 <div style="text-align:center;max-width:34em;padding:20px">
@@ -2308,6 +2309,28 @@ def scrub_payload(wert: Any, geheim: list[str]) -> Any:
     return wert
 
 
+#: Was wie ein Schluessel in einem Fehlertext aussieht, auch wenn er nicht
+#: hinterlegt ist ("Authorization: Bearer ...", "?api_key=...", 9.6.0).
+_SCHLUESSEL_MUSTER = re.compile(
+    r"(?i)((?:bearer|token|authorization:?)\s+)[A-Za-z0-9._~+/=-]{12,}|"
+    r"((?:api[_-]?key|access[_-]?token|secret|password|passwort)[\"']?\s*[=:]\s*[\"']?)"
+    r"[^\s&\"',;]{6,}|\b(?:sk|pk|rk|nvapi|hf|gsk|xai)[-_][A-Za-z0-9_-]{16,}")
+
+
+def scrub_error(text: str, geheim: list[str] | None = None) -> str:
+    """Ein Fehlertext fuer den Browser -- ohne Schluessel (9.6.0)."""
+    from aquaticy.keyvault import scrub
+
+    if geheim is None:
+        try:
+            geheim = list(SESSION.settings().secrets())
+        except Exception:
+            geheim = []
+    ergebnis = scrub(str(text or ""), geheim)
+    return _SCHLUESSEL_MUSTER.sub(
+        lambda m: (m.group(1) or m.group(2) or "") + "••••", ergebnis)
+
+
 def keys_view(session: Any) -> dict[str, Any]:
     """Der Bereich "API-Schluessel": was hinterlegt ist -- nie der Schluessel selbst.
 
@@ -2945,6 +2968,10 @@ class Handler(BaseHTTPRequestHandler):
         self.wfile.write(body)
 
     def _json(self, payload: dict[str, Any], status: int = 200) -> None:
+        if isinstance(payload, dict) and isinstance(payload.get("error"), str):
+            # Fehlertexte gehen seit 9.6.0 immer durch den Schluessel-Filter --
+            # vorher nur die Ereignisse eines Laufs, nicht die 500er der Routen.
+            payload = {**payload, "error": scrub_error(payload["error"])}
         self._send(status, json.dumps(payload, ensure_ascii=False).encode(), "application/json")
 
     def _json_cookie(
@@ -3125,6 +3152,16 @@ class Handler(BaseHTTPRequestHandler):
 
     def do_DELETE(self) -> None:
         self._guarded(self._delete)
+
+    def do_HEAD(self) -> None:
+        """HEAD nur fuer das Logo (9.6.0) -- alles andere bleibt 405."""
+        if self._route() in STATIC_FILES:
+            self._guarded(lambda: self._send_static(self._route()))
+            return
+        self.send_response(405)
+        self.send_header("Allow", "GET, POST, DELETE")
+        self.send_header("Content-Length", "0")
+        self.end_headers()
 
     def _delete(self) -> None:
         """Loeschen ist ein eigenes Verb -- ein POST "loeschAlles" waere gelogen."""
@@ -3930,7 +3967,9 @@ class Handler(BaseHTTPRequestHandler):
             # aendern -- also noch einmal nachsehen statt den alten Stand
             # weiterzureichen.
             forget_strong_models(SESSION.settings().data_dir)
-            self._json({"ok": True, "path": str(written)})
+            # Der Pfad auf dem Server geht niemanden im Browser etwas an (9.6.0).
+            del written
+            self._json({"ok": True})
         else:
             self._json({"error": "unbekannter Pfad"}, 404)
 
@@ -3995,7 +4034,8 @@ class Handler(BaseHTTPRequestHandler):
         colour = "#2f6f4e" if ok else "#a4342b"
         title = "Geschafft" if ok else "Das hat nicht geklappt"
         body = f"""<!doctype html><html lang="de"><head><meta charset="utf-8">
-<meta name="viewport" content="width=device-width,initial-scale=1"><title>Aquaticy AI</title><link rel="icon" type="image/png" href="/favicon-32.png">
+<meta name="viewport" content="width=device-width,initial-scale=1"><title>Aquaticy AI</title>
+<link rel="icon" type="image/png" href="/favicon-32.png">
 <style>body{{font:15px/1.6 system-ui,sans-serif;margin:0;display:grid;place-items:center;
 min-height:100vh;background:#faf9f6;color:#26241f}}
 main{{max-width:30em;padding:32px;text-align:center}}
@@ -4666,7 +4706,8 @@ p{{margin:0 0 8px;color:#57534a}}</style></head><body><main>
                     image_mode=image_mode,
                 )
             except Exception as exc:
-                lauf.add({"type": "error", "message": f"{type(exc).__name__}: {exc}"})
+                lauf.add({"type": "error",
+                          "message": scrub_error(f"{type(exc).__name__}: {exc}", geheim)})
             finally:
                 # Ohne ein "done" bliebe im Browser der blinkende Cursor
                 # stehen -- die Oberflaeche waere scheinbar haengen.

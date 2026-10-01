@@ -413,8 +413,10 @@ def available_models(settings: Any) -> list[dict[str, str]]:
         model_id = PROVIDER_MODELS.get(provider, "")
         if not model_id:
             continue
-        # Laeuft gerade ein anderes Modell dieses Anbieters, ist das gemeint.
-        if provider_of(current) == provider:
+        # Laeuft gerade ein anderes Modell dieses Anbieters, ist das gemeint --
+        # ausser es ist das schnelle: dann blieb das grosse nicht mehr waehlbar
+        # (bis 9.5.34 ging es nur ueber die Einstellungen zurueck).
+        if provider_of(current) == provider and current != FAST_MODELS.get(provider, ""):
             model_id = current
         found.append(_mit_herkunft(
             {

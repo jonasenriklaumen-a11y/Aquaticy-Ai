@@ -1829,7 +1829,7 @@ def test_escape_closes_the_settings_window() -> None:
     html = web.UI_FILE.read_text(encoding="utf-8")
     handler = html[html.index('e.key !== "Escape"') :]
     handler = handler[: handler.index("});")]
-    assert "closePicker()" in handler, "erst die Modellliste"
+    assert "closePicker(true)" in handler, "erst die Modellliste (Fokus zurueck, 9.6.0)"
     assert "closeSettings()" in handler, "dann die Einstellungen"
 
 
