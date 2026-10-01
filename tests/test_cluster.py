@@ -339,3 +339,16 @@ def test_member_list_never_carries_the_secret(verbund: Any) -> None:
     vorher = b.key
     b._take_members(a.public_info(), a.homes)
     assert b.key == vorher
+
+
+def test_unexpected_errors_come_back_as_answer(verbund: Any, monkeypatch) -> None:
+    """9.6.2.5: ein Plattenfehler auf der anderen Seite reisst die Verbindung nicht ab."""
+    a, b, _, _, gefragt, neustarts = verbund
+    _verbinden(a, b, gefragt, neustarts)
+
+    def kaputt(*args: Any, **kwargs: Any) -> Any:
+        raise OSError("Platte voll")
+
+    monkeypatch.setattr(a, "my_generations", kaputt)
+    with pytest.raises(cluster.ClusterError, match="OSError"):
+        b.call(a.node_id, "gens", {})

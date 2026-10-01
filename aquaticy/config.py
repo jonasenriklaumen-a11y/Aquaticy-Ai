@@ -400,6 +400,8 @@ class Settings:
     council: bool = False
     #: Modelle aus verknuepften KI-Konten -- beim ersten Gebrauch gelesen.
     linked_models: frozenset[str] | None = None
+    #: Stand von linked.json, aus dem linked_models gelesen wurde (9.6.2.5).
+    linked_stamp: float = -1.0
     #: Das Kontingent des Kontos (aquaticy/quota.py: 5-Stunden-Sitzung und
     #: Woche) -- nur normale Konten haben eins. Gesetzt vom Webserver, nie aus
     #: der .env. None = unbegrenzt. Siehe aquaticy/metering.py.
@@ -532,6 +534,15 @@ class Settings:
         name = LINKED_KEYS.get(provider_of(model), "")
         if not name:
             return False
+        # Neu lesen, wenn sich linked.json geaendert hat (9.6.2.5): lokal lebt
+        # dasselbe Settings-Objekt lange, und ein frisch verknuepftes Modell
+        # muss trotzdem sofort direkt zum Anbieter gehen.
+        try:
+            stempel = (Path(self.data_dir) / "linked.json").stat().st_mtime
+        except OSError:
+            stempel = 0.0
+        if stempel != self.linked_stamp:
+            self.linked_models, self.linked_stamp = None, stempel
         if self.linked_models is None:
             ids: set[str] = set()
             with contextlib.suppress(Exception):

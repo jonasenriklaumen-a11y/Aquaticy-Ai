@@ -940,6 +940,7 @@ def _profile_settings(profile: Path, plan: str, account: Account | None = None) 
     settings.own_key_names = frozenset(eigene)
     # Verknuepfte KI-Konten (9.6.1) gehoeren zum Profil, nicht zum Server.
     settings.linked_models = None
+    settings.linked_stamp = -1.0
     # Das GitHub-Token des Kontos liegt verschluesselt im Schluesselbund (seit
     # 9.5.16) -- ein altes aus der .env wandert einmal hinein. Das Token des
     # Betreibers bekommt ein Konto nie: es koennte dessen private Repos lesen.

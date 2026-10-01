@@ -226,3 +226,16 @@ def test_web_quick_link_detects_the_provider(tmp_path: Path,
     assert [w["id"] for w in karte["sign_in"]] == ["google", "apple", "email"]
     antwort, status = web.linked_action({"action": "link", "key": "irgendwas-12345"})
     assert status == 400 and "erkenne" in antwort["error"]
+
+
+def test_newly_linked_model_is_seen_without_restart(tmp_path: Path) -> None:
+    """9.6.2.5: lokal lebt dasselbe Settings-Objekt lange -- linked.json wird neu gelesen."""
+    import os
+
+    from aquaticy.config import Settings
+
+    s = Settings(data_dir=tmp_path, api_keys={"OPENAI_API_KEY": "sk-lokal-1234567890"})
+    assert not s.is_linked("openai/gpt-4o")
+    linked.save(tmp_path, "openai", {"models": [{"id": "openai/gpt-4o"}]})
+    os.utime(tmp_path / linked.STATE_FILE, (1, 12345))
+    assert s.is_linked("openai/gpt-4o")

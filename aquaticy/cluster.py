@@ -1004,6 +1004,10 @@ class Cluster:
             ergebnis = self._dispatch(absender, op, args)
         except ClusterError as exc:
             ergebnis = {"error": str(exc)}
+        except (OSError, ValueError, KeyError, TypeError, sqlite3.Error) as exc:
+            # Auch ein Platten- oder Datenbankfehler geht als Antwort zurueck --
+            # sonst riss die Verbindung ab, und der andere sah nur "weg".
+            ergebnis = {"error": f"{type(exc).__name__} beim Bearbeiten von „{op}“."}
         return seal(key, json.dumps(ergebnis).encode(), f"reply:{nonce}")
 
     def _dispatch(self, absender: str, op: str, args: dict[str, Any]) -> dict[str, Any]:

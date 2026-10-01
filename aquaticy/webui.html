@@ -2402,7 +2402,7 @@ document.querySelectorAll(".note").forEach((note) => {
 });
 const thread = $("#thread"), main = $("#main"), input = $("#input"), send = $("#send");
 let busy = false;
-const aquaticyVersion = window.__AQUATICY_VERSION__ || "9.6.2 Spark";
+const aquaticyVersion = window.__AQUATICY_VERSION__ || "9.6.2.5 Spark";
 $("#version").textContent = "v" + aquaticyVersion;
 // Interne oder Test-Fassung (9.6.0): unten mittig ein gelber Hinweis.
 const aquaticyIntern = window.__AQUATICY_INTERNAL__ === true
@@ -5454,6 +5454,18 @@ function buildSectionNav(){
   sections.forEach(section => spot.observe(section));
 }
 buildSectionNav();
+// Dev settings laden ihren Stand erst, wenn man sie wirklich sieht (9.6.2.5):
+// sonst kostete jedes Oeffnen der Einstellungen zwei Anfragen mehr -- auf einem
+// schwachen Server und am Anfragelimit spuerbar.
+let devGeladen = false;
+new IntersectionObserver((eintraege) => {
+  if (devGeladen || !eintraege.some(e => e.isIntersecting)
+      || !overlay.classList.contains("open")) return;
+  devGeladen = true;
+  // Nur abfragen, was dieses Konto sehen kann: der Verbund gehoert zu Ultra.
+  if (kontoUltra) verbundLaden(); else verbundZeigen({});
+  kontenLaden(true);
+}, { root: form.closest(".sheet") }).observe($("#dev-settings"));
 function fill(values){
   for (const [k, v] of Object.entries(values)){
     const field = form.elements[k];
@@ -5495,8 +5507,8 @@ $("#btn-settings").addEventListener("click", async () => {
   $("#lager-note").textContent = ""; $("#lager-note").className = "note";
   $("#ha-hint").textContent = cfg.ha_connected ? "(gesetzt)" : "";
   showLegalRules(cfg.legal_rules || []);
-  verbundLaden();
-  kontenLaden();
+  // Verbund und KI-Konten erst, wenn "Dev settings" ins Bild kommt (9.6.2.5).
+  devGeladen = false;
   $("#savenote").textContent = ""; $("#savenote").className = "note";
   $("#ha-note").textContent = ""; $("#ha-note").className = "note";
   openOverlay(overlay);
@@ -5748,8 +5760,16 @@ const addonBox = $("#addonbox"), screenBox = $("#screenbox");
 let addonDaten = null, addonTakt = null;
 
 async function addonsLaden(){
-  try { addonDaten = await (await api("/api/addons")).json(); }
+  let daten;
+  try { daten = await (await api("/api/addons")).json(); }
   catch { $("#addon-note").textContent = "Die Add-ons ließen sich nicht laden."; return; }
+  // Eine Fehlerantwort (etwa "zu viele Anfragen") ist keine leere Liste (9.6.2.5).
+  if (!Array.isArray(daten?.addons)){
+    $("#addon-note").className = "note bad";
+    $("#addon-note").textContent = daten?.error || "Die Add-ons ließen sich nicht laden.";
+    return;
+  }
+  addonDaten = daten;
   zeigeAddons();
 }
 
@@ -6078,8 +6098,15 @@ window.addEventListener("focus", () => {
     ? "Schlüssel kopiert? Dann auf „Einfügen“ klicken."
     : "Schlüssel kopiert? Dann oben einfügen und „Verknüpfen“ klicken.";
 });
-async function kontenLaden(){
-  try { kontenZeigen(await (await api("/api/linked")).json()); } catch {}
+let kontenStand = 0;
+async function kontenLaden(nurWennAlt = false){
+  if (nurWennAlt && Date.now() - kontenStand < 60_000) return;
+  try {
+    const daten = await (await api("/api/linked")).json();
+    if (daten.error) return;   // z. B. kurz zu viele Anfragen -- spaeter noch einmal
+    kontenStand = Date.now();
+    kontenZeigen(daten);
+  } catch {}
 }
 async function kontoTun(body, karte){
   const meldung = karte.querySelector(".meldung");

@@ -16,8 +16,9 @@ def _ui() -> str:
 def test_version_is_public_962() -> None:
     import aquaticy
 
-    assert aquaticy.__version__ == "9.6.2"
-    assert aquaticy.VERSION_LABEL == "9.6.2 Spark" and not aquaticy.INTERNAL
+    # Seit 9.6.2.5 (Pruefrunde nach 9.6.2) -- weiterhin oeffentlich.
+    assert aquaticy.__version__ == "9.6.2.5"
+    assert aquaticy.VERSION_LABEL == "9.6.2.5 Spark" and not aquaticy.INTERNAL
 
 
 def test_sign_in_buttons_and_quick_link() -> None:
@@ -56,3 +57,18 @@ def test_new_texts_have_english() -> None:
     for text in ("KI-Konten", "Server-Verbund", "Mit Apple", "Server im lokalen Netz",
                  "Dafür braucht es mindestens zwei verknüpfte KI-Konten (Add-ons → KI-Konten)."):
         assert f'"{text}":' in en, text
+
+
+def test_dev_settings_load_only_when_seen() -> None:
+    """9.6.2.5: Verbund und KI-Konten kosten beim Oeffnen der Einstellungen nichts."""
+    html = _ui()
+    oeffnen = html[html.index('$("#btn-settings").addEventListener("click"'):]
+    oeffnen = oeffnen[:oeffnen.index("openOverlay(overlay);")]
+    assert "verbundLaden()" not in oeffnen and "kontenLaden(" not in oeffnen
+    assert '.observe($("#dev-settings"))' in html
+    assert "if (kontoUltra) verbundLaden(); else verbundZeigen({});" in html
+
+
+def test_addon_error_is_shown_not_an_empty_list() -> None:
+    html = _ui()
+    assert "if (!Array.isArray(daten?.addons)){" in html

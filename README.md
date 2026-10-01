@@ -1,4 +1,4 @@
-# Aquaticy AI 9.6.2 Spark
+# Aquaticy AI 9.6.2.5 Spark
 
 **Aquaticy** recherchiert für dich. Du stellst eine Frage, Aquaticy sucht im Web, liest die
 passenden Seiten und fasst das Ergebnis zusammen — mit Quelle an jeder Angabe. Es läuft im
@@ -116,7 +116,7 @@ $ aquaticy
 git clone --branch Aquaticy-ai --single-branch https://github.com/jonasenriklaumen-a11y/Aquaticy-Ai.git
 cd Aquaticy-Ai
 uv tool install --force --reinstall .
-aquaticy --version            # 9.6.2 Spark
+aquaticy --version            # 9.6.2.5 Spark
 
 # 2. Einrichten — fragt nach Modell und Schlüssel und testet beide
 aquaticy setup
