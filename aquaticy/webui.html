@@ -1132,8 +1132,11 @@ input:focus,select:focus{border-color:var(--accent)}
   .topbar{flex-wrap:wrap;row-gap:2px}
   .topbar .where{order:3;width:100%;font-size:calc(11.5px * var(--fs));padding-left:2px}
   .topbar .spacer{display:none}
-  .crow{flex-wrap:wrap}
-  .modelpick{max-width:46vw}
+  /* Seit 9.6.2 in einer Zeile: vorher rutschte der Senden-Knopf allein in
+     eine zweite Zeile. Der Modellname kuerzt sich dafuer mit "…". */
+  .crow{flex-wrap:nowrap;gap:4px}
+  .modelpick{max-width:30vw;padding:5px 8px;flex:0 1 auto}
+  .modes,.send,.crow .tool{flex:0 0 auto}
   .hello h1{font-size:calc(22px * var(--fs))}
   .thread{padding:4px 12px 180px}
   /* Die Kopfzeile ist hier zweizeilig -- die Modellauswahl muss tiefer
@@ -1147,7 +1150,7 @@ input:focus,select:focus{border-color:var(--accent)}
      wandert die Zeile bei 360px in die zweite Reihe -- oder darueber hinaus. */
   .crow .tool .wort{display:none}
   .crow .tool{padding:5px 9px}
-  .mode{padding:4px 9px;font-size:calc(12px * var(--fs))}
+  .mode{padding:4px 8px;font-size:calc(12px * var(--fs))}
 }
 
 /* Randlose Bildschirme: unten liegt sonst die Wischleiste auf der Eingabe. */
@@ -1224,6 +1227,14 @@ input:focus,select:focus{border-color:var(--accent)}
 .linked .reihe input{flex:1 1 220px;min-width:0}
 .linked .meldung{font-size:calc(12px * var(--fs));margin-top:6px}
 .linked .meldung.bad{color:var(--err)}
+.linked .anmelden{display:flex;gap:6px;flex-wrap:wrap;margin-top:8px}
+.linked.wartet{border-color:var(--accent)}
+.linked-quick{display:grid;grid-template-columns:minmax(0,1fr) auto auto;gap:8px;margin-top:10px}
+.linked-quick .meldung{grid-column:1/-1;font-size:calc(12px * var(--fs))}
+.linked-quick .meldung.bad{color:var(--err)}
+.linked-quick .meldung.ok{color:var(--accent-text)}
+@media (max-width:560px){.linked-quick{grid-template-columns:1fr 1fr}
+  .linked-quick input{grid-column:1/-1}}
 .addon-group{font-size:calc(11px * var(--fs));letter-spacing:.08em;text-transform:uppercase;color:var(--text-3);
   margin:10px 0 0}
 .addon{background:var(--surface);border:1px solid var(--line-2);border-radius:13px;
@@ -1570,7 +1581,7 @@ input:focus-visible,select:focus-visible,.side-search input:focus-visible,
     <div class="composer">
       <div class="input-wrap"><textarea id="input" rows="1" placeholder="Frag etwas …"></textarea>
         <div class="input-mirror" id="input-mirror" aria-hidden="true"></div></div>
-      <input type="file" id="picker" multiple hidden
+      <input type="file" id="picker" multiple hidden aria-label="Dateien anhängen"
              accept="image/*,.pdf,.txt,.md,.csv,.json,.log,.yaml,.yml">
       <div class="crow">
         <button class="tool" id="clip" title="Bild oder PDF anhängen">📎 <span class="wort">Anhängen</span></button>
@@ -1693,13 +1704,22 @@ input:focus-visible,select:focus-visible,.side-search input:focus-visible,
     <div class="note" id="addon-note" role="status" aria-live="polite"></div>
     <!-- KI-Konten (9.6.1): Claude, ChatGPT, Gemini mit dem eigenen API-Schluessel. -->
     <h3 class="linked-title">KI-Konten</h3>
-    <p class="note linked-lead">Verknüpfe dein Claude-, ChatGPT- oder Gemini-Konto. Aquaticy
-      zeigt dann deine Modelle, deine Stufe und wie viele Tokens gerade frei sind — und die
-      Modelle stehen in der Modellauswahl. Verknüpft wird mit dem API-Schlüssel deines Kontos
-      (ein Klick auf „Schlüssel holen“, bei Gemini reicht die Google-Anmeldung). Er liegt
-      verschlüsselt bei deinem Konto und geht nur an den Anbieter. Mit E-Mail und Passwort
-      geht es nicht: das erlauben die Anbieter nicht, und Aquaticy soll dein Passwort nie
-      kennen.</p>
+    <p class="note linked-lead">Verknüpfe dein Claude-, ChatGPT- oder Gemini-Konto in drei
+      Schritten: „Mit Google“, „Mit Apple“ oder „Mit E-Mail“ öffnet die Seite des Anbieters,
+      dort meldest du dich an und erstellst einen Schlüssel, und hier fügst du ihn ein —
+      Aquaticy erkennt selbst, von wem er ist. Danach siehst du deine Modelle, deine Stufe und
+      die freien Tokens, und die Modelle stehen in der Modellauswahl. Der Schlüssel liegt
+      verschlüsselt bei deinem Konto und geht nur an den Anbieter; dein Passwort sieht Aquaticy
+      nie.</p>
+    <div class="linked-quick">
+      <input type="password" id="linked-quick-key" autocomplete="off" spellcheck="false"
+             data-lpignore="true" data-1p-ignore="true" data-bwignore="true"
+             placeholder="Schlüssel einfügen (sk-ant-…, sk-…, AIza…)"
+             aria-label="API-Schlüssel von Claude, ChatGPT oder Gemini">
+      <button type="button" class="btn" id="linked-paste" hidden>Einfügen</button>
+      <button type="button" class="btn primary" id="linked-quick-go">Verknüpfen</button>
+      <div class="meldung" id="linked-quick-note" role="status"></div>
+    </div>
     <div class="linked-list" id="linked-list"></div>
     <h3 class="linked-title">Programme und Dienste</h3>
     <div class="addon-list" id="addon-list"></div>
@@ -2371,9 +2391,18 @@ input:focus-visible,select:focus-visible,.side-search input:focus-visible,
 
 <script>
 const $ = (s) => document.querySelector(s);
+// Feste Hinweise aus dem HTML (9.6.2): ".note" bricht Zeilen wie im Text um
+// (pre-line) -- gewollt fuer Meldungen, die das Skript mit "\n" setzt. Bei den
+// festen Absaetzen hier im Quelltext stehen aber die Umbrueche des Editors,
+// und die erschienen mitten im Satz. Also einmal beim Laden glaetten.
+document.querySelectorAll(".note").forEach((note) => {
+  const gang = document.createTreeWalker(note, NodeFilter.SHOW_TEXT);
+  for (let knoten = gang.nextNode(); knoten; knoten = gang.nextNode())
+    if (knoten.nodeValue.includes("\n")) knoten.nodeValue = knoten.nodeValue.replace(/\s*\n\s*/g, " ");
+});
 const thread = $("#thread"), main = $("#main"), input = $("#input"), send = $("#send");
 let busy = false;
-const aquaticyVersion = window.__AQUATICY_VERSION__ || "9.6.1 Spark Intern";
+const aquaticyVersion = window.__AQUATICY_VERSION__ || "9.6.2 Spark";
 $("#version").textContent = "v" + aquaticyVersion;
 // Interne oder Test-Fassung (9.6.0): unten mittig ein gelber Hinweis.
 const aquaticyIntern = window.__AQUATICY_INTERNAL__ === true
@@ -3997,6 +4026,11 @@ const narrow = () => window.matchMedia("(max-width:900px)").matches;
 // Auf dem Handy liegt die Leiste ueber dem Chat -- offen waere sie im Weg.
 if (narrow()) document.body.classList.add("collapsed");
 $("#btn-side").addEventListener("click", () => document.body.classList.toggle("collapsed"));
+// Escape schliesst die offene Leiste auf dem Handy (9.6.2) -- wie jedes Fenster.
+document.addEventListener("keydown", (e) => {
+  if (e.key === "Escape" && narrow() && !document.body.classList.contains("collapsed")
+      && !document.querySelector(".overlay.open")) document.body.classList.add("collapsed");
+}, true);  // vorher als die Fenster: ein offenes Fenster schliesst zuerst nur sich selbst
 // Tippt jemand neben die offene Leiste, geht sie wieder zu.
 $(".pane").addEventListener("click", (e) => {
   if (narrow() && !document.body.classList.contains("collapsed")
@@ -4436,6 +4470,25 @@ const EN = {
 "‹ Zurück": "‹ Back",
 "Interne Testversion — nicht für den Alltag gedacht, hier kann noch etwas haken.": "Internal test version — not meant for everyday use, things may still break.",
 "Im Pro-Modus dauert die Suche länger — wegen der höheren Genauigkeit.": "In Pro mode the search takes longer — for higher accuracy.",
+"Verknüpfe dein Claude-, ChatGPT- oder Gemini-Konto in drei Schritten: „Mit Google“, „Mit Apple“ oder „Mit E-Mail“ öffnet die Seite des Anbieters, dort meldest du dich an und erstellst einen Schlüssel, und hier fügst du ihn ein — Aquaticy erkennt selbst, von wem er ist. Danach siehst du deine Modelle, deine Stufe und die freien Tokens, und die Modelle stehen in der Modellauswahl. Der Schlüssel liegt verschlüsselt bei deinem Konto und geht nur an den Anbieter; dein Passwort sieht Aquaticy nie.": "Link your Claude, ChatGPT or Gemini account in three steps: “With Google”, “With Apple” or “With email” opens the provider’s page, where you sign in and create a key, and you paste it here — Aquaticy recognises on its own whose it is. You then see your models, your tier and the free tokens, and the models appear in the model picker. The key is stored encrypted with your account and only goes to the provider; Aquaticy never sees your password.",
+"KI-Konten": "AI accounts",
+"Programme und Dienste": "Programs and services",
+"Nicht verknüpft. Anmelden beim Anbieter, Schlüssel erstellen, kopieren — dann hier einfügen.": "Not linked. Sign in with the provider, create a key, copy it — then paste it here.",
+"Mit Google": "With Google",
+"Mit Apple": "With Apple",
+"Mit E-Mail": "With email",
+"Einfügen": "Paste",
+"Verknüpfen": "Link",
+"Aktualisieren": "Refresh",
+"Schlüssel einfügen (sk-ant-…, sk-…, AIza…)": "Paste key (sk-ant-…, sk-…, AIza…)",
+"Mehrere KI-Modelle arbeiten zusammen: zwei verknüpfte Modelle (z. B. Claude und ChatGPT) lösen die Aufgabe, eines (Gemini, wenn verknüpft) prüft auf Fehler, und Aquaticy ist der Richter — es entscheidet, ob die Lösung trägt, oder schickt sie zum Nachbessern und Ausdiskutieren zurück. Ohne Agenten, nur mit dem Hauptmodell als Richter. Dauert länger und kostet auf allen Konten Tokens.": "Several AI models work together: two linked models (e.g. Claude and ChatGPT) solve the task, one (Gemini, if linked) checks for mistakes, and Aquaticy is the judge — it decides whether the solution holds or sends it back to be improved and debated. No agents, only the main model as judge. Takes longer and uses tokens on all accounts.",
+"Dafür braucht es mindestens zwei verknüpfte KI-Konten (Add-ons → KI-Konten).": "This needs at least two linked AI accounts (Add-ons → AI accounts).",
+"Server-Verbund": "Server cluster",
+"Bis zu 10 Server mit Aquaticy arbeiten zusammen: eine gemeinsame Datenbank, die auf jedem Server vollständig liegt, und die Arbeit wird gleichmäßig verteilt. Der Server, der einlädt, wird Master.": "Up to 10 servers running Aquaticy work together: one shared database that is complete on every server, and the work is spread evenly. The server that sends the invitation becomes the master.",
+"🔒 Der Server-Verbund gehört zu Ultra.": "🔒 The server cluster is part of Ultra.",
+"Server im lokalen Netz": "Servers in the local network",
+"IP-Adresse, z. B. 192.168.1.20": "IP address, e.g. 192.168.1.20",
+"Verbinde nur eigene Server: der andere Server bekommt eine vollständige Kopie aller Daten. Auf ihm musst du im Terminal mit „yes“ zustimmen und dann hier den Code eingeben, den er anzeigt.": "Only connect your own servers: the other server receives a complete copy of all data. On it you confirm with “yes” in the terminal and then enter the code it shows here.",
 "Gespeichert": "Saved",
 "Abschnitte": "Sections",
 "Konto": "Account",
@@ -5970,6 +6023,61 @@ $("#btn-addons").addEventListener("click", () => {
 });
 
 /* ---------- KI-Konten (9.6.1) ---------- */
+// Bei welchem Anbieter gerade angemeldet wird -- seine Karte leuchtet, wenn
+// man zurueckkommt (9.6.2).
+let kontoWartet = "";
+// Die Zwischenablage gibt es nur auf HTTPS und auf dem eigenen Rechner.
+function zwischenablageGeht(){ return !!(window.isSecureContext && navigator.clipboard?.readText); }
+async function ausZwischenablage(){
+  try { return (await navigator.clipboard.readText() || "").trim().split(/\s+/)[0] || ""; }
+  catch { return ""; }
+}
+async function schnellVerknuepfen(wert){
+  const note = $("#linked-quick-note");
+  if (!wert){ $("#linked-quick-key").focus(); return; }
+  note.className = "meldung"; note.textContent = "Einen Moment — frage beim Anbieter nach …";
+  try {
+    const res = await api("/api/linked", {
+      method: "POST", headers: {"Content-Type": "application/json"},
+      body: JSON.stringify({ action: "link", key: wert }),
+    });
+    const daten = await res.json();
+    if (!daten.ok){ note.className = "meldung bad"; note.textContent = daten.error || "Das hat nicht geklappt."; return; }
+    const konto = (daten.accounts || []).find(k => k.provider === daten.provider);
+    note.className = "meldung ok";
+    note.textContent = `${konto ? konto.label : "Konto"} ist verknüpft.`;
+    kontoWartet = "";
+    kontenZeigen(daten);
+  } catch { note.className = "meldung bad"; note.textContent = "Keine Verbindung zu Aquaticy."; }
+}
+$("#linked-paste").hidden = !zwischenablageGeht();
+$("#linked-paste").addEventListener("click", async () => {
+  const wert = await ausZwischenablage();
+  if (!wert){
+    $("#linked-quick-note").className = "meldung bad";
+    $("#linked-quick-note").textContent = "In der Zwischenablage ist kein Schlüssel — bitte selbst einfügen.";
+    return;
+  }
+  await schnellVerknuepfen(wert);
+});
+$("#linked-quick-go").addEventListener("click", async () => {
+  const feld = $("#linked-quick-key");
+  const wert = feld.value.trim();
+  feld.value = "";
+  await schnellVerknuepfen(wert);
+});
+$("#linked-quick-key").addEventListener("keydown", (e) => {
+  if (e.key === "Enter"){ e.preventDefault(); $("#linked-quick-go").click(); }
+});
+// Zurueck vom Anbieter: der Hinweis, dass jetzt eingefuegt werden kann.
+window.addEventListener("focus", () => {
+  if (!kontoWartet || !addonBox.classList.contains("open")) return;
+  const note = $("#linked-quick-note");
+  note.className = "meldung ok";
+  note.textContent = zwischenablageGeht()
+    ? "Schlüssel kopiert? Dann auf „Einfügen“ klicken."
+    : "Schlüssel kopiert? Dann oben einfügen und „Verknüpfen“ klicken.";
+});
 async function kontenLaden(){
   try { kontenZeigen(await (await api("/api/linked")).json()); } catch {}
 }
@@ -6018,17 +6126,34 @@ function kontenZeigen(daten){
           await kontoTun({ action: "unlink", provider: k.provider }, karte);
       });
     } else {
-      info.textContent = "Nicht verknüpft.";
+      info.textContent = "Nicht verknüpft. Anmelden beim Anbieter, Schlüssel erstellen, "
+        + "kopieren — dann hier einfügen.";
+      // Anmelden beim Anbieter (9.6.2): so, wie der Anbieter es anbietet.
+      const anmelden = document.createElement("div");
+      anmelden.className = "anmelden";
+      for (const weg of k.sign_in || []){
+        const a = document.createElement("a");
+        a.className = "btn"; a.href = k.get_key; a.target = "_blank"; a.rel = "noopener";
+        a.textContent = weg.label;
+        a.addEventListener("click", () => { kontoWartet = k.provider; });
+        anmelden.appendChild(a);
+      }
+      karte.insertBefore(anmelden, reihe);
+      if (kontoWartet === k.provider) karte.classList.add("wartet");
       const feld = document.createElement("input");
       feld.type = "password"; feld.autocomplete = "off"; feld.spellcheck = false;
       feld.placeholder = `${k.form}  API-Schlüssel einfügen`;
       feld.setAttribute("aria-label", `${k.label}: API-Schlüssel`);
       for (const a of ["data-lpignore", "data-1p-ignore", "data-bwignore"]) feld.setAttribute(a, "true");
       reihe.appendChild(feld);
-      const holen = document.createElement("a");
-      holen.className = "btn"; holen.href = k.get_key; holen.target = "_blank"; holen.rel = "noopener";
-      holen.textContent = "Schlüssel holen";
-      reihe.appendChild(holen);
+      if (zwischenablageGeht()){
+        knopf("Einfügen", "", async () => {
+          const wert = await ausZwischenablage();
+          if (wert){ feld.value = ""; await kontoTun({ action: "link", provider: k.provider, key: wert }, karte); }
+          else { const m = karte.querySelector(".meldung"); m.className = "meldung bad";
+                 m.textContent = "In der Zwischenablage ist kein Schlüssel — bitte selbst einfügen."; }
+        });
+      }
       const verknuepfen = async () => {
         const wert = feld.value.trim();
         if (!wert){ feld.focus(); return; }

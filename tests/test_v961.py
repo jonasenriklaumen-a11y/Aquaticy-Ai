@@ -17,7 +17,7 @@ def _ui() -> str:
 def test_version_label() -> None:
     import aquaticy
 
-    assert aquaticy.VERSION_LABEL == "9.6.1 Spark Intern"
+    assert aquaticy.VERSION_LABEL.startswith("9.6.")
 
 
 def test_page_is_gzipped_when_the_browser_accepts_it() -> None:

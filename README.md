@@ -1,4 +1,4 @@
-# Aquaticy AI 9.6.1 Spark Intern
+# Aquaticy AI 9.6.2 Spark
 
 **Aquaticy** recherchiert für dich. Du stellst eine Frage, Aquaticy sucht im Web, liest die
 passenden Seiten und fasst das Ergebnis zusammen — mit Quelle an jeder Angabe. Es läuft im
@@ -116,7 +116,7 @@ $ aquaticy
 git clone --branch Aquaticy-ai --single-branch https://github.com/jonasenriklaumen-a11y/Aquaticy-Ai.git
 cd Aquaticy-Ai
 uv tool install --force --reinstall .
-aquaticy --version            # 9.6.1 Spark Intern
+aquaticy --version            # 9.6.2 Spark
 
 # 2. Einrichten — fragt nach Modell und Schlüssel und testet beide
 aquaticy setup
@@ -491,9 +491,17 @@ was Aquaticy damit darf (**Rechte**).
 
 ### KI-Konten: Claude, ChatGPT, Gemini (seit 9.6.1)
 
-*Add-ons → KI-Konten.* Verknüpfe dein Anthropic-, OpenAI- oder Google-Konto mit seinem
-**API-Schlüssel** („Schlüssel holen“ führt direkt hin; für Gemini reicht die Google-Anmeldung
-im AI Studio). Aquaticy liest danach selbst aus:
+*Add-ons → KI-Konten.* Verknüpfen geht in drei Schritten (seit 9.6.2):
+
+1. **„Mit Google“, „Mit Apple“ oder „Mit E-Mail“** öffnet die Seite des Anbieters — dort
+   meldest du dich an, wie du es gewohnt bist (Claude: Google oder E-Mail; ChatGPT: Google,
+   Apple oder E-Mail; Gemini: Google).
+2. Dort einen **API-Schlüssel erstellen** und kopieren.
+3. In Aquaticy auf **„Einfügen“** — Aquaticy erkennt am Schlüssel selbst, ob er von Claude,
+   ChatGPT oder Gemini ist. (Ohne HTTPS erlaubt der Browser die Zwischenablage nicht; dann
+   einfach ins Feld einfügen.)
+
+Danach liest Aquaticy selbst aus:
 
 - **Modelle**, die dein Konto freigeschaltet hat — sie stehen in der Modellauswahl im Normal-,
   Pro- und Code-Modus wie alle anderen.
@@ -502,10 +510,11 @@ im AI Studio). Aquaticy liest danach selbst aus:
   Schnittstelle heraus — das steht dann so da.
 
 Der Schlüssel liegt verschlüsselt im Schlüsselbund deines Kontos, geht nur an den Anbieter
-und ist jederzeit beim Anbieter widerrufbar. **E-Mail und Passwort** (oder „Mit Google
-anmelden“) für claude.ai oder chatgpt.com gehen bewusst nicht: die Anbieter verbieten das
-maschinelle Anmelden, es scheitert an Zwei-Faktor und Captchas, und Aquaticy soll dein
-Passwort nie kennen.
+und ist jederzeit beim Anbieter widerrufbar. **Warum nicht direkt „Mit Google bei ChatGPT
+anmelden“?** Diese Anmeldung gilt nur für die Website des Anbieters selbst — sie gibt keinem
+anderen Programm Zugriff, und die Abos (ChatGPT Plus, Claude Pro) gelten ohnehin nur in deren
+eigenen Apps. Der API-Schlüssel ist der vorgesehene Weg für Programme wie Aquaticy; Aquaticy
+kennt dein Passwort nie.
 
 **AI Council** (*Einstellungen → Dev settings*): mit mindestens zwei verknüpften Konten
 arbeiten die Modelle zusammen. Zwei lösen die Aufgabe (z. B. Claude und ChatGPT), eines prüft

@@ -70,12 +70,12 @@ def test_side_pages_carry_the_favicon() -> None:
     assert b"/favicon-32.png" in legal.legal_page("/accessibility")
 
 
-def test_version_is_961() -> None:
-    # Seit 9.6.1 -- die Fassung steht in tests/test_v961.py mit.
+def test_version_is_962() -> None:
+    # Seit 9.6.2 -- die Fassung steht in tests/test_v962.py mit.
     import aquaticy
 
-    assert aquaticy.__version__ == "9.6.1"
-    assert 'window.__AQUATICY_VERSION__ || "9.6.1 Spark Intern"' in web.UI_FILE.read_text(
+    assert aquaticy.__version__ == "9.6.2"
+    assert 'window.__AQUATICY_VERSION__ || "9.6.2 Spark"' in web.UI_FILE.read_text(
         encoding="utf-8"
     )
 
@@ -382,8 +382,10 @@ def test_settings_save_themselves_with_a_small_note() -> None:
 def test_internal_versions_show_a_yellow_note() -> None:
     import aquaticy
 
-    assert aquaticy.__stage__ == "Intern" and aquaticy.INTERNAL
-    assert aquaticy.VERSION_LABEL == "9.6.1 Spark Intern"
+    # 9.6.2 ist eine oeffentliche Fassung: kein Zusatz, kein gelber Hinweis --
+    # der Mechanismus bleibt fuer die naechste interne Fassung.
+    assert aquaticy.__stage__ == "" and not aquaticy.INTERNAL
+    assert aquaticy.VERSION_LABEL == "9.6.2 Spark"
     html = _ui()
     assert 'id="intern-hinweis"' in html and "--intern-bg:#ffe27a" in html
     assert "window.__AQUATICY_INTERNAL__ = " in Path(web.__file__).read_text(encoding="utf-8")

@@ -57,6 +57,26 @@ PROVIDERS: dict[str, dict[str, str]] = {
                "form": "AIza…"},
 }
 KEY_NAMES = frozenset(p["key"] for p in PROVIDERS.values())
+
+#: Wie man sich auf der Seite des Anbieters anmelden kann, um den Schluessel zu
+#: holen (9.6.2). Nur, was der Anbieter selbst anbietet -- Aquaticy meldet
+#: niemanden an, es oeffnet nur die richtige Seite.
+SIGN_IN: dict[str, tuple[str, ...]] = {
+    "anthropic": ("google", "email"),
+    "openai": ("google", "apple", "email"),
+    "gemini": ("google",),
+}
+SIGN_IN_LABELS = {"google": "Mit Google", "apple": "Mit Apple", "email": "Mit E-Mail"}
+
+#: Woran sich ein Schluessel erkennen laesst -- die laengste Vorsilbe zuerst.
+_KEY_FORMS: tuple[tuple[str, str], ...] = (
+    ("sk-ant-", "anthropic"), ("AIza", "gemini"), ("sk-", "openai"))
+
+
+def detect_provider(key: str) -> str:
+    """Zu welchem Anbieter gehoert dieser Schluessel? "" = nicht zu erkennen."""
+    wert = str(key or "").strip()
+    return next((anbieter for vorsilbe, anbieter in _KEY_FORMS if wert.startswith(vorsilbe)), "")
 STATE_FILE = "linked.json"
 TIMEOUT = 15.0
 #: Hoechstens so viele Modelle je Anbieter in der Auswahl.

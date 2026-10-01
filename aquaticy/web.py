@@ -2423,6 +2423,8 @@ def linked_view(session: Any) -> dict[str, Any]:
         konten.append({
             "provider": provider, "label": d["label"], "company": d["company"],
             "get_key": d["get_key"], "form": d["form"], "linked": provider in aktiv,
+            "sign_in": [{"id": art, "label": linked.SIGN_IN_LABELS[art]}
+                        for art in linked.SIGN_IN.get(provider, ())],
             "tier": info.get("tier", "") if provider in aktiv else "",
             "tokens": info.get("tokens") if provider in aktiv else None,
             "models": [m.get("label") or m.get("id") for m in info.get("models", [])]
@@ -2446,6 +2448,13 @@ def linked_action(payload: dict[str, Any]) -> tuple[dict[str, Any], int]:
     session = SESSION.current() if isinstance(SESSION, SessionProxy) else SESSION
     aktion = str(payload.get("action") or "")
     provider = str(payload.get("provider") or "")
+    if aktion == "link" and not provider:
+        # Ein Feld fuer alle (9.6.2): der Schluessel verraet seinen Anbieter.
+        provider = linked.detect_provider(str(payload.get("key") or ""))
+        if not provider:
+            return {"ok": False, "error": "Diesen Schlüssel erkenne ich nicht. Er beginnt bei "
+                                          "Claude mit „sk-ant-“, bei ChatGPT mit „sk-“ und bei "
+                                          "Gemini mit „AIza“."}, 400
     if provider not in linked.PROVIDERS:
         return {"ok": False, "error": "Diesen Anbieter gibt es hier nicht."}, 400
     name = linked.PROVIDERS[provider]["key"]
@@ -2487,7 +2496,7 @@ def linked_action(payload: dict[str, Any]) -> tuple[dict[str, Any], int]:
         return {"ok": False, "error": scrub_error(str(exc))}, 400
     session.reload()
     forget_strong_models(session.settings().data_dir)
-    return {"ok": True, **linked_view(session)}, 200
+    return {"ok": True, "provider": provider, **linked_view(session)}, 200
 
 
 def keys_action(payload: dict[str, Any]) -> tuple[dict[str, Any], int]:

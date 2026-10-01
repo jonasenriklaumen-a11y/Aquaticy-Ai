@@ -187,3 +187,42 @@ def test_linked_model_goes_direct_but_lm_studio_stays(tmp_path: Path) -> None:
     # Ohne eigenen Schluessel ist nichts verknuepft.
     s2 = Settings(data_dir=tmp_path, account_email="a@example.org")
     assert not s2.is_linked("openai/gpt-4o")
+
+
+def test_key_tells_its_provider() -> None:
+    assert linked.detect_provider("sk-ant-api03-abc") == "anthropic"
+    assert linked.detect_provider("sk-proj-abc123") == "openai"
+    assert linked.detect_provider(" AIzaSyAbc ") == "gemini"
+    assert linked.detect_provider("nvapi-123") == ""
+
+
+def test_sign_in_offers_only_what_the_provider_has() -> None:
+    assert "apple" in linked.SIGN_IN["openai"]
+    assert "apple" not in linked.SIGN_IN["anthropic"]
+    assert linked.SIGN_IN["gemini"] == ("google",)
+
+
+def test_web_quick_link_detects_the_provider(tmp_path: Path,
+                                             monkeypatch: pytest.MonkeyPatch) -> None:
+    from aquaticy import web
+
+    gespeichert: dict[str, str] = {}
+
+    class Tresor:
+        def set(self, name: str, wert: str) -> None:
+            gespeichert[name] = wert
+
+    sitzung = types.SimpleNamespace(
+        account=types.SimpleNamespace(id="u2"), profile=tmp_path,
+        settings=lambda: _settings(tmp_path, gespeichert), reload=lambda: None)
+    monkeypatch.setattr(web, "SESSION", sitzung)
+    monkeypatch.setattr(web, "account_vault", lambda profile, account: Tresor())
+    monkeypatch.setattr(web, "forget_strong_models", lambda *a: None)
+    monkeypatch.setattr(linked, "inspect", lambda provider, key: {"models": [], "tier": ""})
+    antwort, status = web.linked_action({"action": "link", "key": "AIzaSyTest1234567"})
+    assert status == 200 and antwort["provider"] == "gemini"
+    assert gespeichert == {"GEMINI_API_KEY": "AIzaSyTest1234567"}
+    karte = next(k for k in antwort["accounts"] if k["provider"] == "openai")
+    assert [w["id"] for w in karte["sign_in"]] == ["google", "apple", "email"]
+    antwort, status = web.linked_action({"action": "link", "key": "irgendwas-12345"})
+    assert status == 400 and "erkenne" in antwort["error"]

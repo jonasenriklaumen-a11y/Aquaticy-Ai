@@ -1,6 +1,6 @@
 """aquaticy -- ein KI-Rechercheagent fuer die Kommandozeile."""
 
-__version__ = "9.6.1"
+__version__ = "9.6.2"
 
 #: Der Name dieser Fassung. Er steht ueberall hinter der Versionsnummer, wo
 #: Menschen sie lesen -- nicht in Paketangaben und Kennungen fuer Server.
@@ -9,7 +9,7 @@ __codename__ = "Spark"
 #: Interne oder Test-Fassung (seit 9.6.0): "Intern", "Test" -- leer fuer eine
 #: oeffentliche Fassung. Steht dann hinter dem Namen, und die Oberflaeche zeigt
 #: unten mittig einen gelben Hinweis.
-__stage__ = "Intern"
+__stage__ = ""
 
 #: Ob dies eine interne oder Test-Fassung ist.
 INTERNAL = bool(__stage__)
