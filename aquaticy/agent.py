@@ -2351,6 +2351,10 @@ class Agent:
             # kleben bleiben.
             if content and not tool_calls:
                 self._emit("answer_chunk", text=content)
+            elif content.strip() and tool_calls:
+                # Seit 9.6.0 sichtbar -- als Zwischennachricht, die verschwindet,
+                # sobald die richtige Antwort da ist.
+                self._emit("interim", text=content.strip())
             fertig = {"role": "assistant", "content": content, "tool_calls": tool_calls}
             self._note_usage(messages, fertig, buchung,
                              metering.usage_of(getattr(response, "usage", None)))
@@ -2363,6 +2367,12 @@ class Agent:
             self._note_usage(messages, {}, buchung, self._stream_zahlen)
             raise
         self._note_usage(messages, gestreamt, buchung, self._stream_zahlen)
+        if gestreamt.get("tool_calls") and str(gestreamt.get("content") or "").strip():
+            # Was vor einem Werkzeugaufruf gestreamt wurde ("Ich suche jetzt nach
+            # ..."), ist keine Antwort, sondern eine Zwischennachricht (9.6.0):
+            # die Oberflaeche nimmt sie aus der Antwort heraus und loescht sie,
+            # sobald die richtige Antwort steht.
+            self._emit("interim", text=str(gestreamt["content"]).strip())
         return gestreamt
 
     def _consume_stream(self, response: Any) -> dict[str, Any]:

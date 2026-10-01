@@ -294,10 +294,10 @@ def test_the_env_switch_only_counts_for_ultra(tmp_path: Path) -> None:
                                  encoding="utf-8")
     assert web._profile_settings(profil, "ultra").vm_internet is True
     assert web._profile_settings(profil, "ultra").vm_lan is True
-    # Normal und Pro: immer Internet (9.5.34), nie das lokale Netz.
+    # Normal und Pro: seit 9.6.0 gar kein Netz in der virtual machine.
     for plan in ("pro", "normal"):
         einstellungen = web._profile_settings(profil, plan)
-        assert einstellungen.vm_internet is True and einstellungen.vm_lan is False
+        assert einstellungen.vm_internet is False and einstellungen.vm_lan is False
 
 
 def test_the_model_cannot_switch_vm_internet() -> None:

@@ -1,4 +1,4 @@
-# Aquaticy AI 9.6.0 Spark
+# Aquaticy AI 9.6.0 Spark Intern
 
 **Aquaticy** recherchiert für dich. Du stellst eine Frage, Aquaticy sucht im Web, liest die
 passenden Seiten und fasst das Ergebnis zusammen — mit Quelle an jeder Angabe. Es läuft im
@@ -112,7 +112,7 @@ $ aquaticy
 git clone --branch Aquaticy-ai --single-branch https://github.com/jonasenriklaumen-a11y/Aquaticy-Ai.git
 cd Aquaticy-Ai
 uv tool install --force --reinstall .
-aquaticy --version            # 9.6.0 Spark
+aquaticy --version            # 9.6.0 Spark Intern
 
 # 2. Einrichten — fragt nach Modell und Schlüssel und testet beide
 aquaticy setup
@@ -473,10 +473,10 @@ Die **virtual machine** ist ein abgeschotteter Rechner, in dem Aquaticy Code wir
 | Plus (Ultra) | 4 | 6 GB | 20 GB |
 
 - Kein root; die Platte ist hart begrenzt.
-- **Netz je Tarif (seit 9.5.34):** **Normal und Pro** haben in der virtual machine **immer
-  Internet** (`pip install`, `curl`), aber **nie Zugriff auf das lokale Netz** — private
-  Adressbereiche, Router, Home Assistant und der eigene Rechner sind gesperrt. Lässt sich die
-  Sperre nicht setzen oder fehlt ein Bereich, startet die Maschine gar nicht. **Ultra** stellt
+- **Netz je Tarif (seit 9.6.0):** **Normal und Pro** haben in der virtual machine **gar kein
+  Netz** — weder Internet noch das lokale Netz; Rechnen, Code ausführen und Dateien bearbeiten
+  geht trotzdem. Mit Internet sind private Adressbereiche, Router, Home Assistant und der eigene
+  Rechner gesperrt; lässt sich die Sperre nicht setzen, startet die Maschine gar nicht. **Ultra** stellt
   das Internet selbst ein (seit 9.5.31) und kann mit dem Schalter **Auch ins lokale Netz** die
   Sperre ganz wegnehmen — dann erreicht die Maschine Internet **und** Heimnetz. Das Modell kann
   beides nicht umschalten. Es braucht das Desktop-Abbild (unten).
@@ -856,7 +856,7 @@ setzt du die meisten unter *Einstellungen*.
 | `AQUATICY_VM_SIZE` | virtual machine: `normal` oder `plus` (Ultra) | `normal` |
 | `AQUATICY_VM_IMAGE` | Abbild der virtual machine | `python:3.12-slim` |
 | `AQUATICY_VM_USER_MODE` | User mode (Ultra) | `false` |
-| `AQUATICY_VM_INTERNET` | Internet für die virtual machine im Code-Modus (Ultra; Normal und Pro haben es immer) | `false` |
+| `AQUATICY_VM_INTERNET` | Internet für die virtual machine im Code-Modus (nur Ultra; Normal und Pro haben dort kein Netz) | `false` |
 | `AQUATICY_VM_LAN` | virtual machine auch ins lokale Netz, ohne Sperre (nur Ultra) | `false` |
 | `AQUATICY_ANSWER_CHECK` | Ai-guard prüft auch die Antworten von Aquaticy (nur der Betreiber stellt es ab) | `true` |
 | `AQUATICY_VM_DESKTOP_IMAGE` | Abbild für den User mode | `aquaticy-werkstatt-desktop:local` |

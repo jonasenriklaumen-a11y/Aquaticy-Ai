@@ -154,6 +154,22 @@ class FakeAgent:
                 {"kind": "erstellt", "media_id": self.bildschirm,
                  "title": "KI-Bild (Mistral Bildgenerierung)", "caption": "a lighthouse"}]})
             return type("R", (), {"answer": antwort, "stopped": False})()
+        if "zwischen-probe" in text:
+            # Die neue Laufanzeige (9.6.0): Denken, Zwischennachricht, Websuche,
+            # wieder Denken -- und die Zwischennachricht verschwindet mit der Antwort.
+            self.on_event("thought", {"text": "Der Nutzer will Nachrichten."})
+            zwischen = "Ich suche jetzt nach den neuesten Nachrichten."
+            self.on_event("answer_chunk", {"text": zwischen})
+            self.on_event("interim", {"text": zwischen})
+            self.on_event("search", {"query": "Nachrichten heute"})
+            self.on_event("fetch", {"url": "https://example.org/news"})
+            time.sleep(1.2 if "warte" in text else 0)
+            self.on_event("thought", {"text": "Jetzt zusammenfassen."})
+            time.sleep(1.2 if "warte" in text else 0)
+            antwort = "Hier sind die neuesten Nachrichten."
+            self.on_event("answer_chunk", {"text": antwort})
+            self.on_event("done", {"tool_calls": 2, "hit_limit": False})
+            return type("R", (), {"answer": antwort, "stopped": False})()
         if mode in ("code", "pro"):
             self.on_event("code_model", {"model": "mistral/mistral-large-latest"})
         if sandbox and mode == "code":
@@ -309,6 +325,24 @@ def starte_server(agent: FakeAgent) -> int:
         except OSError:
             time.sleep(0.1)
     raise RuntimeError("Der Server ist nicht hochgekommen.")
+
+
+def schritte_lesen(pg: Any) -> str:
+    """Alle Schritte des letzten Laufs -- auch die in zugeklappten Phasen (9.6.0).
+
+    Seit der neuen Laufanzeige stehen die Einzelheiten in "Denken", "Websuche" ...
+    und sind erst nach einem Klick zu sehen. Der Rundgang klappt sie dafuer kurz
+    auf, liest und klappt sie wieder zu.
+    """
+    return str(pg.evaluate("""() => {
+      const box = [...document.querySelectorAll(".steps")].pop();
+      if (!box) return "";
+      const zu = [...box.querySelectorAll(".phase-detail.zu")];
+      zu.forEach(d => d.classList.remove("zu"));
+      const text = box.innerText;
+      zu.forEach(d => d.classList.add("zu"));
+      return text;
+    }"""))
 
 
 def anmelden(pg: Any, port: int) -> None:
@@ -486,12 +520,16 @@ def normales_konto(browser: Any, port: int, log: Protokoll, fehler: list[str]) -
     pg.click("#guard-ok")
     pg.wait_for_selector("#guardbox", state="hidden")
     log.pruefe(pg.is_checked("#legalguard"), "und die Leitplanken bleiben an")
-    pg.click('#settings button[type="submit"]')
+    # Seit 9.6.0 ohne Speichern-Knopf: Enter in einem Feld speichert (oben "Gespeichert").
+    pg.evaluate("() => document.querySelector('#settings').requestSubmit()")
     pg.wait_for_timeout(1200)
     log.pruefe(
-        "Gespeichert" in pg.inner_text("#savenote"),
-        f"Speichern klappt trotzdem: {pg.inner_text('#savenote')[:50]!r}",
+        "Gespeichert" in pg.inner_text("#saved-pill"),
+        f"Speichern klappt trotzdem: {pg.inner_text('#saved-pill')[:50]!r}",
     )
+    # Das Fenster bleibt seit 9.6.0 nach dem Speichern offen -- zu geht es mit "Zurück".
+    pg.click("#cancel")
+    pg.wait_for_selector("#overlay", state="hidden")
     antwort = pg.evaluate(
         """async () => {
           const r = await fetch("/api/config", {method: "POST",
@@ -580,7 +618,7 @@ def normales_konto(browser: Any, port: int, log: Protokoll, fehler: list[str]) -
     )
     werte = pg.evaluate("async () => (await (await fetch('/api/config')).json()).values")
     log.pruefe(antwort.get("ok") and werte.get("AQUATICY_AUTO_MODEL") == "true",
-               "die automatische Modellwahl geht auch mit dem normalen Konto")
+               f"die automatische Modellwahl geht auch mit dem normalen Konto ({antwort})")
     kontext.close()
 
 
@@ -734,7 +772,7 @@ def rundgang(pg: Any, log: Protokoll, agent: FakeAgent, bilder: Path | None,
         pg.wait_for_timeout(700)
         log.pruefe("Eine Antwort" in pg.inner_text("#thread"), "Antwort erscheint")
         log.pruefe(pg.locator(".msg.user").count() == 1, "die Frage steht dabei")
-        schritte = pg.inner_text(".steps >> nth=-1")
+        schritte = schritte_lesen(pg)
         log.pruefe("[Suche]" in schritte, f"Zwischenschritte sichtbar: {schritte[:40]!r}")
         # Der erste Satz an ein Modell, das erst in den Speicher muss.
         log.pruefe("[Modell]" in schritte, "der Ladehinweis steht beim ersten Satz da")
@@ -775,7 +813,7 @@ def rundgang(pg: Any, log: Protokoll, agent: FakeAgent, bilder: Path | None,
         pg.click("#send")
         pg.wait_for_timeout(900)
         log.pruefe(agent.gesehen[-1]["modus"] == "code", "der Modus kommt an")
-        log.pruefe("[Code]" in pg.inner_text(".steps >> nth=-1"),
+        log.pruefe("[Code]" in schritte_lesen(pg),
                    "das stärkste Modell wird genannt")
         log.pruefe(pg.locator(".bubble pre").count() >= 1, "Code steht im Block")
         pg.click('#modes .mode[data-mode="normal"]')
@@ -804,7 +842,7 @@ def rundgang(pg: Any, log: Protokoll, agent: FakeAgent, bilder: Path | None,
         log.pruefe(letzte["tiefe"] == "high", f"die Denktiefe kommt an ({letzte['tiefe']})")
         log.pruefe("Denktiefe high" in pg.inner_text("#status"),
                    "und steht in der Kopfzeile")
-        schritte = pg.inner_text(".steps >> nth=-1")
+        schritte = schritte_lesen(pg)
         log.pruefe("[Teile]" in schritte, "strukturiert wird zerlegt")
         log.pruefe("[Gegenprobe]" in schritte, "die Gegenprobe meldet sich")
         log.pruefe("Gegengeprüft" in pg.inner_text(".msg.bot >> nth=-1"),
@@ -979,7 +1017,7 @@ def rundgang(pg: Any, log: Protokoll, agent: FakeAgent, bilder: Path | None,
         log.pruefe(letzte["werkstatt"] is True, f"der Schalter kommt an ({letzte['werkstatt']})")
         log.pruefe(letzte["web"] is True,
                    "und nachschlagen darf er weiterhin — nur die Maschine hat kein Netz")
-        schritte = pg.inner_text(".steps >> nth=-1")
+        schritte = schritte_lesen(pg)
         log.pruefe("[virtual machine]" in schritte, "die virtual machine meldet sich")
         log.pruefe("lief durch" in schritte, "und sagt, was herauskam")
         foto("04a-werkstatt")
@@ -1055,7 +1093,7 @@ def rundgang(pg: Any, log: Protokoll, agent: FakeAgent, bilder: Path | None,
         pg.wait_for_timeout(1200)
         letzte = agent.gesehen[-1]
         log.pruefe(letzte["modus"] == "pro", f"der Modus kommt an ({letzte['modus']})")
-        schritte = pg.inner_text(".steps >> nth=-1")
+        schritte = schritte_lesen(pg)
         log.pruefe("[Pro]" in schritte, "das stärkste Modell wird genannt")
         log.pruefe("[Code]" not in schritte, "und zwar als Pro, nicht als Code")
         log.pruefe("· Zahlen" in schritte, "die Rolle steht an der Teilfrage")
@@ -1081,7 +1119,7 @@ def rundgang(pg: Any, log: Protokoll, agent: FakeAgent, bilder: Path | None,
         pg.wait_for_timeout(1400)
         log.pruefe(agent.gesehen[-1]["gegenprobe"] is True,
                    "der Schalter kommt an")
-        schritte = pg.inner_text(".steps >> nth=-1")
+        schritte = schritte_lesen(pg)
         log.pruefe("[Prüfer]" in schritte, "die Prüfer melden sich")
         log.pruefe("prüfen mit, während" in schritte,
                    "und sagen, dass sie nebenher laufen")
@@ -1120,7 +1158,7 @@ def rundgang(pg: Any, log: Protokoll, agent: FakeAgent, bilder: Path | None,
         letzte = agent.gesehen[-1]
         log.pruefe(letzte["text"].startswith("/max"),
                    f"der Befehl kommt beim Agenten an ({letzte['text'][:20]!r})")
-        schritte = pg.inner_text(".steps >> nth=-1")
+        schritte = schritte_lesen(pg)
         log.pruefe("44 Agenten" in schritte, "und es sind alle")
         log.pruefe("volle Mannschaft" in schritte, "die Anzeige sagt es")
         # Ohne Frage ist es keine Recherche, sondern eine Erklärung.
@@ -1144,7 +1182,7 @@ def rundgang(pg: Any, log: Protokoll, agent: FakeAgent, bilder: Path | None,
         # wiederaufgenommene Lauf im Chat steht. Genau darum geht es hier.
         pg.wait_for_selector("#input")
         pg.wait_for_timeout(1500)
-        schritte = pg.inner_text(".steps >> nth=-1")
+        schritte = schritte_lesen(pg)
         log.pruefe("[Weiter]" in schritte, "der Lauf wird wieder aufgenommen")
         log.pruefe(pg.locator(".msg.user").count() >= 1, "die Frage steht wieder da")
         pg.wait_for_selector("#stop", state="hidden", timeout=30000)
@@ -1248,7 +1286,7 @@ def rundgang(pg: Any, log: Protokoll, agent: FakeAgent, bilder: Path | None,
         pg.click("#send")
         pg.wait_for_selector("#stop", state="hidden", timeout=25000)
         pg.wait_for_timeout(700)
-        schritte = pg.inner_text(".steps >> nth=-1")
+        schritte = schritte_lesen(pg)
         log.pruefe(
             "[Rechtsrahmen]" in schritte and "§ 12 BGB" in schritte,
             f"die Absage nennt Regel und Rechtsgrundlage: {schritte[:70]!r}",
@@ -1284,7 +1322,7 @@ def rundgang(pg: Any, log: Protokoll, agent: FakeAgent, bilder: Path | None,
         pg.click("#send")
         pg.wait_for_selector("#stop", state="hidden", timeout=25000)
         pg.wait_for_timeout(900)
-        schritte = pg.inner_text(".steps >> nth=-1")
+        schritte = schritte_lesen(pg)
         log.pruefe("Internet an, Heimnetz gesperrt" in schritte,
                    "die Netzsperre steht in den Schritten")
         log.pruefe("Desktop bereit" in schritte, "der Desktop meldet sich")
@@ -1317,7 +1355,7 @@ def rundgang(pg: Any, log: Protokoll, agent: FakeAgent, bilder: Path | None,
         pg.click("#send")
         pg.wait_for_selector("#stop", state="hidden", timeout=25000)
         pg.wait_for_timeout(900)
-        schritte = pg.inner_text(".steps >> nth=-1")
+        schritte = schritte_lesen(pg)
         log.pruefe("[Modell]" in schritte and "Bild erstellen" in schritte,
                    f"die Wahl steht im Verlauf: {schritte[-140:]!r}")
         log.pruefe("erstellt mit Mistral Bildgenerierung" in schritte, "und wer gemalt hat")
@@ -1421,15 +1459,15 @@ def rundgang(pg: Any, log: Protokoll, agent: FakeAgent, bilder: Path | None,
         log.pruefe(pg.locator('#dev-settings [name="AQUATICY_AUTO_MODEL"]').count() == 1,
                    "Dev settings: Schalter 'Modell automatisch wählen'")
         pg.check("#automodel")
-        pg.click('#settings button[type="submit"]')
         pg.wait_for_timeout(1500)
+        log.pruefe("Gespeichert" in pg.inner_text("#saved-pill"),
+                   "oben im Fenster steht kurz 'Gespeichert'")
+        log.pruefe(pg.locator('#settings button[type="submit"]').count() == 0,
+                   "einen Speichern-Knopf gibt es nicht mehr")
         log.pruefe("Auto · " in pg.inner_text("#model-name"),
                    f"oben steht Auto: {pg.inner_text('#model-name')!r}")
-        pg.click("#btn-settings")
-        pg.wait_for_selector("#overlay.open", state="visible")
         pg.wait_for_timeout(700)
         pg.uncheck("#automodel")
-        pg.click('#settings button[type="submit"]')
         pg.wait_for_timeout(1500)
         log.pruefe("Auto" not in pg.inner_text("#model-name"), "und wieder aus")
         if pg.is_visible("#overlay.open"):

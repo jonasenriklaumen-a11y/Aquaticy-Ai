@@ -74,6 +74,6 @@ def test_version_is_960() -> None:
     import aquaticy
 
     assert aquaticy.__version__ == "9.6.0"
-    assert 'window.__AQUATICY_VERSION__ || "9.6.0 Spark"' in web.UI_FILE.read_text(
+    assert 'window.__AQUATICY_VERSION__ || "9.6.0 Spark Intern"' in web.UI_FILE.read_text(
         encoding="utf-8"
     )

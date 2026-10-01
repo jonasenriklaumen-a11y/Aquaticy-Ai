@@ -411,6 +411,67 @@ body:not(.start) .hint{display:none}
 .result-card dt{color:var(--text-3)} .result-card dd{margin:0;overflow-wrap:anywhere}
 .result-card .source{display:inline-block;margin-top:9px;font-size:calc(12px * var(--fs))}
 
+/* ====================== Ablauf einer Antwort (9.6.0) ==================== */
+.steps.ablauf{gap:2px}
+.phase{display:flex;flex-direction:column;align-items:flex-start}
+.phase-kopf{display:inline-flex;align-items:center;gap:8px;background:none;border:0;
+  padding:3px 8px 3px 2px;margin-left:-2px;border-radius:8px;cursor:pointer;color:var(--text-2);
+  font:500 calc(13.5px * var(--fs))/1.4 var(--sans);transition:background .15s}
+.phase-kopf:hover{background:var(--accent-soft)}
+.phase-kopf:focus-visible{outline:2px solid var(--accent);outline-offset:1px}
+.phase-logo{position:relative;width:22px;height:22px;flex:0 0 22px;display:grid;place-items:center}
+.phase-logo img{width:16px;height:16px;object-fit:contain;position:relative;z-index:1}
+.phase-logo::before,.phase-logo::after{content:"";position:absolute;border-radius:50%;opacity:0}
+/* Laeuft: ein Lichtbogen kreist ums A, ein Hof atmet, das A schwebt und wiegt sich. */
+.phase.aktiv .phase-logo::before{inset:-1px;opacity:1;
+  background:conic-gradient(from 0deg,transparent 0 50%,var(--accent) 78%,transparent 100%);
+  -webkit-mask:radial-gradient(farthest-side,transparent calc(100% - 2.2px),#000 calc(100% - 1.6px));
+  mask:radial-gradient(farthest-side,transparent calc(100% - 2.2px),#000 calc(100% - 1.6px));
+  animation:phase-dreh 1.15s linear infinite}
+.phase.aktiv .phase-logo::after{inset:3px;background:var(--accent);
+  animation:phase-hof 1.9s ease-in-out infinite}
+.phase.aktiv .phase-logo img{animation:phase-schwebe 2.6s ease-in-out infinite}
+.phase.fertig .phase-logo img{opacity:.6;filter:saturate(.6)}
+@keyframes phase-dreh{to{transform:rotate(360deg)}}
+@keyframes phase-hof{0%,100%{transform:scale(.6);opacity:.06}50%{transform:scale(1.25);opacity:.26}}
+@keyframes phase-schwebe{0%,100%{transform:translateY(0) rotate(0) scale(1)}
+  25%{transform:translateY(-1.5px) rotate(-7deg) scale(1.07)}
+  50%{transform:translateY(0) rotate(0) scale(.94)}
+  75%{transform:translateY(1px) rotate(7deg) scale(1.05)}}
+.phase.aktiv .phase-name{background:linear-gradient(90deg,var(--text-3) 0%,var(--text) 38%,
+  var(--accent) 50%,var(--text) 62%,var(--text-3) 100%);background-size:260% 100%;
+  -webkit-background-clip:text;background-clip:text;color:transparent;
+  animation:phase-glanz 2.3s linear infinite}
+.phase-name.wechsel{animation:phase-wort .35s var(--ease-out, ease-out)}
+.phase.aktiv .phase-name.wechsel{animation:phase-glanz 2.3s linear infinite,phase-wort .35s ease-out}
+@keyframes phase-glanz{from{background-position:100% 0}to{background-position:-160% 0}}
+@keyframes phase-wort{from{opacity:0;transform:translateY(4px)}to{opacity:1;transform:none}}
+.phase-zeit{color:var(--text-3);font-size:calc(12px * var(--fs))}
+.phase-pfeil{color:var(--text-3);font-size:calc(15px * var(--fs));line-height:1;transition:transform .15s}
+.phase.offen .phase-pfeil{transform:rotate(90deg)}
+.phase-detail{margin:2px 0 6px 10px;padding:2px 0 2px 16px;border-left:2px solid var(--line);
+  display:flex;flex-direction:column;gap:3px;max-width:100%}
+.phase-detail .step.trace,.phase-detail .step.trace.think{display:flex}
+.phase-detail .step.trace .txt{white-space:pre-wrap;word-break:break-word;
+  font:calc(12px * var(--fs))/1.6 var(--mono);color:var(--text-3);max-height:18em;overflow-y:auto}
+.phase-detail .step.phase-leer .txt{font-style:italic}
+/* "Denken" im Modell-Menue an: die Gedanken stehen offen da (auch rueckwirkend);
+   "Mitlesen" zeigt die Einzelheiten aller anderen Phasen. */
+.phase-detail.zu{display:none}
+body.denken .phase.think > .phase-detail.zu,
+body.tracing .phase:not(.think) > .phase-detail.zu{display:flex}
+body.denken .phase.think .phase-pfeil,
+body.tracing .phase:not(.think) .phase-pfeil{transform:rotate(90deg)}
+.interim{color:var(--text-2);font-style:italic;font-size:calc(14px * var(--fs));
+  padding:2px 0 4px 30px;transition:opacity .25s,transform .25s}
+.interim p{margin:0}
+.interim.weg{opacity:0;transform:translateY(-3px)}
+@media (prefers-reduced-motion:reduce){
+  .phase.aktiv .phase-logo::before,.phase.aktiv .phase-logo::after,
+  .phase.aktiv .phase-logo img,.phase.aktiv .phase-name,.phase-name.wechsel{animation:none}
+  .phase.aktiv .phase-name{color:var(--text);background:none}
+}
+
 /* ========================== Zwischenschritte ============================ */
 .steps{display:flex;flex-direction:column;gap:4px;margin:0 0 14px}
 .step{font-size:calc(13px * var(--fs));color:var(--text-3);display:flex;gap:9px;align-items:flex-start;
@@ -613,6 +674,14 @@ body:not(.pro-mode) .only-pro{display:none}
    die Tastenkuerzel laengst kennt. Etwas kleiner, damit er die Zeile
    darueber nicht verdraengt, aber lesbar. */
 .ki-hinweis{margin-top:4px;font-size:calc(11px * var(--fs));opacity:.85}
+/* Interne/Test-Fassung (9.6.0): gelb, klein, mittig unter der Eingabe. */
+.intern-hinweis{display:block;width:max-content;max-width:100%;margin:6px auto 0;
+  padding:3px 12px;border-radius:999px;text-align:center;
+  font:600 calc(11.5px * var(--fs))/1.4 var(--sans);color:#6b5200;background:#ffe27a;
+  border:1px solid #f0c419}
+.intern-hinweis[hidden]{display:none}
+:root[data-theme="dark"] .intern-hinweis{color:#ffe27a;background:rgba(255,214,0,.12);
+  border-color:rgba(255,214,0,.45)}
 body.dragging::after{content:"Datei hier ablegen";position:fixed;inset:14px;z-index:40;
   border:2px dashed var(--accent);border-radius:20px;background:var(--bg);opacity:.94;
   color:var(--accent-text);display:grid;place-items:center;font:400 calc(19px * var(--fs)) var(--serif);
@@ -624,6 +693,18 @@ body.dragging::after{content:"Datei hier ablegen";position:fixed;inset:14px;z-in
   margin:-24px -26px 0;padding:20px 26px 12px;border-radius:18px 18px 0 0;
   border-bottom:1px solid var(--line)}
 .secnav{display:flex;flex-wrap:wrap;gap:5px;margin-top:11px}
+/* Zurueck oben links, "Gespeichert" klein in der Farbe des Designs (9.6.0). */
+.sheet-titel{display:flex;align-items:center;gap:10px;flex-wrap:wrap}
+.sheet-titel h2{margin:0}
+.sheet-back{background:transparent;border:1px solid var(--line-2);border-radius:999px;
+  padding:4px 12px 4px 9px;font:600 calc(13px * var(--fs))/1.2 var(--sans);color:var(--text-2);
+  cursor:pointer;transition:color .12s,border-color .12s}
+.sheet-back:hover{color:var(--accent);border-color:var(--accent)}
+.sheet-back:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+.saved-pill{margin-left:auto;font:600 calc(12.5px * var(--fs))/1 var(--sans);color:var(--accent);
+  opacity:0;transform:translateY(-2px);transition:opacity .2s,transform .2s;pointer-events:none}
+.saved-pill.on{opacity:1;transform:none}
+.saved-pill.bad{color:var(--bad, #c0392b)}
 .secnav button{background:transparent;border:1px solid var(--line-2);border-radius:999px;
   padding:4px 11px;font-size:calc(12.5px * var(--fs));color:var(--text-3);cursor:pointer;
   transition:color .12s,border-color .12s,background .12s}
@@ -1184,15 +1265,11 @@ input:focus,select:focus{border-color:var(--accent)}
    --------------------------------------------------------------------------- */
 :root[data-fontsize="small"]{--fs:.9}
 :root[data-fontsize="large"]{--fs:1.15}
-/* Schalter: Zustand nicht nur ueber die Farbe (WCAG 1.4.1). Aus = kraeftiger
-   Rand, "O" rechts; an = gefuellt, "I" links -- wie bei iOS mit
-   "Ein/Aus-Beschriftung". */
+/* Schalter: Zustand nicht nur ueber die Farbe (WCAG 1.4.1) -- aus = kraeftiger
+   Rand, an = gefuellt, der Knopf wandert. Die "I/O"-Beschriftung (9.5.32) ist
+   seit 9.6.0 weg; sie sah unruhig aus. */
 .schalter{box-shadow:inset 0 0 0 2px var(--switch-off)}
 .schalter:checked{box-shadow:none}
-.schalter::before{content:"O";position:absolute;right:7px;top:50%;
-  transform:translateY(-50%);font:700 10px/1 var(--sans);color:var(--switch-off);
-  pointer-events:none}
-.schalter:checked::before{content:"I";right:auto;left:10px;color:var(--on-accent)}
 /* Eingabefelder, die ihren Rahmen selbst zeichnen, zeigen den Fokus trotzdem. */
 input:focus-visible,select:focus-visible,.side-search input:focus-visible,
 .ask-free input:focus-visible{border-color:var(--accent);
@@ -1207,10 +1284,6 @@ input:focus-visible,select:focus-visible,.side-search input:focus-visible,
 /* Fehler bei einer Antwort: gleich nochmal versuchen. */
 .retry{margin-top:8px}
 /* Was Aquaticy kann -- vor der ersten Nachricht (9.5.32). */
-.can-list{display:grid;grid-template-columns:1fr 1fr;gap:6px 18px;margin:14px auto 0;
-  max-width:560px;text-align:left;font-size:calc(13px * var(--fs));color:var(--text-2)}
-.can-list b{color:var(--text)}
-@media (max-width:560px){.can-list{grid-template-columns:1fr}}
 /* Konto: Sicherheit und Loeschen (9.5.32). */
 .danger-zone{border:1px solid var(--err);border-radius:12px;padding:12px 14px;margin-top:12px}
 .danger-zone .btn.danger{border-color:var(--err);color:var(--err)}
@@ -1448,12 +1521,6 @@ input:focus-visible,select:focus-visible,.side-search input:focus-visible,
       <img class="star" src="/logo.png" width="44" height="44" alt="">
       <h1 id="greeting">Guten Tag</h1>
       <p>Ich suche selbst im Web, lese die Seiten und nenne zu jeder Angabe die Quelle.</p>
-      <div class="can-list" id="can-list">
-        <span><b>Kann:</b> im Web recherchieren, Quellen nennen, Bilder und PDFs lesen,
-          programmieren, Aufträge regelmäßig erledigen.</span>
-        <span><b>Kann nicht:</b> sich hinter Anmeldungen, Bezahlschranken oder Captchas
-          einloggen — und Antworten können Fehler enthalten.</span>
-      </div>
     </div>
     <div class="security-banner" id="security-banner" role="alert" hidden>
       <span id="security-text"></span>
@@ -1509,6 +1576,8 @@ input:focus-visible,select:focus-visible,.side-search input:focus-visible,
       <button type="button" class="chip">Baue eine kleine REST-API mit FastAPI</button>
     </div>
     <div class="hint">Enter senden · Shift+Enter Zeilenumbruch · /help zeigt die Befehle</div>
+    <div class="intern-hinweis" id="intern-hinweis" role="note" hidden>Interne Testversion —
+      nicht für den Alltag gedacht, hier kann noch etwas haken.</div>
     <div class="hint ki-hinweis">Die Texte hier sind KI-generiert und können Fehler
       enthalten. Prüfe Wichtiges an der genannten Quelle nach.</div>
   </footer>
@@ -1707,9 +1776,13 @@ input:focus-visible,select:focus-visible,.side-search input:focus-visible,
 <div class="overlay" id="overlay">
   <div class="sheet">
     <div class="sheet-head">
-      <h2>Einstellungen</h2>
-      <p class="lead">Hier stellst du Aquaticy so ein, wie du es magst. Schalter gelten sofort,
-        Textfelder nach „Speichern“.</p>
+      <div class="sheet-titel">
+        <button type="button" class="sheet-back" id="cancel" aria-label="Zurück">‹ Zurück</button>
+        <h2>Einstellungen</h2>
+        <span class="saved-pill" id="saved-pill" role="status" aria-live="polite"></span>
+      </div>
+      <p class="lead">Hier stellst du Aquaticy so ein, wie du es magst. Alles gilt sofort
+        und wird automatisch gespeichert.</p>
       <div class="secnav" id="secnav" role="group" aria-label="Abschnitte"></div>
     </div>
     <form id="settings">
@@ -1820,9 +1893,8 @@ input:focus-visible,select:focus-visible,.side-search input:focus-visible,
             <span class="ultra-tag">Ultra</span>
             <span class="lock-tag" data-lock hidden>🔒 Mit Ultra verfügbar</span>
             <span class="why">Im Code-Modus darf die virtual machine dann ins Internet —
-              etwa für pip install oder um eine Seite abzurufen. Normal- und Pro-Konten
-              haben das immer; dein Heimnetz bleibt dabei gesperrt. Ohne diese Sperre
-              startet die Maschine gar nicht.</span></label>
+              etwa für pip install oder um eine Seite abzurufen; dein Heimnetz bleibt
+              dabei gesperrt. Bei Normal- und Pro-Konten hat sie gar kein Netz.</span></label>
         </div>
         <div class="check usermode-row">
           <input type="checkbox" role="switch" class="schalter" id="vmlan"
@@ -2201,10 +2273,8 @@ input:focus-visible,select:focus-visible,.side-search input:focus-visible,
           verschickt oder löscht bei Google nie etwas.</div>
       </fieldset>
 
-      <div class="actions">
-        <button type="button" class="btn" id="cancel">Abbrechen</button>
-        <button type="submit" class="btn primary">Speichern</button>
-      </div>
+      <!-- Seit 9.6.0 ohne Speichern-Knopf: alles speichert sich selbst, oben
+           erscheint kurz "Gespeichert". Enter in einem Feld speichert auch. -->
       <div class="note" id="savenote"></div>
     </form>
     <!-- Klein und mittig unten: der Hinweis auf Ai-guard (9.5.16 Lion). -->
@@ -2218,8 +2288,12 @@ input:focus-visible,select:focus-visible,.side-search input:focus-visible,
 const $ = (s) => document.querySelector(s);
 const thread = $("#thread"), main = $("#main"), input = $("#input"), send = $("#send");
 let busy = false;
-const aquaticyVersion = window.__AQUATICY_VERSION__ || "9.6.0 Spark";
+const aquaticyVersion = window.__AQUATICY_VERSION__ || "9.6.0 Spark Intern";
 $("#version").textContent = "v" + aquaticyVersion;
+// Interne oder Test-Fassung (9.6.0): unten mittig ein gelber Hinweis.
+const aquaticyIntern = window.__AQUATICY_INTERNAL__ === true
+  || (window.__AQUATICY_INTERNAL__ === undefined && /\b(Intern|Test)\b/i.test(aquaticyVersion));
+$("#intern-hinweis").hidden = !aquaticyIntern;
 document.title = `Aquaticy AI ${aquaticyVersion}`;
 
 /* ---------- Arbeitsweise, Struktur und Denktiefe ---------- */
@@ -2869,7 +2943,169 @@ function step(box, tag, text, kind){
   el.innerHTML = `<span class="tag"></span><span class="txt"></span>`;
   el.querySelector(".tag").textContent = tag;
   el.querySelector(".txt").textContent = text || "";
+  // Seit 9.6.0 landet jeder Schritt in seiner Phase ("Denken", "Websuche" ...);
+  // nur Fehler, Sperren und Abbrueche bleiben fuer alle sichtbar stehen.
+  if (box._ablauf && !(WICHTIGE_SCHRITTE.has(tag) || String(kind || "").includes("err"))){
+    box._ablauf.zeile(tag, el);
+    scroll(); return el;
+  }
   box.appendChild(el); scroll(); return el;
+}
+
+/* ---------- Ablauf einer Antwort (9.6.0) ----------
+   Den Nutzer interessiert nicht jeder Zwischenschritt. Sichtbar sind nur
+   wenige Zeilen -- "Denken", eine Zwischennachricht, "Websuche", wieder
+   "Denken" --, jede mit dem animierten Logo, solange sie laeuft. Ein Klick
+   klappt auf, was darin passiert ist (beim Denken: die Gedanken). Die
+   Zwischennachricht verschwindet, sobald die richtige Antwort steht. Im
+   Code-Modus heisst "Denken" wie bei Claude: Noodling, Pondering, ... */
+const WICHTIGE_SCHRITTE = new Set(["[Fehler]", "[Limit]", "[Ai-guard]", "[Verbindung]",
+  "[Abgebrochen]", "[Weiter]", "[Rechtsrahmen]", "[Schutz]"]);
+const PHASEN = { think: "Denken", web: "Websuche", code: "Code ausführen",
+  bild: "Bild erstellen", rechnen: "Rechnen", agenten: "Agenten arbeiten", pruefen: "Prüfen",
+  netz: "Netzwerk", haus: "Smart Home", mail: "E-Mail", termine: "Kalender", lager: "Lager",
+  erinnern: "Erinnern", modell: "Modell laden", work: "Arbeiten" };
+const CODE_WOERTER = ["Noodling", "Aquaticing", "Pondering", "Schlepping", "Booping",
+  "Tinkering", "Brewing", "Percolating", "Mulling", "Cogitating", "Wrangling", "Doodling",
+  "Fiddling", "Simmering", "Splashing", "Diving", "Rippling", "Bubbling", "Swirling",
+  "Untangling", "Riffing", "Hatching", "Puzzling", "Musing", "Crafting", "Scheming", "Vibing",
+  "Spelunking", "Flowing", "Surfing", "Finagling", "Conjuring", "Whittling", "Marinating",
+  "Churning", "Juggling", "Sprouting", "Kneading", "Zigzagging", "Snorkeling", "Paddling",
+  "Drifting", "Gurgling", "Shimmying", "Rummaging", "Clacking", "Bit-herding", "Moseying",
+  "Frolicking", "Splish-splashing", "Deep-diving", "Wavecrafting"];
+function phaseVon(tag, text){
+  switch (tag){
+    case "[Denkt]": case "[Plane]": case "[Vorab]": return "think";
+    case "[Suche]": case "[Treffer]": case "[Lese]": case "[Skip]": case "[Anfragen]":
+    case "[Karte]": return "web";
+    case "[virtual machine]": case "[Desktop]": return "code";
+    case "[Bild]": return "bild";
+    case "[Rechne]": return "rechnen";
+    case "[Teile]": case "[Master]": case "[Nachrunde]": return "agenten";
+    case "[Prüfer]": case "[Gegenprobe]": return "pruefen";
+    case "[Netz]": return "netz";
+    case "[Haus]": return "haus";
+    case "[Mail]": return "mail";
+    case "[Termine]": return "termine";
+    case "[Lager]": return "lager";
+    case "[Speicher]": case "[Merke]": return "erinnern";
+    case "[Modell]": return "modell";
+    case "[Aufruf]": {
+      const t = String(text || "");
+      if (/^(web_search|search|news|fetch|read|open_url|page|visual)/.test(t)) return "web";
+      if (/^(vm_|desktop_)/.test(t)) return "code";
+      return "";
+    }
+    default: return "";
+  }
+}
+class Ablauf {
+  constructor(box, modus){
+    this.box = box; this.modus = modus; this.phase = null; this.zwischenteile = [];
+    box.classList.add("ablauf");
+    box._ablauf = this;
+    this.neu("think");
+  }
+  neu(art){
+    const vorher = this.phase;
+    if (vorher && vorher.art === "think" && art === "modell" && !vorher.detail.children.length
+        && this.box.querySelectorAll(".phase").length === 1){
+      // Das erste "Denken" war nur ein Platzhalter -- erst wird das Modell geladen.
+      clearInterval(vorher.takt);
+      vorher.zeile.remove();
+      this.phase = null;
+    }
+    this.schliesse();
+    const zeile = document.createElement("div");
+    zeile.className = "phase aktiv " + art;
+    zeile.innerHTML = `<button type="button" class="phase-kopf" aria-expanded="false">
+      <span class="phase-logo" aria-hidden="true"><img src="/logo.png" alt=""></span>
+      <span class="phase-name"></span><span class="phase-zeit"></span>
+      <span class="phase-pfeil" aria-hidden="true">›</span></button>
+      <div class="phase-detail zu"></div>`;
+    const kopf = zeile.querySelector(".phase-kopf"), detail = zeile.querySelector(".phase-detail");
+    kopf.addEventListener("click", () => {
+      // Ueber eine Klasse statt `hidden`: das steht im Stilblock mit !important
+      // und liesse sich vom Schalter "Denken" nicht mehr aufklappen.
+      const auf = detail.classList.contains("zu");
+      detail.classList.toggle("zu", !auf);
+      kopf.setAttribute("aria-expanded", String(auf));
+      zeile.classList.toggle("offen", auf);
+    });
+    this.box.appendChild(zeile);
+    this.phase = { art, zeile, detail, name: zeile.querySelector(".phase-name"),
+                   zeit: zeile.querySelector(".phase-zeit"), start: Date.now(), wort: "", takt: null };
+    if (art === "think" && this.modus === "code"){
+      this.phase.wort = zufaellig(CODE_WOERTER);
+      this.phase.name.textContent = this.phase.wort + "…";
+      this.phase.takt = setInterval(() => this.wechsleWort(), 2200);
+    } else {
+      this.phase.name.textContent = PHASEN[art] || PHASEN.work;
+    }
+    scroll();
+  }
+  wechsleWort(){
+    const p = this.phase;
+    if (!p) return;
+    let wort = p.wort;
+    while (wort === p.wort) wort = zufaellig(CODE_WOERTER);
+    p.wort = wort;
+    p.name.classList.remove("wechsel"); void p.name.offsetWidth; p.name.classList.add("wechsel");
+    p.name.textContent = wort + "…";
+  }
+  schliesse(){
+    const p = this.phase;
+    if (!p) return;
+    clearInterval(p.takt);
+    p.zeile.classList.remove("aktiv");
+    p.zeile.classList.add("fertig");
+    const sekunden = Math.round((Date.now() - p.start) / 1000);
+    if (sekunden >= 1) p.zeit.textContent = `${sekunden}s`;
+    if (p.art === "think") p.name.textContent = this.modus === "code" ? p.wort : "Gedacht";
+    if (!p.detail.children.length){
+      const leer = document.createElement("div");
+      leer.className = "step phase-leer";
+      leer.innerHTML = '<span class="txt"></span>';
+      leer.querySelector(".txt").textContent = p.art === "think"
+        ? "Das Modell hat seine Gedanken hier nicht offengelegt." : "Keine Einzelheiten.";
+      p.detail.appendChild(leer);
+    }
+    this.phase = null;
+  }
+  zeile(tag, el){
+    const art = phaseVon(tag, el.querySelector(".txt")?.textContent);
+    if (art && (!this.phase || this.phase.art !== art)) this.neu(art);
+    else if (!this.phase) this.neu("work");
+    this.phase.detail.appendChild(el);
+  }
+  anhaengen(el){
+    if (!this.phase) this.neu("work");
+    this.phase.detail.appendChild(el);
+  }
+  zwischen(text){
+    // "Ich suche jetzt nach den neuesten Nachrichten." -- sichtbar, bis die
+    // richtige Antwort steht.
+    this.schliesse();
+    const teil = document.createElement("div");
+    teil.className = "interim";
+    teil.innerHTML = md(text);
+    this.box.appendChild(teil);
+    this.zwischenteile.push(teil);
+    scroll();
+  }
+  antwortKommt(){ this.schliesse(); }
+  ende(){
+    this.schliesse();
+    this.zwischenteile.forEach(teil => {
+      teil.classList.add("weg");
+      setTimeout(() => teil.remove(), 260);
+    });
+    this.zwischenteile = [];
+  }
+}
+// Fuer Zeilen, die nicht ueber step() entstehen (Teilfragen der Agenten).
+function ablaufAnhaengen(box, el){
+  if (box._ablauf) box._ablauf.anhaengen(el); else box.appendChild(el);
 }
 // Mitlese-Zeile. Sie wird immer erzeugt; ob man sie sieht, entscheidet der
 // Haken in den Einstellungen -- deshalb kann man auch nachtraeglich noch
@@ -3192,6 +3428,8 @@ async function verfolge(hole, steps, bubble, text){
   // spaeter nicht entfernt, sondern umgeschrieben: dass gewartet wurde,
   // gehoert zum Protokoll dieser Anfrage.
   let laden = null;
+  // Die neue Laufanzeige (9.6.0): Phasen mit animiertem Logo statt Schrittliste.
+  const ablauf = new Ablauf(steps, mode);
 
   try {
     const res = await hole();
@@ -3245,6 +3483,7 @@ async function verfolge(hole, steps, bubble, text){
     if (err && err.name === "AbortError"){
       step(steps, "[Abgebrochen]", answer ? "Oben steht, was bis dahin da war." : "");
       if (answer) bubble.innerHTML = md(answer);
+      ablauf.ende();
       setBusy(false); input.focus();
       return;
     }
@@ -3327,7 +3566,7 @@ async function verfolge(hole, steps, bubble, text){
           // Preisen fragt, bekommt den Agenten, der auf Zahlen achtet.
           const rolle = TEXTE.roles[(ev.roles || [])[i]] || "";
           s.querySelector(".sub").textContent = rolle ? `${t}  · ${rolle}` : t;
-          steps.appendChild(s);
+          ablaufAnhaengen(steps, s);
         }); break;
       case "master_plan":
         // Der Master hat die Einheit aufgestellt. Das ist die erste Zeile,
@@ -3353,7 +3592,7 @@ async function verfolge(hole, steps, bubble, text){
         (ev.tasks || []).forEach(t => {
           const s = document.createElement("div");
           s.className = "step"; s.innerHTML = `<span class="sub"></span>`;
-          s.querySelector(".sub").textContent = t; steps.appendChild(s);
+          s.querySelector(".sub").textContent = t; ablaufAnhaengen(steps, s);
         });
         break;
       case "places":
@@ -3527,7 +3766,15 @@ async function verfolge(hole, steps, bubble, text){
         step(steps, "[Fehler]", ev.message, "err");
         if (!answer) wiederholenKnopf(bubble, text);
         break;
+      case "interim":
+        // Text vor einem Werkzeugaufruf ist keine Antwort (9.6.0): er war schon
+        // als Antwort gestreamt -- jetzt wird er zur Zwischennachricht.
+        answer = "";
+        bubble.innerHTML = "";
+        ablauf.zwischen(ev.text || "");
+        break;
       case "chunk":
+        ablauf.antwortKommt();
         answer += ev.text;
         bubble.innerHTML = md(answer) + '<span class="cursor"></span>'; scroll(); break;
       // Aquaticy hat gemerkt, dass seine Antwort nur eine Frage war, und setzt
@@ -3538,12 +3785,14 @@ async function verfolge(hole, steps, bubble, text){
         bubble.innerHTML = '<span class="cursor"></span>';
         break;
       case "done":
+        ablauf.ende();
         bubble.innerHTML = md(answer || "(keine Antwort)");
         renderResultMedia(bubble, ev.products, ev.visuals);
         answerTools(bubble, answer, text);
         scroll(); loadRecents(); break;
     }
   }
+  ablauf.ende();
   setBusy(false); input.focus();
   // Nach jedem Lauf: ist ein Limit knapp geworden? (Rechnet der Server.)
   pruefeLimits();
@@ -4084,7 +4333,10 @@ const EN = {
 "die große Fläche hinter dem Chat": "the large area behind the chat",
 "der Streifen links mit den Chats": "the strip on the left with the chats",
 "Gilt sofort und wird an deinem Konto gespeichert.": "Applies right away and is saved to your account.",
-"Hier stellst du Aquaticy so ein, wie du es magst. Schalter gelten sofort, Textfelder nach „Speichern“.": "Set Aquaticy up the way you like it. Switches apply right away, text fields after “Save”.",
+"Hier stellst du Aquaticy so ein, wie du es magst. Alles gilt sofort und wird automatisch gespeichert.": "Set Aquaticy up the way you like it. Everything applies right away and is saved automatically.",
+"‹ Zurück": "‹ Back",
+"Interne Testversion — nicht für den Alltag gedacht, hier kann noch etwas haken.": "Internal test version — not meant for everyday use, things may still break.",
+"Gespeichert": "Saved",
 "Abschnitte": "Sections",
 "Konto": "Account",
 "E-Mail": "Email",
@@ -5307,17 +5559,16 @@ $("#usermode").addEventListener("click", async (e) => {
   });
 });
 
-// Internet fuer die virtual machine (9.5.31): ebenfalls nur mit Ultra.
-// Seit 9.5.34 haben Normal und Pro das Internet in der virtual machine immer (das
-// lokale Netz nie) -- der Schalter ist dort fest an und laesst sich nicht umlegen.
+// Internet fuer die virtual machine (9.5.31): nur mit Ultra. Seit 9.6.0 haben
+// Normal und Pro dort gar kein Netz -- der Schalter bleibt aus.
 $("#vminternet").addEventListener("click", async (e) => {
-  if (kontoUltra) return;
+  if (kontoUltra || !e.currentTarget.checked) return;
   e.preventDefault();
-  e.currentTarget.checked = true;
+  e.currentTarget.checked = false;
   await guardDialog({
-    title: "Das Internet ist bei dir immer an.",
-    text: "Die virtual machine hat bei Normal- und Pro-Konten immer Internet — etwa für "
-      + "pip install. Dein lokales Netz bleibt gesperrt; das gibt es nur mit Ultra.",
+    title: "Das gibt es leider nur mit einem Ultra-Konto.",
+    text: "Bei Normal- und Pro-Konten hat die virtual machine kein Netz — weder Internet "
+      + "noch dein lokales Netz. Rechnen, Code ausführen und Dateien bearbeiten geht trotzdem.",
     ok: "Verstanden",
   });
 });
@@ -5327,7 +5578,7 @@ $("#vmlan").addEventListener("click", async (e) => {
   await guardDialog({
     title: "Das gibt es leider nur mit einem Ultra-Konto.",
     text: "Nur Ultra darf mit der virtual machine auch ins lokale Netz. Bei Normal- und "
-      + "Pro-Konten hat sie Internet, aber keinen Zugriff auf dein Heimnetz.",
+      + "Pro-Konten hat sie gar kein Netz.",
     ok: "Verstanden",
   });
 });
@@ -5829,17 +6080,47 @@ async function sofortSpeichern(schalter){
     });
     const daten = await res.json();
     if (!daten.ok) throw new Error(daten.error || "");
-    toast("Gespeichert — gilt sofort.");
+    zeigeGespeichert();
     refreshHeader();
   } catch (fehler){
     schalter.checked = !schalter.checked;
-    toast(fehler.message || "Das ließ sich nicht speichern.");
+    zeigeGespeichert(fehler.message || "Das ließ sich nicht speichern.", true);
+  }
+}
+// Ein kleiner Hinweis oben im Fenster, in der Farbe des Designs (9.6.0) -- statt
+// der weissen Meldung unten.
+let gespeichertTimer = null;
+function zeigeGespeichert(text = "Gespeichert", fehler = false){
+  const pill = $("#saved-pill");
+  pill.textContent = text;
+  pill.classList.toggle("bad", !!fehler);
+  pill.classList.add("on");
+  clearTimeout(gespeichertTimer);
+  gespeichertTimer = setTimeout(() => pill.classList.remove("on"), fehler ? 5000 : 1800);
+}
+// Textfelder und Auswahllisten speichern sich beim Verlassen selbst (9.6.0) --
+// den Knopf "Speichern" gibt es nicht mehr.
+async function feldSpeichern(feld){
+  try {
+    const res = await api("/api/config", {
+      method: "POST", headers: {"Content-Type": "application/json"},
+      body: JSON.stringify({ [feld.name]: feld.value }),
+    });
+    const daten = await res.json();
+    if (!daten.ok) throw new Error(daten.error || "");
+    zeigeGespeichert();
+    refreshHeader();
+  } catch (fehler){
+    zeigeGespeichert(fehler.message || "Das ließ sich nicht speichern.", true);
   }
 }
 form.addEventListener("change", (e) => {
   const feld = e.target;
-  if (feld instanceof HTMLInputElement && feld.matches("input.schalter[name]")
-      && !feld.disabled) sofortSpeichern(feld);
+  if (!(feld instanceof HTMLInputElement || feld instanceof HTMLSelectElement
+        || feld instanceof HTMLTextAreaElement) || !feld.name || feld.disabled) return;
+  if (feld.matches("input.schalter[name]")) sofortSpeichern(feld);
+  else if (feld.type !== "checkbox" && !feld.closest("[data-no-autosave]")
+           && feld.name.startsWith("AQUATICY_")) feldSpeichern(feld);
 });
 function closeSettings(){
   closeOverlay(overlay);
@@ -6802,12 +7083,14 @@ form.addEventListener("submit", async (e) => {
   });
   const data = await res.json();
   if (data.ok){
-    note.textContent = "Gespeichert in " + data.path + " — sofort aktiv.";
-    note.className = "note ok";
+    // Kein Pfad vom Server mehr (9.6.0) -- und kein Schliessen: es ist ja
+    // nur gespeichert, nicht fertig.
+    note.textContent = ""; note.className = "note";
+    zeigeGespeichert();
     refreshHeader();
-    setTimeout(closeSettings, 1100);
   } else {
     note.textContent = data.error || "Das hat nicht geklappt."; note.className = "note bad";
+    zeigeGespeichert("Nicht gespeichert", true);
   }
 });
 
@@ -6838,23 +7121,39 @@ function greet(){
        : hour < 14 ? "Hallo" : hour < 18 ? "Guten Nachmittag"
        : hour < 23 ? "Guten Abend" : "Gute Nacht");
   // Die Tageszeit kennt nur das Geraet des Nutzers -- die Saetze kommen vom Server.
-  const phrases = englisch ? GRUSS_EN[mode === "code" ? "code" : "normal"]
-    : (mode === "code" ? TEXTE.greetings.code : TEXTE.greetings.normal)
-    || ["was möchtest du herausfinden?"];
-  const turn = Math.floor(Date.now() / 60000) + document.querySelectorAll(".msg.user").length;
-  const name = currentUsername ? ` ${currentUsername}` : "";
-  $("#greeting").textContent = `${when}${name} — ${phrases[turn % phrases.length]}`;
-  rotateSuggestions(turn);
+  // Seit 9.6.0 ganze Saetze, je Modus mindestens 50, bei jedem neuen Chat
+  // zufaellig ("{gruss}" = Tageszeit, "{name}" = Nutzername).
+  const modus = MODI.includes(mode) ? mode : "normal";
+  if (englisch){
+    const phrases = GRUSS_EN[modus === "code" ? "code" : "normal"];
+    const name = currentUsername ? ` ${currentUsername}` : "";
+    $("#greeting").textContent = `${when}${name} — ${zufaellig(phrases)}`;
+  } else {
+    const saetze = TEXTE.greetings[modus] || TEXTE.greetings.normal || ["{gruss}, {name}. Wobei kann ich dir helfen?"];
+    $("#greeting").textContent = grussSatz(zufaellig(saetze), when, currentUsername);
+  }
+  rotateSuggestions();
+}
+function zufaellig(liste){ return liste[Math.floor(Math.random() * liste.length)]; }
+// "{gruss}, {name}. ..." -> "Guten Morgen, Anna. ..."; ohne Namen faellt er samt Komma weg.
+function grussSatz(satz, gruss, name){
+  let text = String(satz || "").replaceAll("{gruss}", gruss);
+  text = name ? text.replaceAll("{name}", name)
+              : text.replace(/,\s*\{name\}/g, "").replace(/\s*\{name\}/g, "");
+  return text.replace(/\s+([.,?!])/g, "$1").replace(/^\s+/, "");
 }
 
-function rotateSuggestions(seed = Date.now()){
-  const list = sprache === "en" ? VORSCHLAEGE_EN[mode === "code" ? "code" : "normal"]
-    : (mode === "code" ? TEXTE.suggestions.code : TEXTE.suggestions.normal) || [];
+function rotateSuggestions(){
+  const modus = MODI.includes(mode) ? mode : "normal";
+  const list = sprache === "en" ? VORSCHLAEGE_EN[modus === "code" ? "code" : "normal"]
+    : (TEXTE.suggestions[modus] || TEXTE.suggestions.normal || []);
   if (!list.length) return;
-  const target = mode === "code" ? $("#chips-code") : $("#chips");
-  const start = Math.abs(Number(seed) || 0) % list.length;
-  target.querySelectorAll(".chip").forEach((chip, index) => {
-    chip.textContent = list[(start + index * 2) % list.length];
+  const target = modus === "code" ? $("#chips-code") : $("#chips");
+  // Drei verschiedene, jedes Mal zufaellig (9.6.0).
+  const rest = [...list];
+  target.querySelectorAll(".chip").forEach(chip => {
+    const i = Math.floor(Math.random() * rest.length);
+    chip.textContent = rest.splice(i, 1)[0] || list[0];
   });
 }
 // Die Kopfzeile wird von jedem Schalter angestossen. Beim Laden sind das

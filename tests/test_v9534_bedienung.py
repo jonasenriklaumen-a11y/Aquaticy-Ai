@@ -112,12 +112,13 @@ def test_shared_builds_the_lan_vm_with_internet(tmp_path: Path) -> None:
 
 
 @pytest.mark.parametrize("plan", ["normal", "pro"])
-def test_normal_and_pro_always_have_internet_never_lan(tmp_path: Path, plan: str) -> None:
+def test_normal_and_pro_have_no_vm_network_at_all(tmp_path: Path, plan: str) -> None:
+    # Seit 9.6.0: weder Internet noch lokales Netz (9.5.34 war "immer Internet").
     profil = tmp_path / "konto"
     profil.mkdir()
-    (profil / ".env").write_text("AQUATICY_VM_INTERNET=false\nAQUATICY_VM_LAN=true\n")
+    (profil / ".env").write_text("AQUATICY_VM_INTERNET=true\nAQUATICY_VM_LAN=true\n")
     einstellungen = web._profile_settings(profil, plan)
-    assert einstellungen.vm_internet is True and einstellungen.vm_lan is False
+    assert einstellungen.vm_internet is False and einstellungen.vm_lan is False
 
 
 def test_ultra_chooses_lan_itself(tmp_path: Path) -> None:

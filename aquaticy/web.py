@@ -35,7 +35,7 @@ from pathlib import Path
 from typing import Any
 from urllib.parse import parse_qs, urlsplit
 
-from aquaticy import VERSION_LABEL, __version__, webview
+from aquaticy import INTERNAL, VERSION_LABEL, __version__, webview
 from aquaticy.auth import Account, AuthStore, RateLimiter, pro_code_for
 from aquaticy.cache import Cache
 from aquaticy.config import (
@@ -985,10 +985,10 @@ def _profile_settings(profile: Path, plan: str, account: Account | None = None) 
         # hier "an".
         settings.legal_guard = True
         settings.vm_user_mode = False
-        # Seit 9.5.34: Normal und Pro haben in der virtual machine IMMER Internet
-        # (kein pip install ohne Netz), aber nie das lokale Netz -- die Sperre
-        # fuers Heimnetz bleibt. Das lokale Netz gibt es nur mit Ultra.
-        settings.vm_internet = True
+        # Seit 9.6.0: Normal und Pro haben in der virtual machine GAR KEIN Netz --
+        # weder Internet noch das lokale Netz (9.5.34 war es "immer Internet").
+        # Netz in der virtual machine gibt es nur mit Ultra.
+        settings.vm_internet = False
         settings.vm_lan = False
         # 5-Stunden-Sitzung und Woche, am Konto gespeichert (aquaticy/quota.py).
         # Pro bekommt über AUTH.quota() seine eigenen, höheren Grenzen.
@@ -2193,9 +2193,14 @@ def save_values(payload: dict[str, Any]) -> Path:
         raise ValueError(
             "Der User mode (virtual machine mit Desktop und Internet) braucht ein Ultra-Konto."
         )
-    # Internet fuer die virtual machine: Normal und Pro haben es seit 9.5.34 immer
-    # (der Schalter ist dort fest an), Ultra stellt es selbst. Was Normal und Pro
-    # dazu speichern, ignoriert _profile_settings.
+    # Internet fuer die virtual machine gibt es seit 9.6.0 nur mit Ultra -- Normal
+    # und Pro sind dort ganz ohne Netz (_profile_settings setzt es ohnehin zurueck).
+    netz_on = "AQUATICY_VM_INTERNET" in payload and str(
+        payload.get("AQUATICY_VM_INTERNET", "")
+    ).strip().lower() in {"1", "true", "yes", "on", "ja"}
+    if netz_on and not session.ultra:
+        raise ValueError("Internet für die virtual machine gibt es nur mit einem "
+                         "Ultra-Konto.")
     lan_on = "AQUATICY_VM_LAN" in payload and str(
         payload.get("AQUATICY_VM_LAN", "")
     ).strip().lower() in {"1", "true", "yes", "on", "ja"}
@@ -2812,6 +2817,8 @@ def with_state(html: str, *, nonce: str = "") -> str:
     boot = (
         f"window.__AQUATICY_STATE__ = {roh};"
         f"window.__AQUATICY_VERSION__ = {json.dumps(VERSION_LABEL)};"
+        # Interne/Test-Fassung (9.6.0): gelber Hinweis unten im Chat.
+        f"window.__AQUATICY_INTERNAL__ = {json.dumps(INTERNAL)};"
         # Vorschlaege, Begruessungen, Beschriftungen -- vom Server (9.5.14).
         f"window.__AQUATICY_TEXTS__ = {texte};"
     )
@@ -2900,7 +2907,9 @@ class Handler(BaseHTTPRequestHandler):
         self.responded = False
         route = self._route()
         client = self._client_ip()
-        if not REQUEST_LIMIT.allow(client):
+        # Das Logo zaehlt nicht mit (9.6.0): jede Seite laedt es mehrfach, und es
+        # ist eine feste, kleine Datei -- sonst frass es das Anfragen-Limit auf.
+        if route not in STATIC_FILES and not REQUEST_LIMIT.allow(client):
             self._json({"error": "Zu viele Anfragen. Bitte warte kurz."}, 429)
             return
         account = self._account()

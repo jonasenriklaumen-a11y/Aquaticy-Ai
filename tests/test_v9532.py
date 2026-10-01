@@ -517,8 +517,9 @@ def test_ultra_only_switches_show_a_lock() -> None:
 
 def test_switches_do_not_rely_on_colour_alone() -> None:
     html = _seite()
-    assert '.schalter::before{content:"O"' in html
-    assert '.schalter:checked::before{content:"I"' in html
+    # Seit 9.6.0 ohne "I/O": Rand (aus) gegen Fuellung (an) -- nicht nur die Farbe.
+    assert ".schalter{box-shadow:inset 0 0 0 2px var(--switch-off)}" in html
+    assert 'content:"O"' not in html and 'content:"I"' not in html
     assert "--switch-off:" in html
 
 
@@ -530,7 +531,7 @@ def test_dark_mode_avoids_pure_black() -> None:
 
 def test_retry_capabilities_and_account_controls_are_there() -> None:
     html = _seite()
-    for teil in ("function wiederholenKnopf(", 'id="can-list"', 'id="account-delete"',
+    for teil in ("function wiederholenKnopf(", 'id="account-delete"',
                  'id="account-wipe"', 'id="account-password"', 'id="account-logout-all"',
                  'id="security-banner"', 'id="device-list"'):
         assert teil in html, teil

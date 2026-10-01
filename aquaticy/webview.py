@@ -45,31 +45,9 @@ ROLE_LABELS = {"zahlen": "Zahlen", "gegenstimmen": "Gegenstimmen", "frisch": "Ak
 VERDICT_LABELS = {"BESTAETIGT": "bestätigt", "ABWEICHUNG": "Abweichung gefunden",
                   "UNKLAR": "nichts Belastbares gefunden"}
 
-#: Vorschlaege auf der Startseite -- je Modus.
-SUGGESTIONS: dict[str, tuple[str, ...]] = {
-    "normal": (
-        "Was ist heute in meiner Stadt los?", "Finde ein gutes Café mit WLAN in meiner Nähe",
-        "Vergleiche drei Laptops für Bildbearbeitung", "Erkläre mir dieses Thema einfach",
-        "Welche Geräte hängen in meinem Netz?", "Plane einen entspannten Tagesausflug",
-        "Fasse die wichtigsten Nachrichten zusammen", "Hilf mir bei einer Kaufentscheidung",
-        "Prüfe diese Behauptung mit mehreren Quellen",
-    ),
-    "code": (
-        "Schreib ein Python-Skript, das Ordner nach Datum sortiert",
-        "Warum wirft dieser Code einen IndexError?", "Baue eine kleine REST-API mit FastAPI",
-        "Verbessere die Fehlermeldungen in diesem Programm", "Schreib Tests für diese Funktion",
-        "Vereinfache diesen Code ohne sein Verhalten zu ändern",
-        "Finde den Fehler in diesem Stacktrace", "Entwirf eine kleine Kommandozeilen-App",
-        "Optimiere diese Datenbankabfrage",
-    ),
-}
-#: Der zweite Teil der Begruessung ("Guten Morgen Anna — ...").
-GREETINGS: dict[str, tuple[str, ...]] = {
-    "normal": ("was möchtest du herausfinden?", "wobei kann ich dir helfen?",
-               "was schauen wir uns heute an?"),
-    "code": ("was wollen wir bauen?", "welches Problem lösen wir?",
-             "woran programmieren wir heute?"),
-}
+#: Vorschlaege und Begruessungen auf der Startseite -- je Modus, mindestens 50
+#: (seit 9.6.0 in aquaticy/starttexte.py).
+from aquaticy.starttexte import GREETINGS, SUGGESTIONS  # noqa: E402
 
 
 def start_texts() -> dict[str, Any]:

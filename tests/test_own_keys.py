@@ -653,7 +653,9 @@ def test_the_version_carries_its_name(tmp_path: Path, monkeypatch: pytest.Monkey
     from aquaticy import cli, config
     from aquaticy.auth import AuthStore, pro_code_for
 
-    assert f"{aquaticy.__version__} {aquaticy.__codename__}" == aquaticy.VERSION_LABEL
+    # Seit 9.6.0 mit Stufe dahinter, wenn es eine interne Fassung ist ("Intern").
+    assert aquaticy.VERSION_LABEL == " ".join(
+        t for t in (aquaticy.__version__, aquaticy.__codename__, aquaticy.__stage__) if t)
     assert aquaticy.__codename__ == "Spark"
     runner = CliRunner()
     assert aquaticy.VERSION_LABEL in runner.invoke(cli.app, ["version"]).output
