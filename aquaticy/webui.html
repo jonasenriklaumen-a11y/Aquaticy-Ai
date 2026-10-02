@@ -2402,7 +2402,8 @@ document.querySelectorAll(".note").forEach((note) => {
 });
 const thread = $("#thread"), main = $("#main"), input = $("#input"), send = $("#send");
 let busy = false;
-const aquaticyVersion = window.__AQUATICY_VERSION__ || "9.6.4 Aqua";
+let currentChat = "";
+const aquaticyVersion = window.__AQUATICY_VERSION__ || "9.6.5 Luna";
 $("#version").textContent = "v" + aquaticyVersion;
 // Interne oder Test-Fassung (9.6.0): unten mittig ein gelber Hinweis.
 const aquaticyIntern = window.__AQUATICY_INTERNAL__ === true
@@ -2625,6 +2626,23 @@ setAgents(START.agents || 12, { merken: false });
 // soll aufhoeren zu arbeiten, und der Browser soll aufhoeren zuzuhoeren --
 // eines allein reicht nicht.
 let running = null;
+let chatView = 0;
+let chatOpening = 0;
+const chatDrafts = new Map();
+function detachChat(){
+  chatDrafts.set(currentChat, {text: input.value, files: pending});
+  chatView++;
+  if (running) running.abort();
+  setBusy(false);
+}
+function restoreDraft(){
+  const draft = chatDrafts.get(currentChat);
+  input.value = draft?.text || "";
+  pending = draft?.files || [];
+  drawFiles(); markiereBefehl();
+  input.style.height = "auto";
+  input.dispatchEvent(new Event("input"));
+}
 // Die offene Rueckfrage. Steht hier oben und nicht bei ihren Funktionen:
 // setBusy() greift darauf zu und laeuft frueher -- eine spaetere let-Zeile
 // gaebe sonst einen ReferenceError.
@@ -2651,6 +2669,7 @@ if (location.search) history.replaceState(null, "", location.pathname);
 
 function api(path, options = {}){
   const headers = Object.assign({}, options.headers);
+  if (currentChat) headers["X-Aquaticy-Chat"] = currentChat;
   return fetch(path, Object.assign({credentials:"same-origin"}, options, { headers }));
 }
 
@@ -3452,6 +3471,7 @@ addEventListener("keydown", (e) => {
 
 /* ---------- Slash-Befehle ---------- */
 async function runCommand(line){
+  const view = chatView;
   setBusy(true);
   addUser(line); input.value = ""; input.style.height = "auto"; markiereBefehl();
   const { steps, bubble } = addBot();
@@ -3462,6 +3482,7 @@ async function runCommand(line){
       body: JSON.stringify({ line })
     });
     const data = await res.json();
+    if (view !== chatView) return;
     bubble.innerHTML = md(data.ok ? (data.text || "") : ("**Das hat nicht geklappt:** " + data.error));
     // /export: die Datei kommt als Download -- nicht als Pfad auf dem Server,
     // mit dem man an einem anderen Geraet nichts anfangen kann.
@@ -3473,6 +3494,7 @@ async function runCommand(line){
     // nichts hier unten wartet auf sie.
     if (data.reload){ refreshHeader(); }
   } catch (err){
+    if (view !== chatView) return;
     bubble.innerHTML = md("**Das hat nicht geklappt:** " + String(err));
   }
   scroll();
@@ -3532,6 +3554,7 @@ function wiederholenKnopf(bubble, text){
 // ob wir uns an eine anhaengen, die schon laeuft. `hole` liefert die Antwort
 // des Servers; alles danach ist fuer beide Wege dasselbe.
 async function verfolge(hole, steps, bubble, text){
+  const view = chatView;
   // `thoughtLine` gehoert hier hoch und nicht zu seiner Funktion: die
   // Leseschleife ruft handle() auf, bevor eine spaetere let-Zeile ueberhaupt
   // ausgefuehrt waere -- das gaebe einen ReferenceError. Und sie traegt
@@ -3547,6 +3570,7 @@ async function verfolge(hole, steps, bubble, text){
 
   try {
     const res = await hole();
+    if (view !== chatView){ await res.body?.cancel(); return; }
     if (!res.ok){
       let message = `HTTP ${res.status}`, daten = null;
       try { daten = await res.json(); message = daten.error || message; } catch {}
@@ -3577,6 +3601,7 @@ async function verfolge(hole, steps, bubble, text){
     let buf = "";
     while (true){
       const { value, done } = await reader.read();
+      if (view !== chatView){ await reader.cancel(); return; }
       if (done) break;
       buf += dec.decode(value, { stream:true });
       const parts = buf.split("\n\n"); buf = parts.pop();
@@ -3591,6 +3616,7 @@ async function verfolge(hole, steps, bubble, text){
       }
     }
   } catch (err){
+    if (view !== chatView) return;
     // Ein abgerissener Strom ist etwas anderes als ein Programmfehler: die
     // Recherche laeuft auf dem Rechner weiter, nur die Leitung ist weg.
     // "TypeError: network error" waere hier eine nutzlose Auskunft.
@@ -3630,8 +3656,13 @@ async function verfolge(hole, steps, bubble, text){
   }
 
   function handle(ev){
+    if (view !== chatView) return;
     if (ev.type !== "thought") thoughtLine = null;
     switch (ev.type){
+      case "chat":
+        currentChat = ev.session_id || currentChat;
+        loadRecents();
+        break;
       // Bewusst ohne Modellnamen: der sagt niemandem etwas, der ihn nicht
       // selbst eingestellt hat, und er ist bei jedem Modell ein anderer.
       // Hier zaehlt nur, dass gewartet wird und warum.
@@ -3935,6 +3966,7 @@ async function verfolge(hole, steps, bubble, text){
 // an und lassen den ganzen Verlauf ab Ereignis 0 nachwachsen, als waere man
 // nie weg gewesen.
 async function wiederAufnehmen(){
+  const view = chatView;
   let stand;
   try {
     const res = await api("/api/runstate");
@@ -3944,7 +3976,7 @@ async function wiederAufnehmen(){
     if (!res.ok){ await res.text().catch(() => ""); return; }
     stand = await res.json();
   } catch { return; }
-  if (!stand || !stand.resume || busy) return;
+  if (view !== chatView || !stand || !stand.resume || busy) return;
 
   addUser(stand.question || "…", []);
   const { steps, bubble } = addBot();
@@ -4041,12 +4073,16 @@ $(".pane").addEventListener("click", (e) => {
 // Einen neuen Chat anfangen. Steht als eigene Funktion da, weil es zwei
 // Wege dorthin gibt: den Knopf und den Wechsel der Arbeitsweise.
 async function neuerChat({ leiste = true } = {}){
+  const opening = ++chatOpening;
   // Ohne Server kein neuer Chat -- aber auch kein unbehandelter Fehler
   // (seit 9.5.16): die Seite sagt, was los ist, und bleibt, wie sie war.
   try {
     const res = await api("/api/clear", { method:"POST" });
     if (!res.ok) throw new Error(String(res.status));
-    try { currentChat = (await res.json()).current || ""; } catch {}
+    const data = await res.json();
+    if (opening !== chatOpening) return;
+    detachChat();
+    currentChat = data.current || "";
   } catch {
     toast("Neuer Chat ging gerade nicht. Versuch es gleich noch einmal.");
     return;
@@ -4057,6 +4093,7 @@ async function neuerChat({ leiste = true } = {}){
   loadRecents();
   if (leiste && narrow()) document.body.classList.add("collapsed");
   input.value = ""; input.style.height = "auto"; markiereBefehl(); input.focus();
+  restoreDraft();
 }
 $("#btn-new").addEventListener("click", () => neuerChat());
 $("#btn-notes").addEventListener("click", () => {
@@ -4843,7 +4880,6 @@ document.querySelectorAll("#langs .tmode").forEach(button =>
 // Beim Laden gleich in der gespeicherten Sprache -- noch bevor jemand hinsieht.
 if (sprache === "en") setSprache("en", { merken: false }); else paintSprache();
 
-let currentChat = "";
 
 // Ein Eintrag ist ein Chat, keine einzelne Frage. Benannt nach der ersten
 // Frage darin -- oder nach dem, was der Nutzer selbst vergeben hat.
@@ -4931,12 +4967,13 @@ function drawRecents(){
 async function loadRecents(){
   if (!angemeldet) return;
   const gesucht = chatQuery;
+  const view = chatView;
   try {
     const pfad = gesucht ? `/api/chats?q=${encodeURIComponent(gesucht)}` : "/api/chats";
     const data = await (await api(pfad)).json();
     // Wer weitergetippt hat, waehrend die Antwort unterwegs war, bekommt
     // sonst das Ergebnis von vorgestern zurueck.
-    if (chatQuery !== gesucht) return;
+    if (chatQuery !== gesucht || view !== chatView) return;
     currentChat = data.current || "";
     chats = data.chats || [];
     // Steht irgendwo etwas Ungelesenes, traegt auch der Knopf zur Leiste
@@ -5141,7 +5178,8 @@ async function deleteChat(chat){
 
 async function openChat(sessionId){
   if (narrow()) document.body.classList.add("collapsed");
-  if (busy || sessionId === currentChat) return;
+  if (sessionId === currentChat) return;
+  const opening = ++chatOpening;
   let data;
   try {
     const res = await api("/api/open", {
@@ -5149,13 +5187,13 @@ async function openChat(sessionId){
       body: JSON.stringify({ session_id: sessionId })
     });
     data = await res.json();
+    if (opening !== chatOpening) return;
   } catch {
     toast("Der Chat ließ sich gerade nicht öffnen. Versuch es gleich noch einmal.");
     return;
   }
   if (!data.ok){ toast(data.error || "Der Chat ließ sich nicht öffnen."); return; }
-  if (!data.turns?.length){ toast("In diesem Chat steht noch nichts."); return; }
-
+  detachChat();
   currentChat = sessionId;
   thread.innerHTML = "";
   leaveStart();
@@ -5163,7 +5201,7 @@ async function openChat(sessionId){
   // Der zurueckgeholte Chat baut sich gestaffelt auf, statt fertig
   // dazustehen -- so sieht man, dass er gerade geladen wurde.
   thread.classList.add("fresh");
-  data.turns.forEach(turn => {
+  (data.turns || []).forEach(turn => {
     addUser(turn.question);
     const { steps, bubble } = addBot();
     steps.remove();
@@ -5174,6 +5212,8 @@ async function openChat(sessionId){
   stagger(thread.querySelectorAll(".msg"), 30, 8);
   setTimeout(() => thread.classList.remove("fresh"), 900);
   loadRecents();
+  restoreDraft();
+  wiederAufnehmen();
   input.focus();
 }
 

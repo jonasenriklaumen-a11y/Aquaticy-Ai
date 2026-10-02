@@ -178,7 +178,7 @@ class Run:
 
 
 class RunBook:
-    """Die Laeufe eines Kontos -- jeder ueber seine Kennung wiederzufinden (9.5.15).
+    """Die Laeufe eines Chats -- jeder ueber seine Kennung wiederzufinden (9.5.15).
 
     Eine zweite Anfrage darf warten, bis die erste fertig ist (die Sitzung
     reicht sie nacheinander durch und sagt das auch). Bis 9.5.14 kannte das
@@ -1045,7 +1045,7 @@ Dauerhaft aendern lassen sich Modell, Suche und Ort oben unter **Einstellungen**
 
 
 class ChatSession:
-    """Haelt den Agenten und serialisiert die Anfragen eines Kontos."""
+    """Haelt einen Chat-Agenten und serialisiert die Anfragen dieses Chats."""
 
     #: So lange wartet eine Rueckfrage auf eine Antwort. Laenger nicht: der
     #: Agent haelt derweil die Sitzung besetzt, und wer den Tab zumacht, soll
@@ -1074,6 +1074,108 @@ class ChatSession:
         self._carry_over = ""
         #: Hatte der abgebaute Agent schon fremden Text gelesen? (seit 9.5.16)
         self._carry_untrusted = False
+        # Jede Unterhaltung hat ihren eigenen Agenten, Lauf und Rueckfragen.
+        self._owner = self
+        self._chat_lock = threading.RLock()
+        self._chat_sessions: dict[str, ChatSession] = {}
+        self._selected = self
+
+    def chat_sessions(self) -> list[ChatSession]:
+        owner = self._owner
+        with owner._chat_lock:
+            return list({id(s): s for s in [owner, *owner._chat_sessions.values()]}.values())
+
+    def has_running_chat(self) -> bool:
+        book = self.runs if self.account is not None or self._owner._chat_sessions else RUNS
+        run = book.latest()
+        return self.busy() or (run is not None and not run.done)
+
+    def forget_chat(self, chat_id: str) -> None:
+        owner = self._owner
+        with owner._chat_lock:
+            for session in self.chat_sessions():
+                if session.chat_id() != chat_id:
+                    continue
+                owner._chat_sessions.pop(chat_id, None)
+                if session in (owner, owner._selected):
+                    session.reset()
+                    if session is not owner:
+                        owner._chat_sessions[session.chat_id()] = session
+                elif session._agent is not None:
+                    session._agent.close()
+
+    def resolve_chat(self, chat_id: str = "") -> ChatSession:
+        owner = self._owner
+        with owner._chat_lock:
+            if not chat_id:
+                return owner._selected
+            for session in self.chat_sessions():
+                if session.chat_id() == chat_id:
+                    return session
+            # Nur Verlaeufe dieses Kontos duerfen wieder geoeffnet werden.
+            cache = Cache(self.settings().db_path, self.settings().cache_ttl_hours)
+            entries = cache.chat_history(chat_id)
+            if not entries:
+                raise BadRequest("Diesen Chat gibt es nicht mehr.")
+            return self._new_chat_session(chat_id, entries)
+
+    def _new_chat_session(self, chat_id: str = "", entries: list[Any] | None = None
+                          ) -> ChatSession:
+        owner = self._owner
+        with owner._chat_lock:
+            # Begrenzter Speicher; laufende Agenten niemals abbauen.
+            for key, session in list(owner._chat_sessions.items()):
+                if len(owner._chat_sessions) < 16:
+                    break
+                run = session.runs.latest()
+                if session not in (owner, owner._selected) and not session.busy() and not (
+                        run is not None and run.resumable):
+                    owner._chat_sessions.pop(key)
+                    if session._agent is not None:
+                        session._agent.close()
+            if len(owner._chat_sessions) >= 16:
+                raise BadRequest("Zu viele offene Chats. Bitte laufende Antworten abwarten.")
+            session = ChatSession(self.account, self.profile)
+            session._owner = owner
+            if chat_id:
+                _resume(session.agent(), chat_id, entries or [], _chat_untrusted(entries or []))
+            owner._chat_sessions[session.chat_id()] = session
+            return session
+
+    def switch_chat(self, chat_id: str = "") -> tuple[ChatSession, dict[str, Any]]:
+        owner = self._owner
+        with owner._chat_lock:
+            current = owner._selected
+            book = current.runs if current.account is not None or owner._chat_sessions else RUNS
+            last = book.latest()
+            if not owner._chat_sessions and not current.has_running_chat() and not (
+                    last is not None and last.resumable):
+                # Bestehende Adapter und der erste Chat behalten ihren Agenten.
+                if chat_id:
+                    data = current.open_chat(chat_id)
+                else:
+                    current.reset()
+                    data = {}
+                return current, data
+            if current.account is None and current is owner and not owner._chat_sessions:
+                current.runs = RUNS
+            owner._chat_sessions[current.chat_id()] = current
+            selected = self.resolve_chat(chat_id) if chat_id else self._new_chat_session()
+            owner._selected = selected
+            cache = Cache(selected.settings().db_path, selected.settings().cache_ttl_hours)
+            entries = cache.chat_history(selected.chat_id())
+            run = selected.runs.latest()
+            if run is not None and run.resumable and entries and (
+                    entries[-1].question == run.question and entries[-1].created_at >= run.started):
+                entries = entries[:-1]
+            return selected, {"turns": [
+                {"question": e.question, "answer": e.answer,
+                 "products": e.meta.get("products", []), "visuals": [
+                     {**v, "captured_text": webview.iso_moment_text(v.get("captured_at"))}
+                     if isinstance(v, dict) and v.get("captured_at") else v
+                     for v in e.meta.get("visuals", []) or []]}
+                for e in entries
+            ]}
 
     def settings(self) -> Settings:
         if self._settings is None:
@@ -1160,7 +1262,7 @@ class ChatSession:
             ],
         }
 
-    def reload(self, workshop: bool = False) -> None:
+    def reload(self, workshop: bool = False, *, _peers: bool = True) -> None:
         """Nach dem Speichern neuer Einstellungen alles neu aufbauen.
 
         Die virtual machine gehoert dazu, wenn sich an ihr etwas geaendert hat: haette
@@ -1171,6 +1273,10 @@ class ChatSession:
         Der Chat bleibt derselbe. Wer waehrend eines Gespraechs das Modell
         wechselt, will ein anderes Modell -- nicht ein anderes Gespraech.
         """
+        if _peers:
+            for session in self.chat_sessions():
+                if session is not self:
+                    session.reload(workshop, _peers=False)
         if self.busy():
             # Waehrend einer Antwort nicht auf ihr Ende warten (9.5.34: das
             # Speichern hing sonst bis zu Minuten). Neu gebaut wird danach;
@@ -1876,7 +1982,7 @@ SESSION = SessionProxy()
 
 def current_runs() -> RunBook:
     session = SESSION.current() if isinstance(SESSION, SessionProxy) else SESSION
-    return session.runs if session.account is not None else RUNS
+    return session.runs if session.account is not None or session._owner._chat_sessions else RUNS
 
 
 def previous_user_message(session: Any) -> str:
@@ -1941,13 +2047,16 @@ def forget_account_runtime(account: Account) -> None:
     if sitzung is not None:
         # Einen laufenden Chat erst anhalten und sein Ende abwarten (9.5.34):
         # sonst schrieb er nach dem Loeschen den Verlauf wieder auf die Platte.
-        with contextlib.suppress(Exception):
-            sitzung.stop()
-        if sitzung._lock.acquire(timeout=60):
-            sitzung._lock.release()
-        with contextlib.suppress(Exception):
-            if sitzung._agent is not None:
-                sitzung._agent.close()
+        chats = sitzung.chat_sessions()
+        for chat in chats:
+            with contextlib.suppress(Exception):
+                chat.stop()
+        for chat in chats:
+            if chat._lock.acquire(timeout=60):
+                chat._lock.release()
+            with contextlib.suppress(Exception):
+                if chat._agent is not None:
+                    chat._agent.close()
         with contextlib.suppress(Exception):
             from aquaticy import sandbox as werkstatt
 
@@ -3132,6 +3241,12 @@ class Handler(BaseHTTPRequestHandler):
         if account is not None:
             _REQUEST.session = SESSIONS.get(account)
         try:
+            base = SESSION.current() if isinstance(SESSION, SessionProxy) else SESSION
+            chat_route = route in {"/api/chat", "/api/chats", "/api/clear", "/api/open",
+                                  "/api/run", "/api/runstate", "/api/stop", "/api/answer",
+                                  "/api/command", "/api/chat-edit", "/api/chatexport"}
+            _REQUEST.session = base.resolve_chat(
+                self.headers.get("X-Aquaticy-Chat", "") if chat_route else "")
             handler()
         except (BrokenPipeError, ConnectionResetError):
             pass  # Tab geschlossen -- kein Grund fuer eine Meldung
@@ -3953,13 +4068,24 @@ class Handler(BaseHTTPRequestHandler):
             # Mit ?q= wird gesucht, ohne kommt die gewohnte Liste. Ein
             # eigener Pfad waere dasselbe in zwei Routen.
             suche = (parse_qs(urlsplit(self.path).query).get("q") or [""])[0].strip()
+            chats = cache.search_chats(suche, limit=40) if suche else cache.recent_chats(limit=40)
+            for session in SESSION.chat_sessions():
+                book = session.runs if session.account is not None or (
+                    session._owner._chat_sessions) else RUNS
+                run = book.latest()
+                if run is not None and not run.done:
+                    chat_id = session.chat_id()
+                    found = next((c for c in chats if c["session_id"] == chat_id), None)
+                    if found is not None:
+                        found["running"] = True
+                    elif not suche or suche.casefold() in run.question.casefold():
+                        chats.insert(0, {"session_id": chat_id, "title": run.question,
+                                         "turns": 0, "touched": run.started, "running": True})
             self._json(
                 {
                     # Die Gruppe ("Heute", "Gestern" ...) rechnet der Server.
                     "chats": webview.with_groups(
-                        cache.search_chats(suche, limit=40)
-                        if suche
-                        else cache.recent_chats(limit=40)
+                        chats
                     ),
                     "query": suche,
                     "current": SESSION.chat_id(),
@@ -4279,8 +4405,8 @@ class Handler(BaseHTTPRequestHandler):
         elif route == "/api/chat":
             self._chat()
         elif route == "/api/clear":
-            SESSION.reset()
-            self._json({"ok": True, "current": SESSION.chat_id()})
+            selected, _ = SESSION.switch_chat()
+            self._json({"ok": True, "current": selected.chat_id()})
         elif route == "/api/open":
             wanted = str(self._read_json().get("session_id", "")).strip()
             if not wanted:
@@ -4290,7 +4416,8 @@ class Handler(BaseHTTPRequestHandler):
             with contextlib.suppress(Exception):
                 settings = SESSION.settings()
                 Cache(settings.db_path, settings.cache_ttl_hours).clear_unread(wanted)
-            self._json({"ok": True, **SESSION.open_chat(wanted)})
+            selected, data = SESSION.switch_chat(wanted)
+            self._json({"ok": True, **data, "session_id": selected.chat_id()})
         elif route == "/api/ha":
             if not SESSION.ultra:
                 self._json({"ok": False, "error": "Home Assistant gibt es nur mit Ultra."},
@@ -4507,7 +4634,8 @@ p{{margin:0 0 8px;color:#57534a}}</style></head><body><main>
             return {"ok": True, "title": cache.rename_chat(
                 session_id, titel if isinstance(titel, str) else "")}
         if action == "delete":
-            if session_id == SESSION.chat_id() and SESSION.busy():
+            if any(s.chat_id() == session_id and s.has_running_chat()
+                    for s in SESSION.chat_sessions()):
                 # Loeschen haette bis zum Ende der Antwort gewartet -- und die
                 # schriebe den Chat danach wieder hin (9.5.34).
                 return {"ok": False, "error": "Dieser Chat antwortet gerade. "
@@ -4515,8 +4643,7 @@ p{{margin:0 0 8px;color:#57534a}}</style></head><body><main>
             removed = cache.delete_chat(session_id)
             # Der geloeschte Chat war vielleicht der offene -- dann faengt der
             # naechste Satz einen neuen an, statt in ein Nichts zu schreiben.
-            if session_id == SESSION.chat_id():
-                SESSION.reset()
+            SESSION.forget_chat(session_id)
             return {"ok": True, "removed": removed}
         return {"ok": False, "error": f"unbekannte Aktion '{action}'"}
 
@@ -5023,7 +5150,10 @@ p{{margin:0 0 8px;color:#57534a}}</style></head><body><main>
         # Der Lauf gehoert ab hier dem Server, nicht der Verbindung. Reisst
         # sie ab, laeuft er weiter und kann spaeter zu Ende gesehen werden.
         session = SESSION.current() if isinstance(SESSION, SessionProxy) else SESSION
+        session.chat_id()
         lauf = current_runs().start(message)
+        if session.chat_id():
+            lauf.add({"type": "chat", "session_id": session.chat_id()})
         if vm_switch:
             # Steht vor der Antwort: der Chat erklaert, warum in den Normal-Modus
             # gewechselt wurde, und die Oberflaeche stellt die Schalter nach.
@@ -5314,7 +5444,7 @@ def _cluster_load() -> dict[str, Any]:
     with SESSIONS._lock:
         sitzungen = list(SESSIONS._sessions.values())
     laeufe = 0
-    for sitzung in sitzungen:
+    for sitzung in [chat for s in sitzungen for chat in s.chat_sessions()]:
         with contextlib.suppress(Exception):
             buch = sitzung.runs
             with buch._lock:
@@ -5327,9 +5457,10 @@ def _cluster_release(user_id: str) -> bool:
     with SESSIONS._lock:
         sitzung = SESSIONS._sessions.get(user_id)
     if sitzung is not None:
-        with contextlib.suppress(Exception), sitzung.runs._lock:
-            if any(not lauf.done for lauf in sitzung.runs._runs.values()):
-                return False
+        for chat in sitzung.chat_sessions():
+            with contextlib.suppress(Exception), chat.runs._lock:
+                if any(not lauf.done for lauf in chat.runs._runs.values()):
+                    return False
     konto = AUTH.account(user_id) if AUTH is not None else None
     if konto is not None:
         forget_account_runtime(konto)

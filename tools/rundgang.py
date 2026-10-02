@@ -25,6 +25,7 @@ from __future__ import annotations
 import argparse
 import contextlib
 import os
+import secrets
 import shutil
 import socket
 import sys
@@ -54,7 +55,7 @@ class FakeAgent:
     def __init__(self) -> None:
         self.on_event: Any = None
         self.toolbox = self
-        self.session_id = "rundgang"
+        self.session_id = secrets.token_hex(12)
         self.ask_handler: Any = None
         self.gesehen: list[dict[str, Any]] = []
         self.abgebrochen = False
@@ -73,7 +74,9 @@ class FakeAgent:
     def cancel(self) -> None:
         self.abgebrochen = True
 
-    def clear(self, new_chat: bool = True) -> None: ...
+    def clear(self, new_chat: bool = True) -> None:
+        if new_chat:
+            self.session_id = secrets.token_hex(12)
 
     def resume(self, session_id: str, turns: list[tuple[str, str]]) -> None:
         self.session_id = session_id
@@ -303,14 +306,30 @@ def starte_server(agent: FakeAgent) -> int:
     # bekommt jedes Konto seine eigene Sitzung, und die baut sich ihren Agenten
     # selbst. Wer nur die Standardsitzung umbiegt, sieht den gestellten Agenten
     # nie wieder -- die Oberflaeche telefoniert dann wirklich nach draussen.
+    vergeben = False
+
     def _gestellter_agent(self: Any) -> FakeAgent:
+        nonlocal vergeben
         # `_agent` mitsetzen wie das Original: der Abbruch greift bewusst
         # ohne Sperre auf dieses Feld zu und wuerde sonst ins Leere laufen.
-        self._agent = agent
-        return agent
+        if self._agent is None:
+            if not vergeben:
+                self._agent = agent
+                vergeben = True
+            else:
+                self._agent = FakeAgent()
+                self._agent.gesehen = agent.gesehen
+                self._agent.bildschirm = agent.bildschirm
+                original_cancel = self._agent.cancel
+
+                def cancel() -> None:
+                    original_cancel()
+                    agent.abgebrochen = True
+
+                self._agent.cancel = cancel
+        return self._agent
 
     web.ChatSession.agent = _gestellter_agent            # type: ignore[method-assign]
-    web.ChatSession.chat_id = lambda self: agent.session_id  # type: ignore[method-assign]
     web.SESSION._agent = agent
 
     port = freier_port()

@@ -1,4 +1,4 @@
-# Aquaticy AI 9.6.4 Aqua
+# Aquaticy AI 9.6.5 Luna
 
 **Aquaticy** recherchiert für dich. Du stellst eine Frage, Aquaticy sucht im Web, liest die
 passenden Seiten und fasst das Ergebnis zusammen — mit Quelle an jeder Angabe. Es läuft im
@@ -29,7 +29,7 @@ $ aquaticy
 
 - [Was Aquaticy kann](#was-aquaticy-kann)
 - [Quickstart](#quickstart)
-- [Prüfbericht zu 9.6.4 Aqua](TESTREPORT-9.6.4-Aqua.md)
+- [Prüfbericht zu 9.6.5 Luna](TESTREPORT-9.6.5.md)
 - [Installation im Detail](#installation-im-detail)
 - [Benutzung im Terminal](#benutzung-im-terminal)
 - [Die Weboberfläche](#die-weboberfläche)
@@ -75,6 +75,8 @@ $ aquaticy
 - **Normal** — ein ganz normales Gespräch, gesucht wird, wenn es nötig ist. Seit 9.6.1 deutlich
   schneller: jeder Helfer hat eine Frist und fasst danach zusammen, was er gefunden hat (mit
   Quellen), statt die ganze Antwort aufzuhalten.
+  Seit 9.6.5 mit weniger zusätzlichen Teilaufgaben und parallel gebündelten
+  Leseabfragen; die Recherche im Pro-Modus bleibt unverändert.
 - **Pro** — für große Fragen: das stärkste Modell und bis zu 50 Helfer. Dauert bewusst länger —
   wegen der höheren Genauigkeit (steht auch unter dem Eingabefeld). Der Master plant
   schon, während die Rechtsprüfung läuft — losgeschickt wird erst nach dem OK.
@@ -117,7 +119,7 @@ $ aquaticy
 git clone --branch Aquaticy-ai --single-branch https://github.com/jonasenriklaumen-a11y/Aquaticy-Ai.git
 cd Aquaticy-Ai
 uv tool install --force --reinstall .
-aquaticy --version            # 9.6.4 Aqua
+aquaticy --version            # 9.6.5 Luna
 
 # 2. Einrichten — fragt nach Modell und Schlüssel und testet beide
 aquaticy setup
@@ -328,6 +330,12 @@ Eingabe mit den drei Arbeitsweisen Normal, Pro und Code. Dateien und Bilder hän
 Ein vollständig geschriebener Slash-Befehl leuchtet im Akzentton; der Text dahinter bleibt normal.
 Oben links steht das **Logo** (seit 9.6.0), darunter „Aquaticy“, daneben die Version; im
 Browser-Tab steht nur das Logo.
+
+**Chatwechsel während einer Recherche (seit 9.6.5).** Du kannst einen anderen
+Chat öffnen oder einen neuen anfangen und dort schreiben. Die erste Recherche
+läuft im Hintergrund weiter. Beim Zurückwechseln siehst du ihren aktuellen
+Stand oder die fertige Antwort. Der Stop-Knopf gilt nur für den offenen Chat;
+ungesendete Entwürfe bleiben beim Wechsel erhalten.
 
 **Neuer Chat (seit 9.6.0).** Jeder neue Chat begrüßt dich mit einem anderen Satz — „Guten
 Morgen, Anna. Wobei kann ich dir helfen?“ ist einer von über 50 je Modus (Normal, Pro und Code

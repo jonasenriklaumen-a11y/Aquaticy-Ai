@@ -1021,6 +1021,7 @@ def parallel_ready(tool_calls: list[dict[str, Any]]) -> bool:
 def run_calls(
     tool_calls: list[dict[str, Any]],
     runner: Callable[[dict[str, Any]], dict[str, Any]],
+    *, parallel_groups: bool = False,
 ) -> list[dict[str, Any]]:
     """Fuehrt die Werkzeuge einer Runde aus und gibt die Antworten zurueck.
 
@@ -1033,6 +1034,20 @@ def run_calls(
     sie in einer anderen fertig wurden: die Schnittstellen erwarten zu jedem
     Aufruf genau eine Antwort, und zwar in dieser Reihenfolge.
     """
+    if parallel_groups and not parallel_ready(tool_calls):
+        results = []
+        reading: list[dict[str, Any]] = []
+        for call in tool_calls:
+            if call["function"]["name"] in PARALLEL_SAFE:
+                reading.append(call)
+                continue
+            if reading:
+                results.extend(run_calls(reading, runner))
+                reading = []
+            results.append(runner(call))
+        if reading:
+            results.extend(run_calls(reading, runner))
+        return results
     if not parallel_ready(tool_calls):
         return [runner(call) for call in tool_calls]
     with ThreadPoolExecutor(max_workers=len(tool_calls)) as pool:
@@ -1413,7 +1428,8 @@ class Agent:
         # Teilfragen des Planers laufen trotzdem alle.
         from aquaticy.subagents import NORMAL_FILL
 
-        tasks = spread_tasks(question, tasks, max(len(tasks or []), min(limit, NORMAL_FILL)))
+        fill = min(NORMAL_FILL, 3) if clean_mode(self.mode) == "normal" else NORMAL_FILL
+        tasks = spread_tasks(question, tasks, max(len(tasks or []), min(limit, fill)))
 
         if self.stopped:
             return 0
@@ -3068,7 +3084,8 @@ class Agent:
         """
         suchen = self.toolbox.stats.searches
         vorher = len(suchen)
-        self.messages.extend(run_calls(tool_calls, self._tool_result))
+        self.messages.extend(run_calls(tool_calls, self._tool_result,
+                                       parallel_groups=clean_mode(self.mode) == "normal"))
         if parallel_ready(tool_calls) and len(suchen) - vorher > 1:
             _in_call_order(suchen, vorher, tool_calls)
 

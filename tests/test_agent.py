@@ -612,7 +612,7 @@ def test_every_question_is_split_automatically(
     from aquaticy.subagents import NORMAL_FILL
 
     assert [task.text for task in seen[0][:2]] == ["Teil A", "Teil B"]
-    assert len(seen[0]) == min(settings.max_subagents, NORMAL_FILL)
+    assert len(seen[0]) == min(settings.max_subagents, NORMAL_FILL, 3)
     assert result.answer == "Endantwort"
     # Die Vorrecherche steht dem Hauptagenten zur Verfuegung -- als Text,
     # nicht als JSON.
@@ -1157,7 +1157,7 @@ def test_one_call_covers_triage_and_planning(
     from aquaticy.subagents import NORMAL_FILL
 
     assert [task.text for task in seen[0][:2]] == ["Teil A", "Teil B"]
-    assert len(seen[0]) == min(settings.max_subagents, NORMAL_FILL)
+    assert len(seen[0]) == min(settings.max_subagents, NORMAL_FILL, 3)
     assert planner_calls["n"] == 1, "kein zweiter Planungsaufruf"
 
 

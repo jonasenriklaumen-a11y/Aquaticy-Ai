@@ -53,7 +53,10 @@ class Tour:
                                 self.cookie)
         self.gesehen.append(("POST", "/api/chat", status))
         assert status == 200, daten
-        return [json.loads(z[6:]) for z in daten.decode().splitlines() if z.startswith("data: ")]
+        events = [json.loads(z[6:]) for z in daten.decode().splitlines() if z.startswith("data: ")]
+        # Die Chat-Kennung ordnet den Transport zu; hier werden die fachlichen
+        # Antwort- und Sicherheitsereignisse geprueft.
+        return [event for event in events if event.get("type") != "chat"]
 
     def kein_serverfehler(self) -> None:
         kaputt = [eintrag for eintrag in self.gesehen if eintrag[2] >= 500]
