@@ -113,6 +113,21 @@ class ClusterError(RuntimeError):
     """Ein anderer Server war nicht erreichbar oder lehnte ab."""
 
 
+class ForwardingError(ClusterError):
+    """Die Antwort fehlt; die Aktion kann beim Heimserver bereits gelaufen sein."""
+
+
+def parse_port(value: Any) -> int:
+    """Eine TCP-Portnummer, ohne stilles Abschneiden oder Ersatz fuer null."""
+    if (isinstance(value, bool) or not isinstance(value, (int, str))
+            or not re.fullmatch(r"[0-9]{1,5}", str(value).strip())):
+        raise ClusterError("Ungültiger Port. Erlaubt sind ganze Zahlen von 1 bis 65535.")
+    port = int(value)
+    if not 1 <= port <= 65535:
+        raise ClusterError("Ungültiger Port. Erlaubt sind ganze Zahlen von 1 bis 65535.")
+    return port
+
+
 # -- Verschluesselung --------------------------------------------------------
 def _hkdf(key: bytes, salt: bytes, info: str, length: int = 32) -> bytes:
     from cryptography.hazmat.primitives import hashes
@@ -214,7 +229,8 @@ def read_frames(chunks: Iterable[bytes], key: bytes, salt: bytes,
     marke = label.encode()
     puffer = bytearray()
     n = 0
-    for chunk in chunks:
+    quelle = iter(chunks)
+    for chunk in quelle:
         puffer.extend(chunk)
         while len(puffer) >= 4:
             laenge = int.from_bytes(puffer[:4], "big")
@@ -235,6 +251,8 @@ def read_frames(chunks: Iterable[bytes], key: bytes, salt: bytes,
                 aead.decrypt(nonce, ct, marke + b"|end")
             except InvalidTag as exc:
                 raise ClusterError("Stueck ist nicht vom Verbund.") from exc
+            if puffer or any(quelle):
+                raise ClusterError("Daten nach dem Ende der Antwort.")
             return
     raise ClusterError("Antwort abgeschnitten.")
 
@@ -683,6 +701,12 @@ class Invite:
     #: Beim Eingeladenen: die Adresse, von der die Einladung kam.
     source: str = ""
 
+    def expire(self) -> None:
+        """Auch eine angenommene Einladung ist nur zeitlich begrenzt gueltig."""
+        if self.status in ("pending", "accepted") and _now() - self.created >= INVITE_SECONDS:
+            self.status = "expired"
+            self.message = "Die Einladung ist abgelaufen."
+
     def public(self) -> dict[str, Any]:
         return {"id": self.id, "peer": {k: self.peer.get(k) for k in
                                         ("node", "name", "address", "port", "version")},
@@ -709,6 +733,7 @@ class Cluster:
         self.version = version
         self._transport = transport or _http_post
         self._lock = threading.RLock()
+        self._confirm_lock = threading.Lock()
         self._stop = threading.Event()
         self._threads: list[threading.Thread] = []
         self.dir.mkdir(parents=True, exist_ok=True)
@@ -969,14 +994,16 @@ class Cluster:
                 nonce, key)
 
     def _member_keys(self, node: str) -> list[bytes]:
-        """Der Verbundschluessel -- kurz nach einem Wechsel auch noch der alte."""
+        """Nur der aktuelle Schluessel darf neue Anfragen authentifizieren.
+
+        Ein entferntes Mitglied kennt den alten Gruppenschluessel und kann
+        damit auch die Kennung eines verbliebenen Mitglieds vortaeuschen.
+        Eine Uebergangsfrist wuerde den Widerruf deshalb wieder aushebeln.
+        Bereits angenommene Aufrufe beantworten wir mit ihrem erfassten Key.
+        """
         if not self.info or self.member(node) is None:
             return []
-        keys = [self.key]
-        alt = self.info.get("previous") or {}
-        if alt.get("secret") and _now() - float(alt.get("until", 0)) < 0:
-            keys.append(_unb64(alt["secret"]))
-        return keys
+        return [self.key]
 
     def call(self, node: str, op: str, args: dict[str, Any] | None = None,
              timeout: float = 10.0, key: bytes = b"") -> dict[str, Any]:
@@ -1049,8 +1076,13 @@ class Cluster:
             self.sync_user(user, von, force=True)
             return {"ok": True}
         if op == "adopt" and vom_master:
+            user = str(args.get("user", ""))
+            with self._lock:
+                if self.homes.get(user) != self.node_id:
+                    return {"ok": False}
+                self._moving.discard(user)
             with contextlib.suppress(Exception):
-                self.hooks.adopt(str(args.get("user", "")))
+                self.hooks.adopt(user)
             return {"ok": True}
         if op == "rootlist" and self.is_master:
             return {"files": self._root_files()}
@@ -1109,6 +1141,10 @@ class Cluster:
                 if bester == jetzt_heim or self.score(jetzt_heim) - self.score(bester) < 1.0:
                     return jetzt_heim
                 return self._move(user, jetzt_heim, bester)
+            if jetzt_heim:
+                # Die letzte Profilkopie kann hinter dem ausgefallenen Server
+                # zurueckliegen. Ohne Abgabe und Nachziehen nicht neu zuteilen.
+                return jetzt_heim
             bester = self.least_loaded()
             # Ohne Heimserver liegen die Daten beim Master (dort war das Konto,
             # bevor es den Verbund gab).
@@ -1130,10 +1166,12 @@ class Cluster:
                 self.sync_user(user, alt, force=True)
             else:
                 self.call(neu, "pull", {"user": user, "from": alt}, timeout=300.0)
-        except (ClusterError, OSError, ValueError):
-            with self._lock:
-                self._moving.discard(user)
-            return alt if self.alive(alt) else neu
+        except (ClusterError, OSError, ValueError, sqlite3.Error):
+            # Ohne vollstaendige Kopie bleibt der bisherige Server zustaendig.
+            # Er hat seine Arbeit fuer die Uebergabe angehalten: auch auf einem
+            # entfernten Server die Sperre loesen und Auftraege wieder starten.
+            self._set_home(user, alt)
+            return alt
         self._set_home(user, neu)
         return neu
 
@@ -1172,8 +1210,8 @@ class Cluster:
             return False
         heim = self.homes.get(user, "")
         if heim:
-            return heim == self.node_id or not self.alive(heim)
-        return self.is_master or not self.alive(self.master_node())
+            return heim == self.node_id
+        return self.is_master
 
     def home_for(self, user: str) -> str:
         """Wo ein Konto bedient wird -- aus Sicht des Eingangs."""
@@ -1191,9 +1229,11 @@ class Cluster:
             heim = str(self.call(self.master_node(), "assign", {"user": user},
                                  timeout=320.0).get("node", ""))
         except (ClusterError, OSError, ValueError):
-            return heim if heim and self.alive(heim) else self.node_id
+            if heim:
+                return heim
+            raise ClusterError("Der Master ist nicht erreichbar; Heimserver unbekannt.") from None
         if self.member(heim) is None:
-            return self.node_id
+            raise ClusterError("Der zugeteilte Heimserver ist kein Mitglied.")
         with self._lock:
             self.homes[user] = heim
         return heim
@@ -1233,10 +1273,7 @@ class Cluster:
             neu.pop("joining", None)
             # Schluessel kommen nie ueber diesen Weg -- nur ueber "rekey".
             neu["secret"] = self.info["secret"]
-            if self.info.get("previous"):
-                neu["previous"] = self.info["previous"]
-            else:
-                neu.pop("previous", None)
+            neu.pop("previous", None)
             self.state["cluster"] = neu
             if isinstance(homes, dict):
                 self.state["homes"] = {str(u): str(n) for u, n in homes.items()
@@ -1279,7 +1316,7 @@ class Cluster:
                           {"box": _b64(seal(_unb64(link), neu, "rekey"))}, timeout=5.0)
         with self._lock:
             info = self.state["cluster"]
-            info["previous"] = {"secret": info["secret"], "until": _now() + CLOCK_SKEW}
+            info.pop("previous", None)
             info["secret"] = _b64(neu)
             self._save()
 
@@ -1292,7 +1329,7 @@ class Cluster:
             raise ClusterError("Ungueltiger Schluessel.")
         with self._lock:
             info = self.state["cluster"]
-            info["previous"] = {"secret": info["secret"], "until": _now() + CLOCK_SKEW}
+            info.pop("previous", None)
             info["secret"] = _b64(neu)
             self._save()
 
@@ -1439,11 +1476,13 @@ class Cluster:
         fern = self.call(node, "manifest", {"user": user}, timeout=30.0).get("files") or {}
         bekannt = dict(self.synced.get(user, {}))
         for rel, sig in fern.items():
-            if bekannt.get(rel) == sig and (ordner / rel).exists():
+            if not force and bekannt.get(rel) == sig and (ordner / rel).exists():
                 continue
             ziel = safe_rel(ordner, rel)
             daten = self._fetch(node, {"user": user, "rel": rel, "sig": sig})
             if daten is None:
+                if force:
+                    raise ClusterError("Das Profil hat sich während der Übernahme geändert.")
                 continue  # hat sich gerade geaendert -- naechste Runde
             write_atomic(ziel, daten)
             bekannt[rel] = sig
@@ -1594,6 +1633,7 @@ class Cluster:
         from cryptography.hazmat.primitives.asymmetric.x25519 import X25519PrivateKey
         from cryptography.hazmat.primitives.serialization import Encoding, PublicFormat
 
+        port = parse_port(port)
         if self.joined and not self.is_master:
             raise ClusterError("Einladen kann nur der Master des Verbunds.")
         if len(self.members()) >= MAX_NODES:
@@ -1659,10 +1699,23 @@ class Cluster:
 
     def confirm(self, invite_id: str, code: str) -> Invite:
         """Master: Code vom anderen Server pruefen -- und erst dann Daten freigeben."""
+        # Auch verschiedene Einladungen duerfen nicht denselben letzten freien
+        # Platz belegen. Der Netzwerkaufruf haelt nicht den allgemeinen Lock.
+        with self._confirm_lock:
+            return self._confirm(invite_id, code)
+
+    def _confirm(self, invite_id: str, code: str) -> Invite:
+        if not self.enabled:
+            raise ClusterError("Der Server-Verbund ist ausgeschaltet.")
+        if self.info and not self.is_master:
+            raise ClusterError("Verbinden kann nur der Master des Verbunds.")
         with self._lock:
             einladung = self.invites_out.get(str(invite_id))
         if einladung is None:
             raise ClusterError("Diese Einladung gibt es nicht mehr.")
+        einladung.expire()
+        if einladung.status == "expired":
+            raise ClusterError("Die Einladung ist abgelaufen.")
         if einladung.status != "accepted":
             raise ClusterError("Der andere Server hat noch nicht angenommen.")
         eingabe = re.sub(r"\D", "", str(code or ""))
@@ -1746,13 +1799,10 @@ class Cluster:
         oeffentlich = privat.public_key().public_bytes(Encoding.Raw, PublicFormat.Raw)
         geteilt = privat.exchange(X25519PublicKey.from_public_bytes(fremd))
         key, code = pairing_secrets(geteilt, einladung_id, fremd, oeffentlich)
-        try:
-            port = int(payload.get("port", 0))
-        except (TypeError, ValueError):
-            port = 0
+        port = parse_port(payload.get("port"))
         einladung = Invite(id=einladung_id, key=key, code=code, source=source_ip, peer={
             "node": knoten, "name": str(payload.get("name", ""))[:60], "address": source_ip,
-            "port": port if 0 < port < 65536 else 0,
+            "port": port,
             "version": str(payload.get("version", ""))[:40]})
         with self._lock:
             self.invites_in[einladung_id] = einladung
@@ -1769,9 +1819,8 @@ class Cluster:
             einladung = self.invites_in.get(str(invite_id))
         if einladung is None or einladung.status != "pending":
             return einladung
-        if _now() - einladung.created > INVITE_SECONDS:
-            einladung.status = "expired"
-        else:
+        einladung.expire()
+        if einladung.status == "pending":
             einladung.status = "accepted" if yes else "denied"
         self._write_pending()
         return einladung
@@ -1781,13 +1830,14 @@ class Cluster:
             einladung = self.invites_in.get(str(payload.get("id", "")))
         if einladung is None or einladung.source != source_ip:
             return {"status": "unknown"}
-        if einladung.status == "pending" and _now() - einladung.created > INVITE_SECONDS:
-            einladung.status = "expired"
+        einladung.expire()
         return {"status": einladung.status}
 
     def hello_join(self, payload: dict[str, Any], source_ip: str) -> dict[str, Any]:
         with self._lock:
             einladung = self.invites_in.get(str(payload.get("id", "")))
+            if einladung is not None:
+                einladung.expire()
         if einladung is None or einladung.source != source_ip \
                 or einladung.status != "accepted" or self.info:
             return {"error": "Keine angenommene Einladung."}
@@ -1863,56 +1913,67 @@ class Cluster:
     def forward(self, handler: Any, user: str, body: bytes, https: bool,
                 client_ip: str) -> bool:
         """Reicht eine Anfrage an den Heimserver weiter. False = selbst bedienen."""
+        import httpx
+
         for _ in range(2):
             heim = self.home_for(user)
             if not heim or heim == self.node_id:
                 return False
             ziel = self.member(heim)
             if ziel is None:
-                return False
+                raise ClusterError("Der Heimserver ist kein Mitglied.")
             try:
                 ergebnis = self._proxy_once(handler, ziel, user, body, https, client_ip)
-            except (ClusterError, OSError, ValueError):
+            except (ClusterError, OSError, ValueError, httpx.HTTPError) as exc:
                 self.last_ok.pop(heim, None)
                 self.forget_home(user)
-                continue
+                # Ohne Antwort ist unbekannt, ob z.B. ein Auftrag schon angelegt
+                # wurde. Ein neuer Versuch mit neuer Nonce wuerde ihn verdoppeln.
+                raise ForwardingError(
+                    "Die Antwort des Heimservers fehlt oder ist unvollständig. "
+                    "Prüfe vor einer Wiederholung, ob die Aktion bereits ausgeführt wurde."
+                ) from exc
             if ergebnis == "moved":
                 self.forget_home(user)
                 with self._lock:
                     self.homes.pop(user, None)
                 continue
             return True
-        return False
+        raise ClusterError("Der Heimserver ist nicht erreichbar.")
 
     def _proxy_once(self, handler: Any, ziel: dict[str, Any], user: str, body: bytes,
                     https: bool, client_ip: str) -> str:
         import httpx
 
         kopf = [(k, v) for k, v in handler.headers.items() if k.lower() not in _HOP]
+        key = self.key  # auch die Antwort gehoert zu diesem Schluessel, trotz Wechsel
         nonce = secrets.token_hex(12)
         innen = json.dumps({"op": "proxy", "ts": _now(), "n": nonce, "a": {
             "m": handler.command, "p": handler.path, "h": kopf, "b": _b64(body), "u": user,
             "ip": client_ip, "https": bool(https)}}).encode()
-        anfrage = json.dumps({"from": self.node_id, "box": _b64(seal(self.key, innen, "rpc"))})
+        anfrage = json.dumps({"from": self.node_id, "box": _b64(seal(key, innen, "rpc"))})
         url = f"http://{_host(ziel)}:{int(ziel['port'])}/cluster/proxy"
         geschrieben = False
-        with httpx.Client(timeout=httpx.Timeout(10.0, read=90.0)) as client, \
+        with httpx.Client(timeout=httpx.Timeout(10.0, read=90.0), trust_env=False) as client, \
                 client.stream("POST", url, content=anfrage.encode()) as antwort:
             if antwort.status_code != 200:
                 raise ClusterError(f"Weiterleitung abgelehnt ({antwort.status_code}).")
             salz = _unb64(antwort.headers.get("X-Aquaticy-Salt", ""))
             try:
-                for stueck in read_frames(antwort.iter_bytes(), self.key, salz,
+                for stueck in read_frames(antwort.iter_bytes(), key, salz,
                                           f"stream:{nonce}"):
                     if not geschrieben:
                         if f"\r\n{MOVED_HEADER}: moved\r\n".encode() in stueck:
                             return "moved"
                         geschrieben = True
+                        handler.responded = True
                     handler.wfile.write(stueck)
                     handler.wfile.flush()
-            except (ClusterError, httpx.HTTPError):
-                if not geschrieben:
-                    raise
+            finally:
+                if geschrieben:
+                    handler.close_connection = True
+        if not geschrieben:
+            raise ClusterError("Leere Antwort des Heimservers.")
         handler.responded = True
         handler.close_connection = True
         return "ok"
@@ -1941,6 +2002,8 @@ class Cluster:
                 "accounts": sum(1 for n in list(self.homes.values()) if n == m["node"]),
                 "cpu": last.get("cpu")})
         with self._lock:
+            for invitation in self.invites_out.values():
+                invitation.expire()
             einladungen = [e.public() for e in self.invites_out.values()
                            if _now() - e.created < INVITE_SECONDS * 2]
         return {"enabled": self.enabled, "joined": self.joined,

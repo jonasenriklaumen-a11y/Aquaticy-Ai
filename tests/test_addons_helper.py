@@ -56,6 +56,7 @@ def _tar_xz(dateien: dict[str, bytes]) -> bytes:
 def _deb(tmp: Path, version: str) -> bytes:
     bau = tmp / "debbau"
     (bau / "DEBIAN").mkdir(parents=True)
+    (bau / "DEBIAN").chmod(0o755)  # dpkg-deb verlangt dies auch bei restriktivem umask.
     (bau / "DEBIAN" / "control").write_text(
         f"Package: signal-desktop\nVersion: {version}\nArchitecture: amd64\n"
         "Maintainer: Test <t@example.org>\nDescription: Test\n", encoding="utf-8"

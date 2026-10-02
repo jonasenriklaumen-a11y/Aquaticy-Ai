@@ -2351,8 +2351,8 @@ input:focus-visible,select:focus-visible,.side-search input:focus-visible,
                 wird gleichmäßig verteilt. Der Server, der einlädt, wird Master.</span></label>
           </div>
           <p class="note" id="cluster-lock" hidden>🔒 Der Server-Verbund gehört zu Ultra.</p>
+          <div class="note" id="cluster-status" role="status"></div>
           <div id="cluster-panel" hidden>
-            <div class="note" id="cluster-status" role="status"></div>
             <ul class="device-list cluster-list" id="cluster-members"></ul>
             <div class="cluster-title">Server im lokalen Netz</div>
             <ul class="device-list cluster-list" id="cluster-found"></ul>
@@ -2402,7 +2402,7 @@ document.querySelectorAll(".note").forEach((note) => {
 });
 const thread = $("#thread"), main = $("#main"), input = $("#input"), send = $("#send");
 let busy = false;
-const aquaticyVersion = window.__AQUATICY_VERSION__ || "9.6.2.5 Spark";
+const aquaticyVersion = window.__AQUATICY_VERSION__ || "9.6.4 Aqua";
 $("#version").textContent = "v" + aquaticyVersion;
 // Interne oder Test-Fassung (9.6.0): unten mittig ein gelber Hinweis.
 const aquaticyIntern = window.__AQUATICY_INTERNAL__ === true
@@ -4484,6 +4484,8 @@ const EN = {
 "Mehrere KI-Modelle arbeiten zusammen: zwei verknüpfte Modelle (z. B. Claude und ChatGPT) lösen die Aufgabe, eines (Gemini, wenn verknüpft) prüft auf Fehler, und Aquaticy ist der Richter — es entscheidet, ob die Lösung trägt, oder schickt sie zum Nachbessern und Ausdiskutieren zurück. Ohne Agenten, nur mit dem Hauptmodell als Richter. Dauert länger und kostet auf allen Konten Tokens.": "Several AI models work together: two linked models (e.g. Claude and ChatGPT) solve the task, one (Gemini, if linked) checks for mistakes, and Aquaticy is the judge — it decides whether the solution holds or sends it back to be improved and debated. No agents, only the main model as judge. Takes longer and uses tokens on all accounts.",
 "Dafür braucht es mindestens zwei verknüpfte KI-Konten (Add-ons → KI-Konten).": "This needs at least two linked AI accounts (Add-ons → AI accounts).",
 "Server-Verbund": "Server cluster",
+"Ungültiger Port. Erlaubt sind ganze Zahlen von 1 bis 65535.": "Invalid port. Enter a whole number from 1 to 65535.",
+"Der Verbundstatus ließ sich nicht laden.": "The cluster status could not be loaded.",
 "Bis zu 10 Server mit Aquaticy arbeiten zusammen: eine gemeinsame Datenbank, die auf jedem Server vollständig liegt, und die Arbeit wird gleichmäßig verteilt. Der Server, der einlädt, wird Master.": "Up to 10 servers running Aquaticy work together: one shared database that is complete on every server, and the work is spread evenly. The server that sends the invitation becomes the master.",
 "🔒 Der Server-Verbund gehört zu Ultra.": "🔒 The server cluster is part of Ultra.",
 "Server im lokalen Netz": "Servers in the local network",
@@ -6464,10 +6466,12 @@ function closeSettings(){
   closeOverlay(overlay);
   stopLoad();   // sonst fragt die Auslastung im Hintergrund weiter
   clearTimeout(verbundTakt);
+  verbundAnfrage++;
 }
 
 /* ---------- Server-Verbund (9.6.1) ---------- */
 let verbundTakt = null;
+let verbundAnfrage = 0;
 function verbundZeile(liste, punkt, titel, unter, knopfText, tun){
   const li = document.createElement("li");
   if (punkt !== null){
@@ -6491,26 +6495,57 @@ function verbundZeile(liste, punkt, titel, unter, knopfText, tun){
   liste.appendChild(li);
 }
 async function verbundTun(body){
+  clearTimeout(verbundTakt);
+  const anfrage = ++verbundAnfrage;
   const status = $("#cluster-status");
   try {
     const res = await api("/api/cluster", {
       method: "POST", headers: {"Content-Type": "application/json"}, body: JSON.stringify(body),
     });
     const daten = await res.json();
-    if (daten.error){ status.textContent = daten.error; status.className = "note bad"; return null; }
+    if (anfrage !== verbundAnfrage) return null;
+    if (!res.ok || daten?.error || typeof daten?.enabled !== "boolean"){
+      status.textContent = daten?.error || "Der Verbundstatus ließ sich nicht laden.";
+      status.className = "note bad";
+      return null;
+    }
     verbundZeigen(daten);
     return daten;
   } catch {
+    if (anfrage !== verbundAnfrage) return null;
     status.textContent = "Keine Verbindung zu Aquaticy."; status.className = "note bad";
     return null;
+  } finally {
+    if (anfrage === verbundAnfrage && overlay.classList.contains("open") && kontoUltra)
+      verbundTakt = setTimeout(verbundLaden, 3000);
   }
 }
 async function verbundLaden(){
   clearTimeout(verbundTakt);
-  let daten = null;
-  try { daten = await (await api("/api/cluster")).json(); } catch {}
-  verbundZeigen(daten || {});
-  if (overlay.classList.contains("open") && daten && daten.enabled && !daten.locked)
+  const anfrage = ++verbundAnfrage;
+  let erneut = true;
+  try {
+    const res = await api("/api/cluster");
+    if (res.status === 401 || res.status === 403) erneut = false;
+    const daten = await res.json();
+    if (anfrage !== verbundAnfrage) return;
+    if (daten?.locked){
+      verbundZeigen(daten);
+      erneut = false;
+    } else {
+      if (!res.ok || daten?.error || typeof daten?.enabled !== "boolean")
+        throw new Error(daten?.error || "Der Verbundstatus ließ sich nicht laden.");
+      verbundZeigen(daten);
+      erneut = daten.enabled;
+    }
+  } catch (error){
+    if (anfrage !== verbundAnfrage) return;
+    // Ein Ausfall ist keine ausgeschaltete Funktion. Felder und letzten Stand
+    // behalten und nach einer kurzen Pause erneut fragen.
+    $("#cluster-status").textContent = error.message || "Keine Verbindung zu Aquaticy.";
+    $("#cluster-status").className = "note bad";
+  }
+  if (overlay.classList.contains("open") && kontoUltra && erneut)
     verbundTakt = setTimeout(verbundLaden, 3000);
 }
 function verbundZeigen(d){
@@ -6519,9 +6554,9 @@ function verbundZeigen(d){
   $("#cluster-on").disabled = gesperrt;
   $("#cluster-on").checked = !gesperrt && !!d.enabled;
   $("#cluster-panel").hidden = gesperrt || !d.enabled;
-  if (gesperrt || !d.enabled) return;
   const status = $("#cluster-status");
   status.className = "note";
+  if (gesperrt || !d.enabled){ status.textContent = ""; return; }
   status.textContent = d.joining ? "Tritt gerade bei — die Daten werden übernommen …"
     : !d.lan ? "Dieser Server ist nur lokal erreichbar. Für den Verbund mit „aquaticy web --lan“ starten."
     : d.joined ? (d.master ? "Dieser Server ist der Master." : "Dieser Server ist Mitglied im Verbund.")
@@ -6566,21 +6601,31 @@ function verbundZeigen(d){
   }
   $("#cluster-add").disabled = !d.lan || (d.joined && !d.master);
   const einladungen = $("#cluster-invites");
-  einladungen.innerHTML = "";
+  // Beim Abfragen vorhandene Felder behalten: sonst verschwinden alle drei
+  // Sekunden der eingegebene Code, der Fokus und die Cursorposition.
+  const vorhanden = new Map([...einladungen.children].map(box => [box.dataset.inviteId, box]));
   for (const e of d.invites || []){
-    const box = document.createElement("div");
-    box.className = "cluster-invite";
-    const text = document.createElement("div");
+    let box = vorhanden.get(e.id);
+    vorhanden.delete(e.id);
+    if (!box){
+      box = document.createElement("div");
+      box.className = "cluster-invite";
+      box.dataset.inviteId = e.id;
+      box.appendChild(document.createElement("div"));
+      einladungen.appendChild(box);
+    }
+    const text = box.firstElementChild;
     const ziel = `${e.peer.name || "Server"} (${e.peer.address})`;
     text.textContent = e.status === "pending"
       ? `Warte auf ${ziel}: dort im Terminal mit „yes“ oder „no“ antworten.`
       : `${ziel}: ${e.message}`;
-    box.appendChild(text);
-    if (e.needs_code){
+    const codeRow = box.querySelector(".code-row");
+    if (!e.needs_code && codeRow) codeRow.remove();
+    if (e.needs_code && !codeRow){
       const reihe = document.createElement("div");
       reihe.className = "code-row";
       const feld = document.createElement("input");
-      feld.type = "text"; feld.inputmode = "numeric"; feld.autocomplete = "off";
+      feld.type = "text"; feld.inputMode = "numeric"; feld.autocomplete = "off";
       feld.placeholder = "123 456"; feld.setAttribute("aria-label", "Code vom anderen Server");
       const b = document.createElement("button");
       b.type = "button"; b.className = "btn primary"; b.textContent = "Bestätigen";
@@ -6593,8 +6638,8 @@ function verbundZeigen(d){
       reihe.append(feld, b);
       box.appendChild(reihe);
     }
-    einladungen.appendChild(box);
   }
+  for (const box of vorhanden.values()) box.remove();
 }
 $("#cluster-on").addEventListener("change", async (e) => {
   await verbundTun({ action: "enable", on: e.currentTarget.checked });
@@ -6603,7 +6648,15 @@ $("#cluster-on").addEventListener("change", async (e) => {
 $("#cluster-add").addEventListener("click", async () => {
   const adresse = $("#cluster-ip").value.trim();
   if (!adresse){ $("#cluster-ip").focus(); return; }
-  const port = parseInt($("#cluster-port").value.trim() || "8765", 10);
+  const feld = $("#cluster-port");
+  const eingabe = feld.value.trim() || "8765";
+  const port = Number(eingabe);
+  if (!/^[0-9]{1,5}$/.test(eingabe) || port < 1 || port > 65535){
+    $("#cluster-status").textContent = "Ungültiger Port. Erlaubt sind ganze Zahlen von 1 bis 65535.";
+    $("#cluster-status").className = "note bad";
+    feld.focus();
+    return;
+  }
   if (await verbundTun({ action: "invite", address: adresse, port })) $("#cluster-ip").value = "";
 });
 $("#cancel").addEventListener("click", closeSettings);

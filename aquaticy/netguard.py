@@ -484,17 +484,16 @@ class _Entpacker:
 
 def _stuecke(response: httpx.Response, rest: Callable[[], int]) -> Iterator[bytes]:
     """Der Inhalt in Stuecken -- gzip/deflate gedeckelt ausgepackt."""
+    verfahren = response.headers.get("content-encoding", "").strip().lower()
+    if verfahren not in {"", "identity", "gzip", "x-gzip", "deflate"}:
+        raise httpx.DecodingError("Nicht unterstützte Komprimierung der Antwort.",
+                                  request=response.request)
     if hasattr(response, "_content"):
         # Schon im Speicher (z. B. eine fertige Antwort in Tests) -- nichts zu deckeln.
         yield from response.iter_bytes()
         return
-    verfahren = response.headers.get("content-encoding", "").strip().lower()
     if verfahren in {"", "identity"}:
         yield from response.iter_raw()
-        return
-    if verfahren not in {"gzip", "x-gzip", "deflate"}:
-        # Nicht angefragt (Accept-Encoding) -- httpx kuemmert sich, falls es kann.
-        yield from response.iter_bytes()
         return
     entpacker = _Entpacker("deflate" if verfahren == "deflate" else "gzip")
     try:
@@ -502,6 +501,9 @@ def _stuecke(response: httpx.Response, rest: Callable[[], int]) -> Iterator[byte
             stueck = entpacker(roh, rest() + 1)
             if stueck:
                 yield stueck
+        if not entpacker._d.eof:
+            raise httpx.DecodingError("Komprimierte Antwort ist abgeschnitten.",
+                                      request=response.request)
     except zlib.error as exc:
         raise httpx.DecodingError(f"Fehlerhaft gepackte Antwort: {exc}",
                                   request=response.request) from None
@@ -525,7 +527,7 @@ def _lesen(response: httpx.Response, limit: Limit, frist: float | None = None) -
     menge = 0
 
     def rest() -> int:
-        return max(0, obergrenze - sum(map(len, teile)))
+        return max(0, obergrenze - menge)
 
     for stueck in _stuecke(response, rest):
         if frist is not None and time.monotonic() > frist:

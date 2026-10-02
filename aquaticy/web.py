@@ -367,6 +367,7 @@ MAX_MESSAGE_CHARS = 100_000
 #: Rest der Nachricht -- ohne Grenze koennte ein einziger Aufruf den Arbeits-
 #: speicher fuellen.
 MAX_BODY_BYTES = MAX_UPLOAD_BYTES * MAX_UPLOADS * 4 // 3 + 1_000_000
+REQUEST_READ_TIMEOUT = 30.0  # maximale Inaktivitaet beim Lesen/Schreiben am Socket
 
 #: Endungen, die als Bild ans Vision-Modell gehen.
 IMAGE_TYPES = {".png", ".jpg", ".jpeg", ".webp", ".gif", ".bmp"}
@@ -469,6 +470,7 @@ AIGUARD: Any = None
 CLUSTER: Any = None
 #: Der laufende HTTP-Server (fuer den Neustart nach dem Beitritt zu einem Verbund).
 SERVER: Any = None
+_CLUSTER_RESTART = threading.Event()
 #: Diese Pfade bedient jeder Server selbst, auch im Verbund: Anmeldung,
 #: Zustimmung, Logo, Rechtstexte und die Verbund-Einstellungen dieses Servers.
 CLUSTER_LOCAL = frozenset({"/api/auth/status", "/api/auth/login", "/api/auth/register",
@@ -3026,6 +3028,21 @@ class Handler(BaseHTTPRequestHandler):
     server_version = "Aquaticy"
     sys_version = ""
 
+    def setup(self) -> None:
+        super().setup()
+        self.connection.settimeout(REQUEST_READ_TIMEOUT)
+
+    def parse_request(self) -> bool:
+        if not super().parse_request():
+            return False
+        try:
+            # Eindeutige Grenzen auch bei Routen, die keinen JSON-Koerper lesen.
+            self._body_length(MAX_BODY_BYTES * 2)
+        except (BadRequest, TooLarge) as exc:
+            self._reject_body(exc)
+            return False
+        return True
+
     def log_message(self, fmt: str, *args: Any) -> None:
         return  # keine Zugriffsprotokolle in der Konsole
 
@@ -3118,6 +3135,11 @@ class Handler(BaseHTTPRequestHandler):
             handler()
         except (BrokenPipeError, ConnectionResetError):
             pass  # Tab geschlossen -- kein Grund fuer eine Meldung
+        except TimeoutError:
+            self.close_connection = True
+            if not self.responded:
+                with contextlib.suppress(OSError):
+                    self._json({"error": "Die Anfrage wurde nicht rechtzeitig übertragen."}, 408)
         except TooLarge as exc:
             if not self.responded:
                 with contextlib.suppress(OSError):
@@ -3165,20 +3187,33 @@ class Handler(BaseHTTPRequestHandler):
         if (route in CLUSTER_LOCAL or route in STATIC_FILES or route in LEGAL_ROUTES
                 or route.startswith("/cluster/")):
             return False
-        roh = (self.headers.get("Content-Length") or "0").strip()
-        if (not roh.isdigit() or len(roh) > 12 or int(roh) > MAX_BODY_BYTES
-                or self.headers.get("Transfer-Encoding")):
-            return False  # das lehnt die Route hier selbst sauber ab
-        body = self.rfile.read(int(roh)) if int(roh) else b""
+        # Der Heimserver vertraut der Pruefung am Eingang. Das optionale
+        # Server-Zugangswort muss deshalb VOR der Weiterleitung stimmen.
+        if not self._authorized():
+            self._deny()
+            return True
+        try:
+            body = self._read_body(MAX_BODY_BYTES)
+        except (BadRequest, TooLarge, TimeoutError) as exc:
+            self._reject_body(exc)
+            return True
         direkt = str(self.client_address[0] if self.client_address else "")
         try:
             if verbund.forward(self, account.id, body, self._https(), direkt):
                 return True
+            if not verbund.is_home(account.id):
+                raise cluster.ClusterError("Dieses Konto hat einen anderen Heimserver.")
         except Exception as exc:  # pragma: no cover - der Verbund darf nie den Server kosten
             print(f"  [Verbund] Weiterleitung: {type(exc).__name__}: {exc}")
             if self.responded:
                 self.close_connection = True
                 return True
+            if isinstance(exc, cluster.ForwardingError):
+                self._json({"error": str(exc)}, 503)
+                return True
+            self._json({"error": "Der Heimserver ist gerade nicht erreichbar. "
+                                 "Bitte versuche es später erneut."}, 503)
+            return True
         # Selbst bedienen -- der Koerper ist schon gelesen, also neu bereitstellen.
         self.rfile = io.BytesIO(body)
         return False
@@ -3201,12 +3236,12 @@ class Handler(BaseHTTPRequestHandler):
         if self.command != "POST":
             self._json({"error": "unbekannter Pfad"}, 404)
             return
-        roh = (self.headers.get("Content-Length") or "0").strip()
         grenze = MAX_BODY_BYTES * 2 if route == "/cluster/proxy" else 4 * cluster.CHUNK
-        if not roh.isdigit() or len(roh) > 12 or int(roh) > grenze:
-            self._json({"error": "Anfrage zu gross."}, 413)
+        try:
+            daten = self._read_body(grenze)
+        except (BadRequest, TooLarge, TimeoutError) as exc:
+            self._reject_body(exc)
             return
-        daten = self.rfile.read(int(roh)) if int(roh) else b""
         try:
             if route == "/cluster/rpc":
                 self._send(200, verbund.handle_rpc(daten, direkt), "application/octet-stream")
@@ -3438,29 +3473,37 @@ class Handler(BaseHTTPRequestHandler):
         self.end_headers()
         self.wfile.write(body)
 
-    def _read_json(self, limit: int = 0) -> dict[str, Any]:
-        """Liest den JSON-Koerper. *limit*: kleinere Obergrenze fuer diese Route."""
-        roh = (self.headers.get("Content-Length") or "0").strip()
-        # Nur eine nicht-negative Zahl. "-1" hiesse fuer read(): lies, bis die
-        # Verbindung zu ist -- also so viel, wie jemand schickt.
-        if not roh.isdigit() or len(roh) > 12:
+    def _reject_body(self, exc: Exception) -> None:
+        self.close_connection = True
+        if isinstance(exc, TimeoutError):
+            self._json({"error": "Die Anfrage wurde nicht rechtzeitig übertragen."}, 408)
+        else:
+            self._json({"error": str(exc)}, 413 if isinstance(exc, TooLarge) else 400)
+
+    def _body_length(self, limit: int) -> int:
+        lengths = self.headers.get_all("Content-Length", [])
+        if self.headers.get_all("Transfer-Encoding") or len(lengths) > 1:
+            raise BadRequest("Mehrdeutige Laenge der Anfrage.")
+        roh = (lengths[0] if lengths else "0").strip()
+        if not re.fullmatch(r"[0-9]{1,12}", roh):
             raise BadRequest("Ungueltige Laenge der Anfrage.")
         length = int(roh)
-        if not length:
-            return {}
-        if limit and length > limit:
-            # Anmelden und Registrieren brauchen ein paar hundert Bytes -- nicht
-            # die Groesse eines Uploads (seit 9.5.22).
+        if length > limit:
             raise TooLarge("Anfrage zu gross.")
-        if length > MAX_BODY_BYTES:
-            # Nicht lesen, nur verwerfen -- sonst zieht ein einziger Aufruf
-            # den Arbeitsspeicher leer.
-            raise TooLarge(
-                f"Anfrage zu gross ({length // 1_000_000} MB). Erlaubt sind "
-                f"{MAX_UPLOADS} Dateien à {MAX_UPLOAD_BYTES // 1_000_000} MB."
-            )
+        return length
+
+    def _read_body(self, limit: int) -> bytes:
+        length = self._body_length(limit)
+        data = self.rfile.read(length) if length else b""
+        if len(data) != length:
+            raise BadRequest("Die Anfrage wurde nicht vollständig übertragen.")
+        return data
+
+    def _read_json(self, limit: int = 0) -> dict[str, Any]:
+        """Liest den JSON-Koerper. *limit*: kleinere Obergrenze fuer diese Route."""
+        data = self._read_body(min(limit or MAX_BODY_BYTES, MAX_BODY_BYTES))
         try:
-            gelesen = json.loads(self.rfile.read(length) or b"{}")
+            gelesen = json.loads(data or b"{}")
         except (json.JSONDecodeError, ValueError):
             return {}  # kaputtes JSON ist eine leere Anfrage, kein Absturz
         # Gueltiges JSON ist noch kein Formular: `[]`, `"text"` und `0` sind
@@ -5301,17 +5344,10 @@ def _cluster_adopt(user_id: str) -> None:
 
 def _cluster_restart() -> None:
     """Nach dem Beitritt: einmal neu starten, damit alles die Daten des Verbunds liest."""
-    import sys
-
     print("  [Verbund] Starte neu, um die Daten des Verbunds zu laden ...", flush=True)
+    _CLUSTER_RESTART.set()
     if SERVER is not None:
-        threading.Thread(target=SERVER.shutdown, daemon=True).start()
-        time.sleep(1.0)
-    with contextlib.suppress(Exception):
-        sys.stdout.flush()
-        sys.stderr.flush()
-    os.execv(sys.executable, [sys.executable, "-c", "from aquaticy.cli import main; main()",
-                              *sys.argv[1:]])
+        SERVER.shutdown()
 
 
 def cluster_view(session: Any) -> tuple[dict[str, Any], int]:
@@ -5335,10 +5371,7 @@ def cluster_action(session: Any, payload: dict[str, Any]) -> tuple[dict[str, Any
             CLUSTER.set_enabled(bool(payload.get("on")))
         elif aktion == "invite":
             adresse = str(payload.get("address", "")).strip()
-            try:
-                port = int(payload.get("port") or DEFAULT_PORT)
-            except (TypeError, ValueError):
-                return {"error": "Ungültiger Port."}, 400
+            port = cluster.parse_port(payload.get("port", DEFAULT_PORT))
             if not CLUSTER.enabled:
                 return {"error": "Schalte den Server-Verbund zuerst ein."}, 400
             CLUSTER.invite(adresse, port)
@@ -5373,6 +5406,7 @@ def serve(
     """
     global AUTH, TOKEN
 
+    _CLUSTER_RESTART.clear()
     TOKEN = token
     data_dir = get_settings().data_dir
     code = pro_code_for(data_dir)
@@ -5441,3 +5475,14 @@ def serve(
             CLUSTER.stop()
         TOKEN = ""
         AUTH = None
+    # Der Beitritt laeuft in einem Daemon-Thread. Dort kann der Prozess nach
+    # shutdown bereits enden, bevor execv erreicht wird. Neustart deshalb hier,
+    # solange der Hauptablauf noch lebt und der alte Port bereits frei ist.
+    if _CLUSTER_RESTART.is_set():
+        import sys
+
+        with contextlib.suppress(Exception):
+            sys.stdout.flush()
+            sys.stderr.flush()
+        os.execv(sys.executable, [sys.executable, "-c", "from aquaticy.cli import main; main()",
+                                 *sys.argv[1:]])

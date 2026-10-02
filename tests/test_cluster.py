@@ -119,6 +119,9 @@ def test_frames_detect_truncation() -> None:
                                     "stream:1")) == [b"eins", b"zwei"]
     with pytest.raises(cluster.ClusterError):
         list(cluster.read_frames([ganz], b"x" * 32, b"s" * 16, "stream:1"))
+    with pytest.raises(cluster.ClusterError, match="Daten nach dem Ende"):
+        list(cluster.read_frames([bytes(roh.daten) + b"extra"], b"x" * 32,
+                                 b"s" * 16, "stream:1"))
 
 
 def test_unquote_reads_sqlite_literals_without_sql() -> None:
@@ -139,6 +142,36 @@ def test_lan_only() -> None:
     assert cluster.lan_ip_ok("100.101.1.2")  # Tailscale
     assert not cluster.lan_ip_ok("8.8.8.8")
     assert not cluster.lan_ip_ok("kaputt")
+
+
+def test_accepted_invitation_expires_before_confirm(tmp_path: Path) -> None:
+    server = cluster.Cluster(tmp_path)
+    server.state["enabled"] = True
+    invitation = cluster.Invite(id="a" * 32, peer={}, status="accepted", code="123456",
+                                created=time.time() - cluster.INVITE_SECONDS - 1)
+    server.invites_out[invitation.id] = invitation
+    with pytest.raises(cluster.ClusterError, match="abgelaufen"):
+        server.confirm(invitation.id, invitation.code)
+    assert invitation.status == "expired"
+    assert server.info is None
+
+
+def test_accepted_invitation_expires_before_join(tmp_path: Path) -> None:
+    server = cluster.Cluster(tmp_path)
+    invitation = cluster.Invite(id="a" * 32, peer={}, status="accepted", source="127.0.0.1",
+                                created=time.time() - cluster.INVITE_SECONDS - 1)
+    server.invites_in[invitation.id] = invitation
+    assert "error" in server.hello_join({"id": invitation.id}, "127.0.0.1")
+    assert invitation.status == "expired"
+    assert server.info is None
+
+
+def test_status_expires_accepted_invitation(tmp_path: Path) -> None:
+    server = cluster.Cluster(tmp_path)
+    invitation = cluster.Invite(id="a" * 32, peer={}, status="accepted", source="127.0.0.1",
+                                created=time.time() - cluster.INVITE_SECONDS - 1)
+    server.invites_in[invitation.id] = invitation
+    assert server.hello_status({"id": invitation.id}, "127.0.0.1") == {"status": "expired"}
 
 
 def test_shared_db_replicates_rows_both_ways(tmp_path: Path) -> None:
@@ -232,6 +265,64 @@ def test_assign_balances_and_remove_rekeys(verbund: Any) -> None:
     a.remove(b.node_id)
     assert a.key != alter_schluessel
     assert len(a.members()) == 1
+
+
+def test_unreachable_home_does_not_start_writing_from_stale_replica(tmp_path: Path) -> None:
+    heim, eingang = _paar(tmp_path, 8765)
+    user = "konto1"
+    for knoten in (heim, eingang):
+        knoten.homes[user] = heim.node_id
+    assert heim.assign(user) == heim.node_id
+    assert not eingang.is_home(user)
+
+    def nicht_erreichbar(*args: Any, **kwargs: Any) -> Any:
+        raise OSError("Heimserver ausgefallen")
+
+    eingang._transport = nicht_erreichbar
+    assert eingang.home_for(user) == heim.node_id
+    eingang._proxy_once = nicht_erreichbar
+    with pytest.raises(cluster.ClusterError, match="Heimserver"):
+        eingang.forward(_Handler("/api/account"), user, b"", False, "127.0.0.1")
+
+
+def test_web_returns_503_instead_of_using_stale_profile(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    import http.client
+    import threading
+    from http.server import ThreadingHTTPServer
+
+    from aquaticy import web
+
+    store = _store(tmp_path / "konten")
+    konto = _konto(store, "anna@example.org")
+    token = store.create_session(konto, "Test\x1f", "127.0.0.1")
+    _heim, eingang = _paar(tmp_path, 8765)
+    eingang.homes[konto.id] = _heim.node_id
+
+    def nicht_erreichbar(*args: Any, **kwargs: Any) -> Any:
+        raise OSError("Heimserver ausgefallen")
+
+    eingang._transport = nicht_erreichbar
+    eingang._proxy_once = nicht_erreichbar
+    monkeypatch.setattr(web, "AUTH", store)
+    monkeypatch.setattr(web, "CLUSTER", eingang)
+    monkeypatch.setattr(web, "AIGUARD", None)
+    monkeypatch.setattr(web, "TOKEN", "")
+    server = ThreadingHTTPServer(("127.0.0.1", 0), web.Handler)
+    faden = threading.Thread(target=server.serve_forever, daemon=True)
+    faden.start()
+    try:
+        verbindung = http.client.HTTPConnection("127.0.0.1", server.server_address[1])
+        verbindung.request("GET", "/api/account", headers={
+            "User-Agent": "Test", "Cookie": f"{web.AUTH_COOKIE}={token}"})
+        antwort = verbindung.getresponse()
+        assert antwort.status == 503
+        assert b"Heimserver" in antwort.read()
+        verbindung.close()
+    finally:
+        server.shutdown()
+        server.server_close()
 
 
 def test_invite_needs_feature_on(verbund: Any) -> None:

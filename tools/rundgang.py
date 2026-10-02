@@ -25,6 +25,7 @@ from __future__ import annotations
 import argparse
 import contextlib
 import os
+import shutil
 import socket
 import sys
 import tempfile
@@ -2378,7 +2379,8 @@ def main() -> int:
 
     with sync_playwright() as pw:
         browser = pw.chromium.launch(
-            executable_path=CHROMIUM if Path(CHROMIUM).exists() else None
+            executable_path=(CHROMIUM if Path(CHROMIUM).exists()
+                             else shutil.which("chromium") or shutil.which("chromium-browser"))
         )
         seite = browser.new_page(viewport={"width": 1340, "height": 900}, color_scheme="light")
         seite.on("pageerror", lambda e: fehler.append(f"Skriptfehler: {e}"))

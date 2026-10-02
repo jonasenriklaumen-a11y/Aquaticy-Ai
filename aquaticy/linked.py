@@ -372,9 +372,9 @@ def _judge(text: str) -> tuple[bool, str]:
     start, ende = roh.find("{"), roh.rfind("}")
     with contextlib.suppress(ValueError):
         daten = json.loads(roh[start:ende + 1])
-        if isinstance(daten, dict):
-            return bool(daten.get("ok")), str(daten.get("feedback") or "").strip()
-    return "true" in roh.lower()[:40], roh[:2000]
+        if isinstance(daten, dict) and isinstance(daten.get("ok"), bool):
+            return daten["ok"], str(daten.get("feedback") or "").strip()
+    return False, "Das Urteil war kein gültiges JSON mit einem booleschen 'ok'-Wert."
 
 
 def run_council(settings: Any, question: str, context: str = "", judge_model: str = "",
@@ -392,11 +392,12 @@ def run_council(settings: Any, question: str, context: str = "", judge_model: st
     loesungen: dict[str, str] = {}
     pruefbericht = ""
     rueckmeldung = ""
+    ok = False
     melden("council", phase="start", workers=[m for _, m in bearbeiter],
            checker=pruefer[1] if pruefer else "", judge=richter)
     for runde in range(1, COUNCIL_ROUNDS + 1):
         if stop is not None and stop.is_set():
-            break
+            return ""
         melden("council", phase="work", round=runde)
 
         def arbeite(eintrag: tuple[str, str], runde: int = runde,
@@ -435,12 +436,18 @@ def run_council(settings: Any, question: str, context: str = "", judge_model: st
                           f"Aufgabe:\n{aufgabe}\n\n{alle}\n\nPrüfbericht:\n{pruefbericht}",
                           json_mode=True)
         except Exception:
-            urteil = '{"ok": true}'
+            urteil = '{"ok": false, "feedback": "Der Prüfer war nicht erreichbar."}'
         ok, rueckmeldung = _judge(urteil)
         melden("council", phase="verdict", round=runde, ok=ok, feedback=rueckmeldung[:500])
         if ok:
             break
+    if stop is not None and stop.is_set():
+        return ""
     melden("council", phase="final", model=richter)
     alle = "\n\n".join(f"--- Lösung von {m} ---\n{t}" for m, t in loesungen.items())
+    pruefstatus = ("Die Prüfung wurde bestätigt." if ok else
+                   f"Die Prüfung wurde nicht bestätigt: {rueckmeldung or 'Punkte bleiben offen'}. "
+                   "Kennzeichne ungeklärte Punkte in der Antwort ausdrücklich.")
     return _ask(settings, richter, FINAL_PROMPT,
-                f"Frage des Nutzers:\n{aufgabe}\n\n{alle}\n\nPrüfbericht:\n{pruefbericht}")
+                f"Frage des Nutzers:\n{aufgabe}\n\n{alle}\n\nPrüfbericht:\n{pruefbericht}"
+                f"\n\nPrüfstatus:\n{pruefstatus}")

@@ -134,6 +134,46 @@ def test_council_iterates_until_the_judge_agrees(tmp_path: Path,
     assert aufrufe[-1][0] == s.model, "der Richter ist das Hauptmodell"
 
 
+@pytest.mark.parametrize("text", ['{"ok": "false"}', 'true', '{"feedback": "ok"}'])
+def test_judge_does_not_accept_invalid_verdicts(text: str) -> None:
+    assert linked._judge(text)[0] is False
+
+
+def test_council_reports_judge_failure_as_unverified(tmp_path: Path,
+                                                     monkeypatch: pytest.MonkeyPatch) -> None:
+    linked.save(tmp_path, "anthropic", {"models": [{"id": "anthropic/claude-sonnet-4-5"}]})
+    linked.save(tmp_path, "gemini", {"models": [{"id": "gemini/gemini-2.5-pro"}]})
+    s = _settings(tmp_path, {"ANTHROPIC_API_KEY": "a", "GEMINI_API_KEY": "b"})
+    verdicts: list[bool] = []
+    final_request: list[str] = []
+
+    def ask(settings: Any, model: str, system: str, user: str, *, json_mode: bool = False) -> str:
+        if system == linked.JUDGE_PROMPT:
+            raise TimeoutError("nicht erreichbar")
+        if system == linked.FINAL_PROMPT:
+            final_request.append(user)
+        return "Antwort"
+
+    monkeypatch.setattr(linked, "_ask", ask)
+    linked.run_council(s, "Frage", emit=lambda art, **d: verdicts.append(d["ok"])
+                       if d.get("phase") == "verdict" else None)
+    assert verdicts and not any(verdicts)
+    assert "Prüfung wurde nicht bestätigt" in final_request[0]
+
+
+def test_stopped_council_makes_no_further_model_call(tmp_path: Path,
+                                                    monkeypatch: pytest.MonkeyPatch) -> None:
+    import threading
+
+    linked.save(tmp_path, "anthropic", {"models": [{"id": "anthropic/claude-sonnet-4-5"}]})
+    linked.save(tmp_path, "gemini", {"models": [{"id": "gemini/gemini-2.5-pro"}]})
+    s = _settings(tmp_path, {"ANTHROPIC_API_KEY": "a", "GEMINI_API_KEY": "b"})
+    stop = threading.Event()
+    stop.set()
+    monkeypatch.setattr(linked, "_ask", lambda *a, **k: pytest.fail("Modell aufgerufen"))
+    assert linked.run_council(s, "Frage", stop=stop) == ""
+
+
 def test_web_link_stores_key_only_when_accepted(tmp_path: Path,
                                                 monkeypatch: pytest.MonkeyPatch) -> None:
     from aquaticy import web

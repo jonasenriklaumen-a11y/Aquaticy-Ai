@@ -74,8 +74,8 @@ def test_version_is_962() -> None:
     # Seit 9.6.2 -- die Fassung steht in tests/test_v962.py mit.
     import aquaticy
 
-    assert aquaticy.__version__ == "9.6.2.5"
-    assert 'window.__AQUATICY_VERSION__ || "9.6.2.5 Spark"' in web.UI_FILE.read_text(
+    assert aquaticy.__version__ == "9.6.4"
+    assert 'window.__AQUATICY_VERSION__ || "9.6.4 Aqua"' in web.UI_FILE.read_text(
         encoding="utf-8"
     )
 
@@ -137,6 +137,29 @@ def test_a_gzip_bomb_is_stopped_without_inflating_it() -> None:
     assert spitze < 12_000_000, spitze
     with client.stream("GET", "http://x/") as antwort:
         assert len(netguard._lesen(antwort, lambda h: (500_000, True))) == 500_000
+
+
+def test_unrequested_encoding_and_truncated_gzip_are_rejected() -> None:
+    import gzip
+
+    import httpx
+
+    from aquaticy import netguard
+
+    def check(content: bytes, encoding: str) -> bytes:
+        def handler(request: httpx.Request) -> httpx.Response:
+            return httpx.Response(200, headers={"content-encoding": encoding},
+                                  stream=httpx.ByteStream(content))
+
+        with httpx.Client(transport=httpx.MockTransport(handler)) as client, \
+                client.stream("GET", "http://x/") as antwort:
+            return netguard._lesen(antwort, 1000)
+
+    assert check(gzip.compress(b"ok"), "gzip") == b"ok"
+    with pytest.raises(httpx.DecodingError, match="Nicht unterstützte"):
+        check(b"data", "br")
+    with pytest.raises(httpx.DecodingError, match="abgeschnitten"):
+        check(gzip.compress(b"ok")[:-4], "gzip")
 
 
 def test_headers_trickling_in_hit_the_total_deadline(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -385,7 +408,7 @@ def test_internal_versions_show_a_yellow_note() -> None:
     # 9.6.2 ist eine oeffentliche Fassung: kein Zusatz, kein gelber Hinweis --
     # der Mechanismus bleibt fuer die naechste interne Fassung.
     assert aquaticy.__stage__ == "" and not aquaticy.INTERNAL
-    assert aquaticy.VERSION_LABEL == "9.6.2.5 Spark"
+    assert aquaticy.VERSION_LABEL == "9.6.4 Aqua"
     html = _ui()
     assert 'id="intern-hinweis"' in html and "--intern-bg:#ffe27a" in html
     assert "window.__AQUATICY_INTERNAL__ = " in Path(web.__file__).read_text(encoding="utf-8")
