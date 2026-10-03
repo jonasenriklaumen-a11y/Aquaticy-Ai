@@ -13,6 +13,7 @@ nicht jede Umgebung hat beides, und die uebrige Pruefkette bleibt aussagekraefti
 from __future__ import annotations
 
 import os
+import shutil
 import subprocess
 import sys
 from pathlib import Path
@@ -28,7 +29,8 @@ def _browser_da() -> bool:
         import playwright  # noqa: F401
     except ImportError:
         return False
-    return Path("/opt/pw-browsers/chromium").exists()
+    return bool(Path("/opt/pw-browsers/chromium").exists()
+                or shutil.which("chromium") or shutil.which("chromium-browser"))
 
 
 @pytest.mark.skipif(not _browser_da(), reason="Playwright oder Browser fehlen")

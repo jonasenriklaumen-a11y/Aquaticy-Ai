@@ -1716,6 +1716,7 @@ class Toolbox:
             "search",
             self.settings.search_backend,
             self.settings.search_engines,
+            self.settings.searxng_url,
             "|".join(wanted),
             count,
             country,
@@ -1806,20 +1807,22 @@ class Toolbox:
         self._emit("fetch", url=url)
 
         key = cache_key("page", url)
-        cached = self.cache.get(key) if self.cache else None
-        if cached is not None:
-            page = PageResult(**cached)
-            page.via = "cache"
-        else:
-            page = self._fetcher.fetch(url, want_products=True)
-            self._maybe_llm_specs(page)
-            # Voruebergehende Fehler nicht cachen: ein Timeout von jetzt sagt
-            # nichts darueber, ob die Seite in einer Stunde erreichbar ist.
-            # Stabile Ergebnisse (Inhalt, blocked, paywall) duerfen 24 h liegen.
-            transient = page.skipped_reason in ("timeout", "network_error")
-            if self.cache and not transient:
-                self.cache.set(key, page.model_dump(), kind="page", label=page.title or url)
-
+        # Parallele Helfer lesen dieselbe Seite haeufig gleichzeitig.
+        # Nach dem Warten erneut lesen; nur der erste Cache-Miss holt sie.
+        with self.cache.filling(key) if self.cache else contextlib.nullcontext():
+            cached = self.cache.get(key) if self.cache else None
+            if cached is not None:
+                page = PageResult(**cached)
+                page.via = "cache"
+            else:
+                page = self._fetcher.fetch(url, want_products=True)
+                self._maybe_llm_specs(page)
+                # Voruebergehende Fehler nicht cachen: ein Timeout von jetzt sagt
+                # nichts darueber, ob die Seite in einer Stunde erreichbar ist.
+                # Stabile Ergebnisse (Inhalt, blocked, paywall) duerfen 24 h liegen.
+                transient = page.skipped_reason in ("timeout", "network_error")
+                if self.cache and not transient:
+                    self.cache.set(key, page.model_dump(), kind="page", label=page.title or url)
         if page.ok:
             self.stats.fetched.append(page.final_url or url)
             domain = page.source_domain or domain_of(url)

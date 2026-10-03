@@ -1,4 +1,4 @@
-# Aquaticy AI 9.6.5 Luna
+# Aquaticy AI 9.6.6 Luna
 
 **Aquaticy** recherchiert für dich. Du stellst eine Frage, Aquaticy sucht im Web, liest die
 passenden Seiten und fasst das Ergebnis zusammen — mit Quelle an jeder Angabe. Es läuft im
@@ -29,7 +29,7 @@ $ aquaticy
 
 - [Was Aquaticy kann](#was-aquaticy-kann)
 - [Quickstart](#quickstart)
-- [Prüfbericht zu 9.6.5 Luna](TESTREPORT-9.6.5.md)
+- [Prüfbericht zu 9.6.6 Luna](TESTREPORT-9.6.6.md)
 - [Installation im Detail](#installation-im-detail)
 - [Benutzung im Terminal](#benutzung-im-terminal)
 - [Die Weboberfläche](#die-weboberfläche)
@@ -77,6 +77,8 @@ $ aquaticy
   Quellen), statt die ganze Antwort aufzuhalten.
   Seit 9.6.5 mit weniger zusätzlichen Teilaufgaben und parallel gebündelten
   Leseabfragen; die Recherche im Pro-Modus bleibt unverändert.
+  Seit 9.6.6 teilen Recherchehelfer mit gemeinsamem Cache gleichzeitige
+  Abrufe derselben Seite; Quellen, Gegenprüfungen und Schutzregeln bleiben erhalten.
 - **Pro** — für große Fragen: das stärkste Modell und bis zu 50 Helfer. Dauert bewusst länger —
   wegen der höheren Genauigkeit (steht auch unter dem Eingabefeld). Der Master plant
   schon, während die Rechtsprüfung läuft — losgeschickt wird erst nach dem OK.
@@ -119,7 +121,7 @@ $ aquaticy
 git clone --branch Aquaticy-ai --single-branch https://github.com/jonasenriklaumen-a11y/Aquaticy-Ai.git
 cd Aquaticy-Ai
 uv tool install --force --reinstall .
-aquaticy --version            # 9.6.5 Luna
+aquaticy --version            # 9.6.6 Luna
 
 # 2. Einrichten — fragt nach Modell und Schlüssel und testet beide
 aquaticy setup
@@ -1025,6 +1027,12 @@ setzt du die meisten unter *Einstellungen*.
 | `AQUATICY_PRO_CODE` | Code für neue Pro-Konten | zufällig |
 | `AQUATICY_ULTRA_CODE` | Code für neue Ultra-Konten (14 Zeichen) | zufällig |
 | `MISTRAL_API_KEY`, `NVIDIA_NIM_API_KEY`, `BRAVE_API_KEY`, `TAVILY_API_KEY` | Schlüssel der Anbieter | — |
+
+Seit 9.6.6 sind auch Suchbegriffe und Inhalte im Recherche-Cache je Profil
+verschlüsselt. Bestehende Cache-Einträge werden beim ersten Öffnen migriert;
+reicht der Speicherplatz dafür nicht, werden nur diese Cache-Einträge verworfen.
+Ältere Sicherungen werden dadurch nicht nachträglich verschlüsselt. Chat-Liste
+und Chat-Suche laden weniger Daten; Trefferreihenfolge und Fundstellen bleiben erhalten.
 
 Daten liegen unter `~/.aquaticy/` (Konten in `accounts.sqlite3`, je Konto ein eigener Ordner
 unter `users/`), die Einstellungen unter `~/.config/aquaticy/.env`.

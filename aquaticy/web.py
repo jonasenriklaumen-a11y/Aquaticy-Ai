@@ -1226,6 +1226,15 @@ class ChatSession:
         """Beginnt einen neuen Chat. Der Merkzettel bleibt."""
         with self._lock:
             self.agent().clear()
+            self._forget_runs()
+
+    def _forget_runs(self) -> None:
+        """Ein neuer oder geoeffneter Chat darf keine alten Laufdaten liefern."""
+        global RUNS
+
+        self.runs = RunBook()
+        if self.account is None and not self._owner._chat_sessions:
+            RUNS = self.runs
 
     def chat_id(self) -> str:
         """Kennung des Chats, in dem gerade geschrieben wird."""
@@ -1244,6 +1253,7 @@ class ChatSession:
             return {"turns": [], "title": "", "note": "Diesen Chat gibt es nicht mehr."}
         with self._lock:
             _resume(self.agent(), session_id, entries, _chat_untrusted(entries))
+            self._forget_runs()
         return {
             "session_id": session_id,
             "title": entries[0].question,
@@ -1728,6 +1738,7 @@ class ChatSession:
             if command == "clear":
                 if self._agent is not None:
                     self._agent.clear()
+                self._forget_runs()
                 return {"text": "Verlauf verworfen.", "clear": True}
 
             if command == "memory":

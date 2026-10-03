@@ -11,6 +11,7 @@ import json
 import sqlite3
 import threading
 import time
+import weakref
 from collections.abc import Iterator
 from contextlib import closing, contextmanager
 from dataclasses import dataclass
@@ -77,6 +78,22 @@ CREATE TABLE IF NOT EXISTS privacy_state (
 SEALED_COLUMNS = (("history", "question"), ("history", "answer"), ("history", "meta"),
                   ("chat_titles", "title"), ("notes", "text"))
 
+# Nur Kennungen und Zeitangaben werden in SQL gruppiert; die Texte bleiben
+# verschluesselt. Ein JOIN ersetzt die bisherigen zwei Abfragen je Chat.
+CHAT_SUMMARIES = """
+    SELECT h.session_id, h.turns, h.touched, first.question, title.title,
+           unread.session_id IS NOT NULL AS unread
+    FROM (
+        SELECT session_id, MIN(id) AS first_id, MAX(id) AS last_id,
+               COUNT(*) AS turns, MAX(created_at) AS touched
+        FROM history GROUP BY session_id
+    ) AS h
+    JOIN history AS first ON first.id = h.first_id
+    LEFT JOIN chat_titles AS title ON title.session_id = h.session_id
+    LEFT JOIN chat_unread AS unread ON unread.session_id = h.session_id
+    ORDER BY h.last_id DESC
+"""
+
 
 def cache_key(kind: str, *parts: Any) -> str:
     """Stabiler Schluessel aus Art und beliebigen Bestandteilen."""
@@ -90,12 +107,20 @@ def _snippet(row: Any, needle: str, width: int = 110) -> str:
     Die Frage steht vorn, weil sie kuerzer ist und man den eigenen Wortlaut
     schneller wiedererkennt als den der Antwort.
     """
-    klein = needle.lower()
+    # casefold kann Zeichen erweitern (Straße -> strasse). Die Fundstelle
+    # deshalb auf die Position im Originaltext zurueckfuehren.
+    klein = needle.casefold()
     for feld in ("question", "answer"):
         text = " ".join(str(row[feld] or "").split())
-        stelle = text.lower().find(klein)
+        stelle = text.casefold().find(klein)
         if stelle < 0:
             continue
+        offset = 0
+        for index, char in enumerate(text):
+            offset += len(char.casefold())
+            if offset > stelle:
+                stelle = index
+                break
         von = max(0, stelle - width // 3)
         bis = min(len(text), stelle + len(needle) + width)
         return ("… " if von else "") + text[von:bis] + (" …" if bis < len(text) else "")
@@ -129,20 +154,52 @@ _LAST_PURGE: dict[str, float] = {}
 _PURGE_LOCK = threading.Lock()
 
 
+_INIT_LOCK = threading.Lock()
+_INIT_LOCKS: weakref.WeakValueDictionary[str, threading.Lock] = weakref.WeakValueDictionary()
+
+
+@contextmanager
+def _initializing(path: Path) -> Iterator[None]:
+    # Auch journal_mode und VACUUM brauchen dieselbe Start-Sperre. Schwache
+    # Referenzen behalten keine laengst geschlossenen Profile im Speicher.
+    key = str(path.resolve())
+    with _INIT_LOCK:
+        lock = _INIT_LOCKS.get(key)
+        if lock is None:
+            lock = threading.Lock()
+            _INIT_LOCKS[key] = lock
+    with lock:
+        yield
+
+
 class Cache:
     """Schmaler Wrapper um eine SQLite-Datei."""
 
     def __init__(self, db_path: Path | str, ttl_hours: int = 24) -> None:
         self.db_path = Path(db_path)
         self.ttl_seconds = max(0, int(ttl_hours)) * 3600
+        self._fill_lock = threading.Lock()
+        self._fills: dict[str, tuple[threading.Lock, int]] = {}
         self.db_path.parent.mkdir(parents=True, exist_ok=True)
         from aquaticy.privacy import profile_sealer
 
         #: Der Schluessel dieses Profils (seit 9.5.32): Chats liegen verschluesselt.
         self._sealer = profile_sealer(self.db_path.parent)
-        with self._connect() as conn:
-            conn.executescript(SCHEMA)
-            self._seal_old_rows(conn)
+        with _initializing(self.db_path):
+            with self._connect() as conn:
+                conn.executescript(SCHEMA)
+                self._seal_old_rows(conn)
+                clean_cache = self._seal_old_cache(conn)
+            if clean_cache:
+                # Auch Overflow-Seiten und schon frueher freigewordene Seiten
+                # koennen Alttexte tragen. Einmalig verdichten und den WAL leeren.
+                # Marker 1 bleibt bei einem Abbruch stehen: dann wird dies beim
+                # naechsten Oeffnen erneut versucht; 2 bedeutet fertig bereinigt.
+                with self._connect() as conn:
+                    conn.execute("VACUUM")
+                    busy, _, _ = conn.execute("PRAGMA wal_checkpoint(TRUNCATE)").fetchone()
+                    if not busy:
+                        conn.execute("INSERT OR REPLACE INTO privacy_state VALUES ('cache', '2')")
         self._maybe_purge()
 
     # -- Verschluesselung (9.5.32) ------------------------------------------
@@ -181,6 +238,79 @@ class Cache:
                     (self._seal(str(zeile[1]), f"{tabelle}.{spalte}"), zeile[0]),
                 )
         conn.execute("INSERT OR REPLACE INTO privacy_state (name, value) VALUES ('chats', '1')")
+
+    def _seal_old_cache(self, conn: sqlite3.Connection) -> bool:
+        """Alte Suchbegriffe und Rechercheergebnisse einmalig verschluesseln."""
+        from aquaticy.budget import fits, note_written
+        from aquaticy.privacy import TEXT_PREFIX
+
+        state = conn.execute("SELECT value FROM privacy_state WHERE name='cache'").fetchone()
+        if state is not None:
+            return str(state[0]) != "2"
+        # Zwei neu geoeffnete Chats koennen dasselbe Profil zugleich
+        # migrieren. Vor dem ersten Lesen der Altwerte den Schreiber reservieren.
+        if not conn.in_transaction:
+            conn.execute("BEGIN IMMEDIATE")
+        state = conn.execute("SELECT value FROM privacy_state WHERE name='cache'").fetchone()
+        if state is not None:
+            return str(state[0]) != "2"
+        # Beim Ersetzen groesserer Klartexte auch freigewordene SQLite-Bytes
+        # ueberschreiben; sonst blieben die Altwerte im Datenbankfile lesbar.
+        conn.execute("PRAGMA secure_delete=ON")
+        while True:
+            rows = conn.execute(
+                "SELECT * FROM cache WHERE (payload != '' AND substr(payload, 1, ?) != ?) OR "
+                "(label != '' AND substr(label, 1, ?) != ?) LIMIT 32",
+                (len(TEXT_PREFIX), TEXT_PREFIX, len(TEXT_PREFIX), TEXT_PREFIX),
+            ).fetchall()
+            if not rows:
+                break
+            for row in rows:
+                payload = row["payload"]
+                label = row["label"]
+                sealed = (payload if payload.startswith(TEXT_PREFIX)
+                          and self._open(payload, "cache.payload")
+                          else self._seal(payload, "cache.payload"))
+                # Ein alter Suchbegriff kann selbst mit "enc2:" anfangen.
+                # Nur ein authentifizierter Wert ist bereits verschluesselt.
+                title = (label if label.startswith(TEXT_PREFIX) and self._open(label, "cache.label")
+                         else self._seal(label, "cache.label"))
+                growth = max(0, len(sealed.encode()) + len(title.encode())
+                             - len(payload.encode()) - len(label.encode()))
+                keep = fits(self.db_path.parent, growth)
+                # DELETE statt UPDATE: SQLite laesst bei einem wachsenden
+                # UPDATE trotz secure_delete Reste in alten Overflow-Seiten.
+                conn.execute("DELETE FROM cache WHERE key=?", (row["key"],))
+                if keep:
+                    conn.execute("INSERT INTO cache VALUES (?, ?, ?, ?, ?, ?)",
+                                 (row["key"], row["kind"], title, sealed,
+                                  row["created_at"], row["expires_at"]))
+                    note_written(self.db_path.parent, growth)
+                # Ohne Platz entfaellt nur der Cache-Eintrag, nie ein Upload.
+        conn.execute("INSERT OR REPLACE INTO privacy_state VALUES ('cache', '1')")
+        return True
+
+    @contextmanager
+    def filling(self, key: str) -> Iterator[None]:
+        """Gleiche Cache-Misses teilen einen Abruf, verschiedene bleiben parallel.
+
+        Gilt fuer die Werkzeugkaesten, die diesen Profil-Cache teilen. Es
+        werden weder Ergebnisse noch Schluessel anderer Profile geteilt.
+        Nach dem Warten muss der Aufrufer den Cache erneut pruefen.
+        """
+        with self._fill_lock:
+            lock, users = self._fills.get(key, (threading.Lock(), 0))
+            self._fills[key] = (lock, users + 1)
+        try:
+            with lock:
+                yield
+        finally:
+            with self._fill_lock:
+                _, users = self._fills[key]
+                if users == 1:
+                    del self._fills[key]
+                else:
+                    self._fills[key] = (lock, users - 1)
 
     def _maybe_purge(self) -> None:
         """Raeumt Abgelaufenes weg -- hoechstens alle zehn Minuten je Datei (9.5.15).
@@ -221,7 +351,7 @@ class Cache:
                 cur.execute("DELETE FROM cache WHERE key = ?", (key,))
                 return None
             try:
-                return json.loads(row["payload"])
+                return json.loads(self._open(row["payload"], "cache.payload"))
             except json.JSONDecodeError:
                 return None
 
@@ -237,14 +367,15 @@ class Cache:
         """Legt *value* (JSON-serialisierbar) unter *key* ab."""
         now = time.time()
         ttl_seconds = self.ttl_seconds if ttl is None else max(0, ttl)
-        payload = json.dumps(value, ensure_ascii=False)
+        payload = self._seal(json.dumps(value, ensure_ascii=False), "cache.payload")
+        label = self._seal(label, "cache.label")
         # Der Zwischenspeicher zaehlt zum 400-MB-Deckel (aquaticy/budget.py).
         # Ist kein Platz, wird eben nicht zwischengespeichert -- das kostet
         # nur einen spaeteren zweiten Abruf, nie eine Antwort.
         from aquaticy.budget import fits, note_written
 
         self._maybe_purge()
-        groesse = len(payload.encode("utf-8"))
+        groesse = len(payload.encode("utf-8")) + len(label.encode("utf-8"))
         # Seit 9.5.34 ohne Aufraeumen: ein Zwischenspeicher-Eintrag ist es nicht
         # wert, Uploads zu loeschen. Passt er nicht, entfaellt er einfach.
         if not fits(self.db_path.parent, groesse):
@@ -379,42 +510,21 @@ class Cache:
         nach der ERSTEN Frage darin -- so wie man einen Ordner nach dem
         benennt, weswegen man ihn angelegt hat.
         """
-        query = """
-            SELECT session_id,
-                   MIN(id)   AS first_id,
-                   MAX(id)   AS last_id,
-                   COUNT(*)  AS turns,
-                   MAX(created_at) AS touched
-            FROM history
-            GROUP BY session_id
-            ORDER BY last_id DESC
-            LIMIT ?
-        """
-        ungelesen = self.unread_chats()
-        with self._connect() as conn, closing(conn.cursor()) as cur:
-            rows = cur.execute(query, (limit,)).fetchall()
-            chats = []
-            for row in rows:
-                first = cur.execute(
-                    "SELECT question FROM history WHERE id = ?", (row["first_id"],)
-                ).fetchone()
-                own = cur.execute(
-                    "SELECT title FROM chat_titles WHERE session_id = ?",
-                    (row["session_id"],),
-                ).fetchone()
-                title = self._open(own["title"] if own else "", "chat_titles.title").strip()
-                erste = self._open(first["question"] if first else "", "history.question")
-                chats.append(
-                    {
-                        "session_id": row["session_id"],
-                        "title": title or erste.strip(),
-                        "renamed": bool(title),
-                        "turns": int(row["turns"]),
-                        "touched": float(row["touched"] or 0.0),
-                        "unread": row["session_id"] in ungelesen,
-                    }
-                )
-        return chats
+        with self._connect() as conn, closing(conn.execute(
+            CHAT_SUMMARIES + " LIMIT ?", (max(0, int(limit)),),
+        )) as rows:
+            return [self._chat_summary(row) for row in rows]
+
+    def _chat_summary(self, row: sqlite3.Row) -> dict[str, Any]:
+        title = self._open(row["title"], "chat_titles.title").strip()
+        return {
+            "session_id": row["session_id"],
+            "title": title or self._open(row["question"], "history.question").strip(),
+            "renamed": bool(title),
+            "turns": int(row["turns"]),
+            "touched": float(row["touched"] or 0.0),
+            "unread": bool(row["unread"]),
+        }
 
     def search_chats(self, needle: str, limit: int = 30) -> list[dict[str, Any]]:
         """Chats, in denen *needle* vorkommt -- im Namen oder im Gespraech.
@@ -428,54 +538,36 @@ class Cache:
         jeden Treffer oeffnen, um zu sehen, warum er einer ist.
         """
         needle = " ".join(str(needle).split())
-        if not needle:
+        limit = max(0, int(limit))
+        if not needle or not limit:
             return []
-        # Seit 9.5.32 liegen Chats verschluesselt -- die Datenbank kann nicht
-        # mehr selbst suchen (LIKE). Gesucht wird hier, im entschluesselten Text,
-        # ohne Unterschied zwischen Gross- und Kleinschreibung.
+        # Neueste Chats zuerst pruefen und nach dem Trefferlimit aufhoeren.
+        # Cursor statt fetchall: weder Klartext noch verschluesselte Antworten
+        # des gesamten Profils muessen auf einmal im Arbeitsspeicher liegen.
         klein = needle.casefold()
-        ungelesen = self.unread_chats()
-        with self._connect() as conn, closing(conn.cursor()) as cur:
-            zeilen = cur.execute(
-                "SELECT id, session_id, created_at, question, answer FROM history ORDER BY id"
-            ).fetchall()
-            titel = {
-                str(z["session_id"]): self._open(z["title"], "chat_titles.title")
-                for z in cur.execute("SELECT session_id, title FROM chat_titles").fetchall()
-            }
-        chats: dict[str, dict[str, Any]] = {}
-        for zeile in zeilen:
-            sitzung = str(zeile["session_id"])
-            frage = self._open(zeile["question"], "history.question")
-            eintrag = chats.setdefault(sitzung, {
-                "first": frage, "last_id": 0, "turns": 0, "touched": 0.0, "stelle": None,
-            })
-            eintrag["last_id"] = int(zeile["id"])
-            eintrag["turns"] += 1
-            eintrag["touched"] = max(eintrag["touched"], float(zeile["created_at"] or 0.0))
-            if eintrag["stelle"] is None:
-                antwort = self._open(zeile["answer"], "history.answer")
-                if klein in frage.casefold() or klein in antwort.casefold():
-                    eintrag["stelle"] = {"question": frage, "answer": antwort}
-        treffer: list[dict[str, Any]] = []
-        for sitzung, eintrag in sorted(chats.items(), key=lambda kv: -kv[1]["last_id"]):
-            eigen = titel.get(sitzung, "").strip()
-            if eintrag["stelle"] is None and klein not in eigen.casefold():
-                continue
-            treffer.append(
-                {
-                    "session_id": sitzung,
-                    "title": eigen or str(eintrag["first"]).strip(),
-                    "renamed": bool(eigen),
-                    "turns": int(eintrag["turns"]),
-                    "touched": float(eintrag["touched"]),
-                    "unread": sitzung in ungelesen,
-                    "snippet": _snippet(eintrag["stelle"], needle) if eintrag["stelle"] else "",
-                }
-            )
-            if len(treffer) >= limit:
-                break
-        return treffer
+        matches: list[dict[str, Any]] = []
+        with self._connect() as conn, closing(conn.execute(CHAT_SUMMARIES)) as chats:
+            for row in chats:
+                snippet = ""
+                matched = False
+                title = self._open(row["title"], "chat_titles.title").strip()
+                with closing(conn.execute(
+                    "SELECT question, answer FROM history WHERE session_id=? ORDER BY id",
+                    (row["session_id"],),
+                )) as turns:
+                    for turn in turns:
+                        question = self._open(turn["question"], "history.question")
+                        answer = self._open(turn["answer"], "history.answer")
+                        if klein in question.casefold() or klein in answer.casefold():
+                            snippet = _snippet({"question": question, "answer": answer}, needle)
+                            matched = True
+                            break
+                if matched or klein in title.casefold():
+                    chat = self._chat_summary(row)
+                    matches.append({**chat, "snippet": snippet})
+                    if len(matches) >= limit:
+                        break
+        return matches
 
     def rename_chat(self, session_id: str, title: str) -> str:
         """Gibt einem Chat einen eigenen Namen. Leer = zurueck zur ersten Frage."""
@@ -565,4 +657,3 @@ class Cache:
         with self._connect() as conn, closing(conn.cursor()) as cur:
             cur.execute("DELETE FROM notes")
             return cur.rowcount
-

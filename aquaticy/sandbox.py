@@ -743,7 +743,11 @@ class Sandbox:
             *self._command(),
         ]
         started = _runs(runtime.binary, *args, timeout=300)
-        if started.returncode != 0 and "storage-opt" in started.stderr:
+        quota_unsupported = (
+            "storage-opt" in started.stderr
+            or "filesystem does not support, or has not enabled quotas" in started.stderr.lower()
+        )
+        if started.returncode != 0 and quota_unsupported:
             # Die Laufzeit kann keine Quote -- dann eben ohne, und der Platz
             # wird nach jedem Befehl nachgemessen.
             self._quota_ok = False
