@@ -5,7 +5,7 @@ Die Seiten beschreiben nur Verhalten, das im Code nachpruefbar ist.
 
 from __future__ import annotations
 
-LEGAL_VERSION = "2026-09-29.2"
+LEGAL_VERSION = "2026-10-04.1"
 LEGAL_ROUTES = ("/privacy", "/cookies", "/terms", "/accessibility")
 
 
@@ -18,7 +18,7 @@ Installation entscheidet, wo sie läuft und welche optionalen Dienste eingeschal
 <ul>
   <li><strong>Konto:</strong> Nutzername, E-Mail-Adresse, Tarif und Erstellungszeit.
     Das Passwort wird
-    mit scrypt, einem eigenen Salz und einem geheimen Serverwert gehasht; Klartextpasswörter
+    mit Argon2id, einem eigenen Salz und einem geheimen Serverwert gehasht; Klartextpasswörter
     werden nicht gespeichert.</li>
   <li><strong>Sitzung:</strong> zufällige Sitzungsschlüssel sowie Hashes aus IP-Adresse und
     Browserangaben. Diese Werte schützen die Anmeldung und werden nicht für Werbung
@@ -67,6 +67,32 @@ Die Einstellungsseite zeigt die aktive Auswahl. Für externe Anbieter gelten zus
 eigene Datenschutzhinweise.</p>
 <p>Aquaticy enthält keine Werbe-, Analyse- oder Tracking-SDKs und verkauft keine Nutzerdaten.</p>
 <h2>Speicherdauer und Kontrolle</h2>
+<h3>Freiwilliges gemeinsames Lernen</h3>
+<p>Nur mit deiner gesonderten Zustimmung unter Einstellungen → Gemeinsames Lernen
+kann Aquaticy passende kurze Auszüge aus bereits gelesenen öffentlichen Sachartikeln
+für spätere Chats aller Konten dieser Installation und ihres verbundenen Server-Verbunds
+speichern. Alte Datenschutz-Zustimmungen aktivieren dies nicht. Die App bleibt ohne diese
+freiwillige Zustimmung nutzbar. Es werden keine privaten Fragen, Antworten, Uploads,
+Erinnerungen, Kontonamen oder Chatkennungen als Lerntexte übernommen. Zurzeit sind nur
+ausgewählte Wikipedia-Sachartikel zu Mathematik, Naturwissenschaften und Informatik erlaubt.
+Personenangaben, erkennbare Geheimnisse und Anweisungen werden zusätzlich aussortiert.</p>
+<p>Gespeichert werden verschlüsselte Originalauszüge und ihre öffentliche Quellenadresse
+für höchstens 30 Tage zur Nutzung. Abgelaufene Auszüge werden beim nächsten Zugriff auf den
+Wissensspeicher gelöscht. Die Texte enthalten keinen Bezug zu deinem Chat. Für Widerruf und
+Löschung wird getrennt ein Schlüssel-Hash deines Kontos mit den Beiträgen verknüpft;
+diese Verwaltungsdaten sind pseudonym, nicht vollständig anonym. Aquaticy nutzt die Auszüge
+als ausdrücklich unvertrauenswürdiges Recherchematerial, trainiert damit keine Modellgewichte
+und sendet sie beim Beantworten passender Fragen an den dafür ausgewählten Modellanbieter.
+Öffentliche Quellen können Fehler enthalten; wichtige Angaben müssen erneut geprüft werden.</p>
+<p>Du kannst die Zustimmung jederzeit dort widerrufen. Das stoppt neue Übernahmen und
+entfernt deine Beitragszuordnung. Ein Auszug wird gelöscht, wenn kein anderes zustimmendes
+Konto denselben öffentlichen Auszug unabhängig beigetragen hat. „Alle Daten löschen“ und
+„Konto löschen“ widerrufen ebenfalls die Zustimmung und entfernen deine Beiträge.
+Der Server-Verbund übernimmt Löschungen beim nächsten erfolgreichen Abgleich; dessen
+verschlüsseltes Änderungsprotokoll wird nach seiner vorhandenen Aufbewahrungsfrist bereinigt.
+Bereits in Antworten anderer Konten verwendete öffentliche Auszüge und Sicherungen lassen
+sich dadurch nicht nachträglich entfernen. Änderungen dieser Erklärung erfordern eine
+neue ausdrückliche Zustimmung.</p>
 <p>Sitzungen laufen nach 30 Tagen ab. Alte Werkstätten werden nach ihrer Leerlaufzeit entfernt.
 Chats, Uploads, Erinnerungen und Aufträge bleiben bis zum Löschen durch den Nutzer oder
 Betreiber erhalten. In der Web-App kannst du Chats einzeln entfernen, Uploads leeren und

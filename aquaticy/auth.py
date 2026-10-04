@@ -407,6 +407,11 @@ class AuthStore:
         #: Das Geheimnis fuer den Schluesselbund -- erst geladen, wenn es gebraucht wird.
         self._vault_secret: bytes | None = None
         self._setup()
+        from aquaticy.learning import Learning
+
+        # Install before cluster triggers: this store participates in the same
+        # authenticated account-database replication as consent and deletions.
+        Learning(self.data_dir)
 
     def _load_pepper(self) -> bytes:
         path = self.data_dir / "auth.key"
@@ -1184,7 +1189,12 @@ class AuthStore:
         profile = self.profile_dir(account.id)
         if profile.is_symlink():
             raise ValueError("Das Kontoprofil ist ein symbolischer Link; nichts gelöscht.")
+        from aquaticy.learning import Learning
+
+        learning = Learning(profile)
         with self._lock, self._connect() as conn:
+            conn.execute("BEGIN IMMEDIATE")
+            learning.forget(conn)
             for table, column in (("account_devices", "user_id"),
                                   ("account_events", "user_id"),
                                   ("api_keys", "account_id")):
@@ -1202,10 +1212,14 @@ class AuthStore:
         profile = self.profile_dir(account.id)
         if profile.is_symlink():
             raise ValueError("Das Kontoprofil ist ein symbolischer Link; Löschung abgebrochen.")
+        from aquaticy.learning import Learning
+
+        learning = Learning(profile)
         with self._lock, self._connect() as conn:
             conn.execute("BEGIN IMMEDIATE")
             if conn.execute("DELETE FROM users WHERE id=?", (account.id,)).rowcount != 1:
                 raise ValueError("Das Konto existiert nicht mehr.")
+            learning.forget(conn)
             for table, column in (("token_usage", "account_id"),
                                   ("token_sessions", "account_id"),
                                   ("aiguard_flags", "user_id"),

@@ -1353,7 +1353,13 @@ input:focus-visible,select:focus-visible,.side-search input:focus-visible,
       <li>Name, E-Mail, Einstellungen und Chats gehören nur zu deinem Konto. Andere sehen davon nichts.</li>
       <li>Keine Werbung, kein Tracking.</li>
     </ul>
-    <p>Wenn du ablehnst, wird nichts gespeichert — dann kannst du Aquaticy hier aber nicht nutzen.</p>
+    <label><input type="checkbox" id="consent-learning">
+      Freiwillig: Öffentliche Quellenauszüge für das gemeinsame Lernen nutzen.</label>
+    <p class="note">Nur kurze Auszüge aus ausgewählten Sachartikeln, keine privaten Chats.
+      Das hilft späteren Chats aller Konten dieser Installation. Jederzeit unter
+      Einstellungen → Gemeinsames Lernen widerrufbar. Aquaticy funktioniert auch ohne diesen Haken.</p>
+    <p>Wenn du die notwendigen Angaben ablehnst, kannst du Aquaticy hier nicht nutzen.
+      Die freiwillige Lern-Zustimmung kannst du unabhängig davon weglassen.</p>
     <nav class="auth-legal" aria-label="Rechtliche Informationen">
       <a href="/privacy" target="_blank" rel="noopener">Datenschutz</a>
       <a href="/cookies" target="_blank" rel="noopener">Cookies</a>
@@ -1881,6 +1887,20 @@ input:focus-visible,select:focus-visible,.side-search input:focus-visible,
           </div>
         </div>
       </fieldset>
+      <fieldset><legend>Gemeinsames Lernen</legend>
+        <label class="check"><input type="checkbox" role="switch" class="schalter"
+            id="learning-enabled" disabled>
+          Ich stimme der Nutzung öffentlicher Quellenauszüge als Lerntexte zu.</label>
+        <p class="note">Aquaticy übernimmt nur kurze Originalauszüge aus ausgewählten öffentlichen
+          Sachartikeln, keine privaten Fragen, Antworten, Uploads oder Erinnerungen. Die Auszüge
+          helfen allen Konten dieser Installation und ihres Server-Verbunds für höchstens 30 Tage.
+          Sie können Fehler enthalten. Modellgewichte werden nicht trainiert.</p>
+        <p class="note">Für die Löschung bleibt eine pseudonyme Beitragszuordnung gespeichert.
+          Ausschalten widerruft die Zustimmung und entfernt deine Beiträge. Von anderen Konten
+          unabhängig beigetragene identische Auszüge bleiben erhalten.</p>
+        <a href="/privacy" target="_blank" rel="noopener">Details zum Datenschutz</a>
+        <p class="note" id="learning-status" role="status" aria-live="polite"></p>
+      </fieldset>
       <fieldset><legend>Modell</legend>
         <label><span class="lbl">Hauptmodell <span class="why">Welche KI dir antwortet. Schreibweise: Anbieter/Name, z. B. mistral/mistral-large-latest</span></span>
           <input type="text" name="AQUATICY_MODEL" placeholder="ollama_chat/gemma4:12b"></label>
@@ -2403,7 +2423,7 @@ document.querySelectorAll(".note").forEach((note) => {
 const thread = $("#thread"), main = $("#main"), input = $("#input"), send = $("#send");
 let busy = false;
 let currentChat = "";
-const aquaticyVersion = window.__AQUATICY_VERSION__ || "9.6.6 Luna";
+const aquaticyVersion = window.__AQUATICY_VERSION__ || "9.6.7 Luna";
 $("#version").textContent = "v" + aquaticyVersion;
 // Interne oder Test-Fassung (9.6.0): unten mittig ein gelber Hinweis.
 const aquaticyIntern = window.__AQUATICY_INTERNAL__ === true
@@ -2677,6 +2697,7 @@ function api(path, options = {}){
 const authGate = $("#auth-gate"), consentCard = $("#consent-card");
 const loginCard = $("#login-card"), leaveCard = $("#leave-card");
 let authMode = "register";
+let learningVersion = "";
 
 function showAuth(card){
   [consentCard, loginCard, leaveCard].forEach(item => { item.hidden = item !== card; });
@@ -2766,6 +2787,8 @@ $("#auth-form").addEventListener("submit", async (event) => {
       ? $("#auth-pro-code").value.trim()
       : $("#auth-pro-code").value.trim().toUpperCase()),
     terms_accepted: authMode === "register" && $("#auth-terms").checked,
+    learning_accepted: $("#consent-learning").checked,
+    learning_version: learningVersion,
     device: geraeteInfo(),
   };
   try {
@@ -2780,6 +2803,7 @@ $("#auth-form").addEventListener("submit", async (event) => {
 async function bootAuth(){
   try {
     const state = await (await api("/api/auth/status")).json();
+    learningVersion = state.learning_version || "";
     if (!state.consent){ showAuth(consentCard); return; }
     if (!state.authenticated){ setAuthMode("register"); showAuth(loginCard); return; }
     currentUsername = state.account?.username || "";
@@ -3553,6 +3577,28 @@ function wiederholenKnopf(bubble, text){
 // Eine laufende Anfrage mitlesen -- egal, ob sie gerade gestellt wurde oder
 // ob wir uns an eine anhaengen, die schon laeuft. `hole` liefert die Antwort
 // des Servers; alles danach ist fuer beide Wege dasselbe.
+function streamRenderer(bubble, readText, active){
+  let frame = null;
+  function cancel(){
+    if (frame !== null) cancelAnimationFrame(frame);
+    frame = null;
+  }
+  function paint(cursor){
+    if (!active()) return;
+    bubble.innerHTML = md(readText() || (cursor ? "" : "(keine Antwort)"))
+      + (cursor ? '<span class="cursor"></span>' : "");
+    scroll();
+  }
+  return {
+    cancel,
+    schedule(){
+      if (frame !== null) return;
+      frame = requestAnimationFrame(() => { frame = null; paint(true); });
+    },
+    flush(){ cancel(); paint(false); },
+  };
+}
+
 async function verfolge(hole, steps, bubble, text){
   const view = chatView;
   // `thoughtLine` gehoert hier hoch und nicht zu seiner Funktion: die
@@ -3561,6 +3607,8 @@ async function verfolge(hole, steps, bubble, text){
   // bewusst keinen Schalternamen: eine gleichnamige lokale Variable verdeckte
   // hier einmal den Schalter, der dann als `null` beim Server ankam.
   let answer = "", reading = null, readCount = 0, planning = null, thoughtLine = null;
+  let completed = false;
+  const renderer = streamRenderer(bubble, () => answer, () => view === chatView);
   // Die Zeile, die sagt, dass das Modell erst in den Speicher muss. Sie wird
   // spaeter nicht entfernt, sondern umgeschrieben: dass gewartet wurde,
   // gehoert zum Protokoll dieser Anfrage.
@@ -3615,7 +3663,9 @@ async function verfolge(hole, steps, bubble, text){
         handle(ev);
       }
     }
+    if (!completed && answer) renderer.flush();
   } catch (err){
+    renderer.cancel();
     if (view !== chatView) return;
     // Ein abgerissener Strom ist etwas anderes als ein Programmfehler: die
     // Recherche laeuft auf dem Rechner weiter, nur die Leitung ist weg.
@@ -3643,6 +3693,8 @@ async function verfolge(hole, steps, bubble, text){
     }
     if (answer) bubble.innerHTML = md(answer);
     if (!(err && err.gezeigt)) wiederholenKnopf(bubble, text);
+  } finally {
+    renderer.cancel();
   }
 
   // Denkschritte kommen tokenweise. Jedes Token als eigene Zeile waere
@@ -3929,23 +3981,26 @@ async function verfolge(hole, steps, bubble, text){
         // Text vor einem Werkzeugaufruf ist keine Antwort (9.6.0): er war schon
         // als Antwort gestreamt -- jetzt wird er zur Zwischennachricht.
         answer = "";
+        renderer.cancel();
         bubble.innerHTML = "";
         ablauf.zwischen(ev.text || "");
         break;
       case "chunk":
         ablauf.antwortKommt();
         answer += ev.text;
-        bubble.innerHTML = md(answer) + '<span class="cursor"></span>'; scroll(); break;
+        renderer.schedule(); break;
       // Aquaticy hat gemerkt, dass seine Antwort nur eine Frage war, und setzt
       // neu an. Was schon dasteht, ist damit hinfaellig -- bliebe es stehen,
       // klebte die Frage ueber der Antwort, die gleich kommt.
       case "answer_reset":
         answer = "";
+        renderer.cancel();
         bubble.innerHTML = '<span class="cursor"></span>';
         break;
       case "done":
         ablauf.ende();
-        bubble.innerHTML = md(answer || "(keine Antwort)");
+        renderer.flush();
+        completed = true;
         renderResultMedia(bubble, ev.products, ev.visuals);
         answerTools(bubble, answer, text);
         scroll(); loadRecents(); break;
@@ -4326,6 +4381,19 @@ try {
    Chat-Titel, Gemerktes), bleibt unangetastet: das sind Inhalte, keine
    Bedienelemente. Gespeichert wird die Wahl am Konto, wie das Design. */
 const EN = {
+"Gemeinsames Lernen kannst du während einer Kontosperre nur ausschalten.": "During an account suspension, you can only turn off shared learning.",
+"Wenn du die notwendigen Angaben ablehnst, kannst du Aquaticy hier nicht nutzen. Die freiwillige Lern-Zustimmung kannst du unabhängig davon weglassen.": "If you decline the necessary information, you cannot use Aquaticy here. The optional learning consent is independent of that.",
+"Gemeinsames Lernen": "Shared learning",
+"Freiwillig: Öffentliche Quellenauszüge für das gemeinsame Lernen nutzen.": "Optional: use public source excerpts for shared learning.",
+"Nur kurze Auszüge aus ausgewählten Sachartikeln, keine privaten Chats. Das hilft späteren Chats aller Konten dieser Installation. Jederzeit unter Einstellungen → Gemeinsames Lernen widerrufbar. Aquaticy funktioniert auch ohne diesen Haken.": "Only short excerpts from selected factual articles, without private chats. This helps later chats of all accounts on this installation. You can withdraw under Settings → Shared learning at any time. Aquaticy also works without this checkbox.",
+"Ich stimme der Nutzung öffentlicher Quellenauszüge als Lerntexte zu.": "I agree to the use of public source excerpts as learning texts.",
+"Aquaticy übernimmt nur kurze Originalauszüge aus ausgewählten öffentlichen Sachartikeln, keine privaten Fragen, Antworten, Uploads oder Erinnerungen. Die Auszüge helfen allen Konten dieser Installation und ihres Server-Verbunds für höchstens 30 Tage. Sie können Fehler enthalten. Modellgewichte werden nicht trainiert.": "Aquaticy uses only short original excerpts from selected public factual articles, without private questions, answers, uploads or memories. These excerpts help all accounts on this installation and its server cluster for up to 30 days. They may contain errors. Model weights are not trained.",
+"Für die Löschung bleibt eine pseudonyme Beitragszuordnung gespeichert. Ausschalten widerruft die Zustimmung und entfernt deine Beiträge. Von anderen Konten unabhängig beigetragene identische Auszüge bleiben erhalten.": "A pseudonymous contribution record is retained for deletion. Switching this off withdraws consent and removes your contributions. Identical excerpts contributed independently by other accounts remain.",
+"Details zum Datenschutz": "Privacy details",
+"Gemeinsames Lernen ist gerade nicht erreichbar.": "Shared learning is currently unavailable.",
+"Zustimmung gespeichert. Nur neue Chatschritte können beitragen.": "Consent saved. Only new chat turns can contribute.",
+"Zustimmung widerrufen und eigene Beiträge entfernt.": "Consent withdrawn and your contributions removed.",
+"Speichern fehlgeschlagen.": "Saving failed.",
 "Die Sicherheitsangaben lassen sich gerade nicht laden.": "Your security details cannot be loaded right now.",
 "Schriftgröße": "Font size",
 "Klein": "Small",
@@ -5534,6 +5602,7 @@ $("#btn-settings").addEventListener("click", async () => {
   api("/api/memory").then(r => r.json()).then(d => showStorage(d.usage)).catch(() => {});
   loadUsage();
   loadAccount(cfg.account);
+  loadLearning();
   $("#job-note").textContent = "";
   jobFelder();
   loadJobs();
@@ -5554,6 +5623,40 @@ $("#btn-settings").addEventListener("click", async () => {
   $("#savenote").textContent = ""; $("#savenote").className = "note";
   $("#ha-note").textContent = ""; $("#ha-note").className = "note";
   openOverlay(overlay);
+});
+
+async function loadLearning(){
+  const control = $("#learning-enabled"), status = $("#learning-status");
+  control.disabled = true;
+  try {
+    const res = await api("/api/learning");
+    if (!res.ok) throw new Error();
+    const data = await res.json();
+    learningVersion = data.version;
+    control.checked = data.enabled === true;
+    status.textContent = sprache === "en"
+      ? `${data.contributions || 0} public source excerpts contributed by you.`
+      : `${data.contributions || 0} eigene öffentliche Quellenauszüge.`;
+    control.disabled = false;
+  } catch { status.textContent = "Gemeinsames Lernen ist gerade nicht erreichbar."; }
+}
+$("#learning-enabled").addEventListener("change", async (event) => {
+  const control = event.target, enabled = control.checked;
+  control.disabled = true;
+  try {
+    const res = await api("/api/learning", {method:"POST",
+      headers:{"Content-Type":"application/json"},
+      body:JSON.stringify({enabled, version:learningVersion})});
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error || "Speichern fehlgeschlagen.");
+    control.checked = data.enabled === true;
+    $("#learning-status").textContent = enabled
+      ? "Zustimmung gespeichert. Nur neue Chatschritte können beitragen."
+      : "Zustimmung widerrufen und eigene Beiträge entfernt.";
+  } catch (err) {
+    control.checked = !enabled;
+    $("#learning-status").textContent = String(err.message || err);
+  } finally { control.disabled = false; }
 });
 
 async function loadAccount(account){

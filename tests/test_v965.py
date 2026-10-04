@@ -84,11 +84,11 @@ def parallel_site(tmp_path, monkeypatch):
     url = f"http://127.0.0.1:{server.server_port}"
     client = httpx.Client(base_url=url, trust_env=False, timeout=5,
                          headers={"User-Agent": "Parallel-Test", "Accept-Language": "de-DE"})
-    client.post("/api/consent", json={"accepted": True})
-    response = client.post("/api/auth/login", json={"email": account.email,
-                                                  "password": "parallel-test-passwort"})
-    assert response.status_code == 200
     try:
+        client.post("/api/consent", json={"accepted": True})
+        response = client.post("/api/auth/login", json={"email": account.email,
+                                                      "password": "parallel-test-passwort"})
+        assert response.status_code == 200
         yield client, gates, started, made, account, url
     finally:
         for gate in gates.values():

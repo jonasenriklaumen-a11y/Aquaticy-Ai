@@ -3396,9 +3396,10 @@ def test_no_plain_checkbox_is_left_over() -> None:
     html = web.UI_FILE.read_text(encoding="utf-8")
     roh = html.count('<input type="checkbox"')
     angezogen = html.count('<input type="checkbox" role="switch" class="schalter"')
-    assert roh == angezogen + 2
+    assert roh == angezogen + 3
     assert '<input type="checkbox" id="auth-terms" required>' in html
     assert '<input type="checkbox" id="job-struktur" checked>' in html
+    assert '<input type="checkbox" id="consent-learning">' in html
 
 
 # ---------------------------------------------------------------------------

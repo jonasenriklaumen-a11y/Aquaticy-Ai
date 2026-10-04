@@ -1,8 +1,25 @@
-# Aquaticy AI 9.6.6 Luna
+# Aquaticy AI 9.6.7 Luna
 
 **Aquaticy** recherchiert für dich. Du stellst eine Frage, Aquaticy sucht im Web, liest die
 passenden Seiten und fasst das Ergebnis zusammen — mit Quelle an jeder Angabe. Es läuft im
 Terminal, im Browser und auf dem Handy.
+
+Seit **9.6.7 Luna** werden Streaming-Antworten pro Bildschirmaktualisierung gebündelt
+als Markdown dargestellt. Funktionen, Maskierung und Sicherheitsrücknahmen bleiben erhalten.
+Unter **Einstellungen → Gemeinsames Lernen** kannst du zusätzlich freiwillig zustimmen,
+dass Aquaticy passende kurze Originalauszüge aus bereits gelesenen öffentlichen Sachartikeln
+für spätere Chats aller Konten dieser Installation und ihres Server-Verbunds übernimmt.
+Alte Datenschutz-Zustimmungen schalten dies nicht ein. Private Chattexte werden nicht geteilt;
+die Modellgewichte werden nicht trainiert. Zurzeit sind ausgewählte Wikipedia-Sachartikel zu
+Mathematik, Naturwissenschaften und Informatik erlaubt. Quellen und Texte sind verschlüsselt,
+die Suche verwendet Schlüssel-Hashes. Auszüge bleiben höchstens 30 Tage und werden als
+unvertrauenswürdiges, möglicherweise fehlerhaftes Recherchematerial behandelt. Für Widerruf und
+Löschung bleibt eine pseudonyme Beitragszuordnung bestehen. Ausschalten sowie Konto- oder
+Datenlöschung entfernt eigene Beiträge; identische, unabhängig von anderen Konten beigetragene
+Auszüge bleiben erhalten. Bereits erzeugte Antworten und Sicherungen werden nicht rückwirkend
+geändert. Abgelaufene Auszüge werden beim nächsten Zugriff gelöscht; Löschungen im Verbund
+gelten nach dessen erfolgreichem Abgleich. Details stehen im Datenschutzhinweis und im Prüfbericht.
+
 
 ```
 $ aquaticy
@@ -29,6 +46,7 @@ $ aquaticy
 
 - [Was Aquaticy kann](#was-aquaticy-kann)
 - [Quickstart](#quickstart)
+- [Prüfbericht zu 9.6.7 Luna](TESTREPORT-9.6.7.md)
 - [Prüfbericht zu 9.6.6 Luna](TESTREPORT-9.6.6.md)
 - [Installation im Detail](#installation-im-detail)
 - [Benutzung im Terminal](#benutzung-im-terminal)
@@ -121,7 +139,7 @@ $ aquaticy
 git clone --branch Aquaticy-ai --single-branch https://github.com/jonasenriklaumen-a11y/Aquaticy-Ai.git
 cd Aquaticy-Ai
 uv tool install --force --reinstall .
-aquaticy --version            # 9.6.6 Luna
+aquaticy --version            # 9.6.7 Luna
 
 # 2. Einrichten — fragt nach Modell und Schlüssel und testet beide
 aquaticy setup

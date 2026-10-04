@@ -486,6 +486,7 @@ POST_WHEN_BANNED = frozenset({
     # Das eigene Konto verwalten geht immer -- auch gesperrt (9.5.32).
     "/api/account/delete", "/api/account/wipe", "/api/account/password",
     "/api/account/logout-all", "/api/account/events-seen",
+    "/api/learning",  # withdrawal must remain available to suspended accounts
 })
 #: Konto verwalten (9.5.32): Daten loeschen, Konto loeschen, Passwort, Sitzungen.
 ACCOUNT_ROUTES = frozenset({
@@ -1208,6 +1209,9 @@ class ChatSession:
             settings = self.settings()
             cache = Cache(settings.db_path, settings.cache_ttl_hours)
             self._agent = Agent(settings, cache=cache)
+            from aquaticy.learning import Learning
+
+            self._agent.learning = Learning(settings.data_dir)
             # Ein neu gebauter Agent faengt sonst einen neuen Chat an -- und
             # das Modell zu wechseln haette das laufende Gespraech mitten
             # entzweigeschnitten: die naechste Frage stuende als eigener
@@ -3947,6 +3951,7 @@ class Handler(BaseHTTPRequestHandler):
             self._json(
                 {
                     "consent": self._cookie(CONSENT_COOKIE) == "yes",
+                    "learning_version": LEGAL_VERSION,
                     "authenticated": account is not None,
                     "account": (
                         {"email": account.email, "username": account.username,
@@ -3954,6 +3959,10 @@ class Handler(BaseHTTPRequestHandler):
                     ),
                 }
             )
+        elif route == "/api/learning":
+            from aquaticy.learning import Learning
+
+            self._json(Learning(SESSION.settings().data_dir).status())
         elif route == "/api/media":
             query = parse_qs(urlsplit(self.path).query)
             media_id = (query.get("id") or [""])[0].strip()
@@ -4267,7 +4276,7 @@ class Handler(BaseHTTPRequestHandler):
             self._json({"error": "Die Herkunft der Anfrage stimmt nicht."}, 403)
             return
         if route == "/api/consent":
-            accepted = bool(self._read_json(limit=AUTH_BODY_BYTES).get("accepted"))
+            accepted = self._read_json(limit=AUTH_BODY_BYTES).get("accepted") is True
             if not accepted:
                 self._json_cookie(
                     {"ok": False, "leave": True}, CONSENT_COOKIE, "", 0, status=403
@@ -4391,6 +4400,13 @@ class Handler(BaseHTTPRequestHandler):
             with contextlib.suppress(Exception):
                 start_user_scheduler(account)
             token = AUTH.create_session(account, self._device(), self._client_ip())
+            if (payload.get("learning_accepted") is True
+                    and payload.get("learning_version") == LEGAL_VERSION
+                    and (AIGUARD is None or AIGUARD.is_banned(
+                        user_id=account.id, ip=self._client_ip()) is None)):
+                from aquaticy.learning import Learning
+
+                Learning(AUTH.profile_dir(account.id)).set_consent(True, LEGAL_VERSION)
             self._json_cookie(
                 {"ok": True, "account": {"email": account.email,
                   "username": account.username, "plan": account.plan}},
@@ -4413,6 +4429,24 @@ class Handler(BaseHTTPRequestHandler):
         elif route == "/api/linked":
             antwort, status = linked_action(self._read_json(limit=AUTH_BODY_BYTES))
             self._json(antwort, status)
+        elif route == "/api/learning":
+            from aquaticy.learning import Learning
+
+            payload = self._read_json(limit=AUTH_BODY_BYTES)
+            account = self._account()
+            if (payload.get("enabled") is True and AIGUARD is not None
+                    and account is not None and AIGUARD.is_banned(
+                        user_id=account.id, ip=self._client_ip()) is not None):
+                self._json({"error": "Gemeinsames Lernen kannst du während einer "
+                            "Kontosperre nur ausschalten."}, 403)
+                return
+            try:
+                state = Learning(SESSION.settings().data_dir).set_consent(
+                    payload.get("enabled"), str(payload.get("version", "")))
+            except ValueError as exc:
+                self._json({"error": str(exc)}, 400)
+                return
+            self._json({"ok": True, **state})
         elif route == "/api/chat":
             self._chat()
         elif route == "/api/clear":
