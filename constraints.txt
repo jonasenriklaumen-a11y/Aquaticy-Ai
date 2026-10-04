@@ -1,4 +1,4 @@
-# Aquaticy 9.6.7 Terra -- feste Abhaengigkeiten fuer reproduzierbare Builds.
+# Aquaticy 9.6.7 Terra v2 -- feste Abhaengigkeiten fuer reproduzierbare Builds.
 #
 # Reproduzierbar installieren:
 #   pip install -c constraints.txt -e ".[browser,dev]"

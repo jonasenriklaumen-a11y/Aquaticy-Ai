@@ -19,6 +19,8 @@ from aquaticy.learning import _INSTRUCTIONS, words
 LIFETIME = 2 * 86400
 MAX_OWN = 100
 MAX_TOTAL = 2000
+MAX_CONTEXT_POINTS = 12
+MAX_CONTEXT_CHARS = 3200
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS research_facts (
     owner TEXT NOT NULL, id TEXT NOT NULL, text TEXT NOT NULL, source TEXT NOT NULL,
@@ -79,6 +81,29 @@ def safe_text(text: str, private: set[str] | None = None) -> bool:
                    for p in private or () if len(p) >= 3)
 
 
+def sentences(body: str) -> list[str]:
+    """Keep dates, initials, decimal values and common abbreviations intact.
+
+    Only existing source sentences are used. No generated summaries, clause
+    chopping or ellipses that could discard a qualification or negation.
+    """
+    if "\ue000" in body[:48000]:
+        return []  # Never reinterpret a source-supplied control/private-use marker.
+    def protect(match):
+        return match[0].replace(".", "\ue000")
+    protected = re.sub(
+        r"\b(?:[A-ZÄÖÜ]|Dr|Prof|Mr|Mrs|Ms|bzw|ca|vgl|z|B|d|h)\.(?=\s)",
+        protect, body[:48000],
+    )
+    protected = re.sub(
+        r"\b(?:[12]?\d|3[01])\.(?=\s*(?:Januar|Februar|März|April|Mai|Juni|Juli|"
+        r"August|September|Oktober|November|Dezember|January|February|March|May|June|"
+        r"July|October|December)\b)", protect, protected,
+    )
+    return [part.replace("\ue000", ".")
+            for part in re.split(r"(?<=[.!?])\s+|\n+", protected)[:300]]
+
+
 class ResearchCache:
     def __init__(self, store):
         self.store = store
@@ -115,6 +140,7 @@ class ResearchCache:
             return 0
         query, used = words(question[:8000]), words(answer[:30000])
         candidates = []
+        seen = set()
         for url, body in pages[:6]:
             if not source_url(url) or suspicious(body):
                 continue
@@ -122,16 +148,18 @@ class ResearchCache:
             # unrelated people merely mentioned in a researched article.
             if not matches_subject(url, query):
                 continue
-            for sentence in re.split(r"(?<=[.!?])\s+|\n+", body[:48000])[:300]:
+            if len(words(body[:48000]) & used) < 3:
+                continue  # The successful answer must actually concern this source.
+            for sentence in sentences(body):
                 if clean_text(sentence) != sentence:
                     continue
-                text = " ".join(sentence.split())
-                terms = words(text)
-                if safe_text(text, private) and terms & query and len(terms & used) >= 3:
+                text = re.sub(r"^[-•*]\s+", "", " ".join(sentence.split()))
+                if safe_text(text, private) and (text, url) not in seen:
                     candidates.append((text, url))
-                if len(candidates) >= 3:
+                    seen.add((text, url))
+                if len(candidates) >= MAX_OWN:
                     break
-            if len(candidates) >= 3:
+            if len(candidates) >= MAX_OWN:
                 break
         if not candidates:
             return 0
@@ -157,12 +185,14 @@ class ResearchCache:
                                 (store.owner, key)).fetchone():
                     continue  # Repeated questions do not extend the original deadline.
                 conn.execute("INSERT INTO research_facts VALUES (?,?,?,?,?,?)",
-                             (store.owner, key, store.secrets.seal(text, "research-text:" + key),
+                             (store.owner, key, store.secrets.seal("- " + text,
+                                                                  "research-text:" + key),
                               store.secrets.seal(url, "research-source:" + key),
                               now, now + LIFETIME))
                 conn.executemany("INSERT INTO research_terms VALUES (?,?,?)",
                                  [(store.owner, store.secrets.blind("research-term", word), key)
-                                  for word in sorted(words(text))[:80]])
+                                  for word in sorted(words(text) | words(
+                                      unquote(urlsplit(url).path[6:]).replace("_", " ")))[:80]])
                 own += 1
                 total += 1
                 count += 1
@@ -187,17 +217,31 @@ class ResearchCache:
                 "JOIN research_facts f ON f.owner=t.owner AND f.id=t.fact "
                 "WHERE t.owner=? AND t.term IN (" + ",".join("?" for _ in hashes) + ") "
                 "AND f.expires>? AND f.created+?>? GROUP BY f.id "
-                "ORDER BY COUNT(*) DESC,f.created DESC,f.id LIMIT 3",
-                (store.owner, *hashes, now, LIFETIME, now)).fetchall()
+                "ORDER BY COUNT(*) DESC,f.created DESC,f.id LIMIT ?",
+                (store.owner, *hashes, now, LIFETIME, now, MAX_OWN)).fetchall()
         result = []
+        characters = 0
         for key, sealed, source, created, expires in rows:
             text = store.secrets.open(sealed, "research-text:" + key)
             url = store.secrets.open(source, "research-source:" + key)
+            # Old Terra rows keep their identifiers and original expiry. New
+            # rows store the bullet marker; its removal must still authenticate.
+            valid = secrets.compare_digest(key, store.secrets.blind(
+                "research-fact", store.owner + "\n" + url + "\n" + text))
+            if not valid and text.startswith("- "):
+                text = text[2:]
+                valid = secrets.compare_digest(key, store.secrets.blind(
+                    "research-fact", store.owner + "\n" + url + "\n" + text))
             if (min(expires, created + LIFETIME) > time.time() and safe_text(text)
                     and source_url(url) and matches_subject(url, set(terms))
-                    and secrets.compare_digest(key, store.secrets.blind(
-                        "research-fact", store.owner + "\n" + url + "\n" + text))):
-                result.append({"text": text, "source": url})
+                    and valid):
+                bullet = "- " + re.sub(r"^[-•*]\s+", "", text)
+                if characters + len(bullet) > MAX_CONTEXT_CHARS:
+                    continue
+                result.append({"text": bullet, "source": url})
+                characters += len(bullet)
+                if len(result) >= MAX_CONTEXT_POINTS:
+                    break
         return result
 
 

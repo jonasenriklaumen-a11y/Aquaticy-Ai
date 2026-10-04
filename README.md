@@ -1,10 +1,21 @@
-# Aquaticy AI 9.6.7 Terra
+# Aquaticy AI 9.6.7 Terra v2
 
 **Aquaticy** recherchiert für dich. Du stellst eine Frage, Aquaticy sucht im Web, liest die
 passenden Seiten und fasst das Ergebnis zusammen — mit Quelle an jeder Angabe. Es läuft im
 Terminal, im Browser und auf dem Handy.
 
-Neu in **9.6.7 Terra**: Mit aktueller freiwilliger Zustimmung unter
+Neu in **9.6.7 Terra v2**: Der Recherchecache speichert zulässige Aussagen der
+recherchierten öffentlichen Quellentexte als einzelne kurze **Stichpunkte mit Quelle**.
+Die Auswahl ist nicht mehr auf drei Aussagen oder nur die bereits in der ersten Antwort
+verwendeten Informationen beschränkt. Auch weitere Aussagen zum recherchierten Thema
+werden erfasst. Datenschutzfilter und Grenzen bleiben bestehen: 100 Stichpunkte pro
+Konto, 2.000 insgesamt, höchstens 400 Zeichen Quellentext pro Punkt. Pro Recherche werden
+höchstens sechs Artikel mit jeweils 48.000 Zeichen beziehungsweise 300 Sätzen geprüft.
+Beim Abruf werden höchstens zwölf passende Punkte mit zusammen 3.200 Zeichen ergänzt.
+Datumsangaben und gängige Abkürzungen werden bei der Satzzerlegung zusammengehalten.
+Bestehende Cache-Einträge behalten ihre ursprüngliche 48-Stunden-Frist.
+
+Seit **9.6.7 Terra**: Mit aktueller freiwilliger Zustimmung unter
 **Einstellungen → Gemeinsames Lernen** merkt sich Aquaticy zusätzlich kurze öffentliche
 Schlüsselinformationen aus Wikipedia-Artikeln, auch über Personen, in deinem eigenen Konto.
 Dieser getrennte, verschlüsselte Recherchecache ist höchstens **48 Stunden** nutzbar;
@@ -57,6 +68,7 @@ $ aquaticy
 
 - [Was Aquaticy kann](#was-aquaticy-kann)
 - [Quickstart](#quickstart)
+- [Prüfbericht zu 9.6.7 Terra v2](TESTREPORT-9.6.7-Terra-v2.md)
 - [Prüfbericht zu 9.6.7 Terra](TESTREPORT-9.6.7-Terra.md)
 - [Prüfbericht zu 9.6.7 Luna](TESTREPORT-9.6.7.md)
 - [Prüfbericht zu 9.6.6 Luna](TESTREPORT-9.6.6.md)
@@ -151,7 +163,7 @@ $ aquaticy
 git clone --branch Aquaticy-ai --single-branch https://github.com/jonasenriklaumen-a11y/Aquaticy-Ai.git
 cd Aquaticy-Ai
 uv tool install --force --reinstall .
-aquaticy --version            # 9.6.7 Terra
+aquaticy --version            # 9.6.7 Terra v2
 
 # 2. Einrichten — fragt nach Modell und Schlüssel und testet beide
 aquaticy setup

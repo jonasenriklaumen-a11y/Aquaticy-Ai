@@ -5,7 +5,7 @@ Die Seiten beschreiben nur Verhalten, das im Code nachpruefbar ist.
 
 from __future__ import annotations
 
-LEGAL_VERSION = "2026-10-04.2"
+LEGAL_VERSION = "2026-10-04.3"
 LEGAL_ROUTES = ("/privacy", "/cookies", "/terms", "/accessibility")
 
 
@@ -95,8 +95,14 @@ sich dadurch nicht nachträglich entfernen. Änderungen dieser Erklärung erford
 neue ausdrückliche Zustimmung.</p>
 <h3>Kontoeigener Recherchecache (48 Stunden)</h3>
 <p>Die oben beschriebene freiwillige Zustimmung umfasst zusätzlich einen getrennten
-Recherchecache für dein Konto. Er speichert höchstens drei kurze Originalauszüge pro
-Recherche aus öffentlichen Wikipedia-Artikeln, auch über Personen, mit ihrer Quelle.
+Recherchecache für dein Konto. Er speichert kurze Originalaussagen als einzelne
+Stichpunkte aus öffentlichen Wikipedia-Artikeln, auch über Personen, mit ihrer Quelle.
+Dabei können weitere zulässige Aussagen desselben recherchierten Artikels aufgenommen
+werden, auch wenn sie nicht in der ersten Antwort enthalten waren. Aus höchstens sechs
+gelesenen Artikeln werden je die ersten 48.000 Zeichen beziehungsweise 300 Sätze geprüft;
+die bestehenden Grenzen von 100 Stichpunkten pro Konto und 2.000 insgesamt gelten weiter.
+Jeder Stichpunkt enthält höchstens 400 Zeichen Quellentext. Beim Abruf werden höchstens
+zwölf passende Stichpunkte mit zusammen höchstens 3.200 Zeichen Quellentext ergänzt.
 Private Chatangaben und vollständige Antworten werden nicht übernommen. Erkennbare
 Kontaktangaben, Geheimnisse und sensible Personenangaben werden ausgeschlossen. Diese
 Filter können nicht jeden Grenzfall erkennen; deshalb sind die Auszüge ausschließlich

@@ -14,7 +14,7 @@ from pathlib import Path
 
 from aquaticy.learning import Learning, words
 from aquaticy.legal import LEGAL_VERSION
-from aquaticy.research import LIFETIME, MAX_OWN, MAX_TOTAL
+from aquaticy.research import LIFETIME, MAX_CONTEXT_POINTS, MAX_OWN, MAX_TOTAL
 
 SOURCE = "https://de.wikipedia.org/wiki/Albert_Einstein"
 FACT = ("Albert Einstein war ein Physiker, dessen Arbeiten zur Relativitätstheorie "
@@ -33,7 +33,7 @@ def main():
                 text = FACT + " Beleg " + str(index) + "."
                 key = store.secrets.blind("research-fact", owner + "\n" + SOURCE + "\n" + text)
                 conn.execute("INSERT INTO research_facts VALUES (?,?,?,?,?,?)",
-                             (owner, key, store.secrets.seal(text, "research-text:" + key),
+                             (owner, key, store.secrets.seal("- " + text, "research-text:" + key),
                               store.secrets.seal(SOURCE, "research-source:" + key),
                               now, now + LIFETIME))
                 conn.executemany("INSERT INTO research_terms VALUES (?,?,?)",
@@ -53,7 +53,8 @@ def main():
             start = time.perf_counter()
             found = store.research.recall("Was erforschte Albert Einstein?")
             timings.append((time.perf_counter() - start) * 1000)
-            assert len(found) == 3 and len(decryptions) == 6
+            assert len(found) == MAX_CONTEXT_POINTS
+            assert len(decryptions) == 2 * MAX_CONTEXT_POINTS
         print(json.dumps({"global_facts": MAX_TOTAL, "account_facts": MAX_OWN,
                           "samples": len(timings), "median_ms": statistics.median(timings),
                           "returned_facts": len(found), "decryptions_per_lookup": len(decryptions),

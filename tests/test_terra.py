@@ -35,7 +35,7 @@ def test_person_cache_is_private_encrypted_and_not_a_saved_answer(learners):
     assert remember(first) == 0
     first.set_consent(True, LEGAL_VERSION)
     assert remember(first) == 1
-    assert first.research.recall(QUESTION) == [{"text": FACT, "source": SOURCE}]
+    assert first.research.recall(QUESTION) == [{"text": "- " + FACT, "source": SOURCE}]
     second.set_consent(True, LEGAL_VERSION)
     assert second.research.recall(QUESTION) == []
     assert first.recall(QUESTION) == second.recall(QUESTION) == []
@@ -272,4 +272,4 @@ def test_real_research_then_fresh_chat_uses_facts_for_new_answer(learners, setti
                          stream=False).answer == new_answer
     finally:
         fresh.close()
-    assert VERSION_LABEL == "9.6.7 Terra"
+    assert VERSION_LABEL == "9.6.7 Terra v2"
