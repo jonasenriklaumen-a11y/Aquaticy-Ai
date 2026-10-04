@@ -1354,10 +1354,13 @@ input:focus-visible,select:focus-visible,.side-search input:focus-visible,
       <li>Keine Werbung, kein Tracking.</li>
     </ul>
     <label><input type="checkbox" id="consent-learning">
-      Freiwillig: Öffentliche Quellenauszüge für das gemeinsame Lernen nutzen.</label>
+      Freiwillig: Öffentliche Quellenauszüge für gemeinsames Lernen und deinen Recherchecache nutzen.</label>
     <p class="note">Nur kurze Auszüge aus ausgewählten Sachartikeln, keine privaten Chats.
       Das hilft späteren Chats aller Konten dieser Installation. Jederzeit unter
       Einstellungen → Gemeinsames Lernen widerrufbar. Aquaticy funktioniert auch ohne diesen Haken.</p>
+    <p class="note">Zusätzlich merkt sich dein Konto kurze öffentliche Schlüsselinformationen,
+      auch zu Personen, für höchstens 48 Stunden. Andere Konten erhalten diese Auszüge nicht.
+      Spätere Antworten werden neu formuliert. Ausschalten löscht deinen Recherchecache.</p>
     <p>Wenn du die notwendigen Angaben ablehnst, kannst du Aquaticy hier nicht nutzen.
       Die freiwillige Lern-Zustimmung kannst du unabhängig davon weglassen.</p>
     <nav class="auth-legal" aria-label="Rechtliche Informationen">
@@ -1890,11 +1893,14 @@ input:focus-visible,select:focus-visible,.side-search input:focus-visible,
       <fieldset><legend>Gemeinsames Lernen</legend>
         <label class="check"><input type="checkbox" role="switch" class="schalter"
             id="learning-enabled" disabled>
-          Ich stimme der Nutzung öffentlicher Quellenauszüge als Lerntexte zu.</label>
+          Ich stimme dem gemeinsamen Lernen und meinem Recherchecache aus öffentlichen Quellen zu.</label>
         <p class="note">Aquaticy übernimmt nur kurze Originalauszüge aus ausgewählten öffentlichen
           Sachartikeln, keine privaten Fragen, Antworten, Uploads oder Erinnerungen. Die Auszüge
           helfen allen Konten dieser Installation und ihres Server-Verbunds für höchstens 30 Tage.
           Sie können Fehler enthalten. Modellgewichte werden nicht trainiert.</p>
+        <p class="note">Zusätzlich merkt sich dein Konto kurze öffentliche Schlüsselinformationen,
+          auch zu Personen, für höchstens 48 Stunden. Andere Konten erhalten diese Auszüge nicht.
+          Spätere Antworten werden neu formuliert. Ausschalten löscht deinen Recherchecache.</p>
         <p class="note">Für die Löschung bleibt eine pseudonyme Beitragszuordnung gespeichert.
           Ausschalten widerruft die Zustimmung und entfernt deine Beiträge. Von anderen Konten
           unabhängig beigetragene identische Auszüge bleiben erhalten.</p>
@@ -2423,7 +2429,7 @@ document.querySelectorAll(".note").forEach((note) => {
 const thread = $("#thread"), main = $("#main"), input = $("#input"), send = $("#send");
 let busy = false;
 let currentChat = "";
-const aquaticyVersion = window.__AQUATICY_VERSION__ || "9.6.7 Luna";
+const aquaticyVersion = window.__AQUATICY_VERSION__ || "9.6.7 Terra";
 $("#version").textContent = "v" + aquaticyVersion;
 // Interne oder Test-Fassung (9.6.0): unten mittig ein gelber Hinweis.
 const aquaticyIntern = window.__AQUATICY_INTERNAL__ === true
@@ -4384,9 +4390,10 @@ const EN = {
 "Gemeinsames Lernen kannst du während einer Kontosperre nur ausschalten.": "During an account suspension, you can only turn off shared learning.",
 "Wenn du die notwendigen Angaben ablehnst, kannst du Aquaticy hier nicht nutzen. Die freiwillige Lern-Zustimmung kannst du unabhängig davon weglassen.": "If you decline the necessary information, you cannot use Aquaticy here. The optional learning consent is independent of that.",
 "Gemeinsames Lernen": "Shared learning",
-"Freiwillig: Öffentliche Quellenauszüge für das gemeinsame Lernen nutzen.": "Optional: use public source excerpts for shared learning.",
+"Zusätzlich merkt sich dein Konto kurze öffentliche Schlüsselinformationen, auch zu Personen, für höchstens 48 Stunden. Andere Konten erhalten diese Auszüge nicht. Spätere Antworten werden neu formuliert. Ausschalten löscht deinen Recherchecache.": "Your account also remembers short public key facts, including about people, for up to 48 hours. Other accounts cannot access these excerpts. Later answers are composed anew. Turning this off deletes your research cache.",
+"Freiwillig: Öffentliche Quellenauszüge für gemeinsames Lernen und deinen Recherchecache nutzen.": "Optional: use public source excerpts for shared learning and your research cache.",
 "Nur kurze Auszüge aus ausgewählten Sachartikeln, keine privaten Chats. Das hilft späteren Chats aller Konten dieser Installation. Jederzeit unter Einstellungen → Gemeinsames Lernen widerrufbar. Aquaticy funktioniert auch ohne diesen Haken.": "Only short excerpts from selected factual articles, without private chats. This helps later chats of all accounts on this installation. You can withdraw under Settings → Shared learning at any time. Aquaticy also works without this checkbox.",
-"Ich stimme der Nutzung öffentlicher Quellenauszüge als Lerntexte zu.": "I agree to the use of public source excerpts as learning texts.",
+"Ich stimme dem gemeinsamen Lernen und meinem Recherchecache aus öffentlichen Quellen zu.": "I agree to shared learning and my research cache from public sources.",
 "Aquaticy übernimmt nur kurze Originalauszüge aus ausgewählten öffentlichen Sachartikeln, keine privaten Fragen, Antworten, Uploads oder Erinnerungen. Die Auszüge helfen allen Konten dieser Installation und ihres Server-Verbunds für höchstens 30 Tage. Sie können Fehler enthalten. Modellgewichte werden nicht trainiert.": "Aquaticy uses only short original excerpts from selected public factual articles, without private questions, answers, uploads or memories. These excerpts help all accounts on this installation and its server cluster for up to 30 days. They may contain errors. Model weights are not trained.",
 "Für die Löschung bleibt eine pseudonyme Beitragszuordnung gespeichert. Ausschalten widerruft die Zustimmung und entfernt deine Beiträge. Von anderen Konten unabhängig beigetragene identische Auszüge bleiben erhalten.": "A pseudonymous contribution record is retained for deletion. Switching this off withdraws consent and removes your contributions. Identical excerpts contributed independently by other accounts remain.",
 "Details zum Datenschutz": "Privacy details",
@@ -5635,8 +5642,8 @@ async function loadLearning(){
     learningVersion = data.version;
     control.checked = data.enabled === true;
     status.textContent = sprache === "en"
-      ? `${data.contributions || 0} public source excerpts contributed by you.`
-      : `${data.contributions || 0} eigene öffentliche Quellenauszüge.`;
+      ? `${data.contributions || 0} shared excerpts; ${data.research_items || 0} facts in your 48-hour cache.`
+      : `${data.contributions || 0} eigene gemeinsame Auszüge; ${data.research_items || 0} Fakten im 48-Stunden-Cache.`;
     control.disabled = false;
   } catch { status.textContent = "Gemeinsames Lernen ist gerade nicht erreichbar."; }
 }

@@ -1,8 +1,19 @@
-# Aquaticy AI 9.6.7 Luna
+# Aquaticy AI 9.6.7 Terra
 
 **Aquaticy** recherchiert für dich. Du stellst eine Frage, Aquaticy sucht im Web, liest die
 passenden Seiten und fasst das Ergebnis zusammen — mit Quelle an jeder Angabe. Es läuft im
 Terminal, im Browser und auf dem Handy.
+
+Neu in **9.6.7 Terra**: Mit aktueller freiwilliger Zustimmung unter
+**Einstellungen → Gemeinsames Lernen** merkt sich Aquaticy zusätzlich kurze öffentliche
+Schlüsselinformationen aus Wikipedia-Artikeln, auch über Personen, in deinem eigenen Konto.
+Dieser getrennte, verschlüsselte Recherchecache ist höchstens **48 Stunden** nutzbar;
+wiederholte Fragen verlängern die Frist nicht. Spätere Chats bekommen nur passende Fakten
+als Ergänzung für eine **neue Antwort**, keine gespeicherte Antwort. Private Chatangaben,
+Kontaktangaben, erkennbare Geheimnisse und sensible Personenangaben werden ausgeschlossen.
+Andere Konten erhalten diese Auszüge nicht. Widerruf und Daten- oder Kontolöschung löschen
+den Cache. Der laufende Webserver bereinigt ihn automatisch; bei ausgeschaltetem Server
+nach dem nächsten Start. Alte Lern-Zustimmungen aktivieren die Erweiterung nicht.
 
 Seit **9.6.7 Luna** werden Streaming-Antworten pro Bildschirmaktualisierung gebündelt
 als Markdown dargestellt. Funktionen, Maskierung und Sicherheitsrücknahmen bleiben erhalten.
@@ -46,6 +57,7 @@ $ aquaticy
 
 - [Was Aquaticy kann](#was-aquaticy-kann)
 - [Quickstart](#quickstart)
+- [Prüfbericht zu 9.6.7 Terra](TESTREPORT-9.6.7-Terra.md)
 - [Prüfbericht zu 9.6.7 Luna](TESTREPORT-9.6.7.md)
 - [Prüfbericht zu 9.6.6 Luna](TESTREPORT-9.6.6.md)
 - [Installation im Detail](#installation-im-detail)
@@ -139,7 +151,7 @@ $ aquaticy
 git clone --branch Aquaticy-ai --single-branch https://github.com/jonasenriklaumen-a11y/Aquaticy-Ai.git
 cd Aquaticy-Ai
 uv tool install --force --reinstall .
-aquaticy --version            # 9.6.7 Luna
+aquaticy --version            # 9.6.7 Terra
 
 # 2. Einrichten — fragt nach Modell und Schlüssel und testet beide
 aquaticy setup

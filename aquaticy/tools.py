@@ -1488,6 +1488,7 @@ class ToolStats:
     visuals: list[dict[str, str]] = field(default_factory=list)
     sources: list[dict[str, str]] = field(default_factory=list)
     learning_pages: list[tuple[str, str]] = field(default_factory=list)
+    research_pages: list[tuple[str, str]] = field(default_factory=list)
     calculations: int = 0
     notes_saved: int = 0
     #: Rueckfragen zaehlen NICHT als Werkzeugaufruf -- eine Nachfrage soll den
@@ -1539,6 +1540,7 @@ class ToolStats:
         self.visuals.clear()
         self.sources.clear()
         self.learning_pages.clear()
+        self.research_pages.clear()
         self.calculations = 0
         self.notes_saved = 0
         self.questions = 0
@@ -1832,6 +1834,12 @@ class Toolbox:
                 source = page.final_url or url
                 if public_source(url) and public_source(source):
                     self.stats.learning_pages.append((source, page.text[:48000]))
+            if getattr(self, "learning_ticket", "") and len(self.stats.research_pages) < 6:
+                from aquaticy.research import source_url
+
+                source = page.final_url or url
+                if source_url(url) and source_url(source):
+                    self.stats.research_pages.append((source, page.text[:48000]))
             self.stats.fetched.append(page.final_url or url)
             domain = page.source_domain or domain_of(url)
             self.stats.sources.append(

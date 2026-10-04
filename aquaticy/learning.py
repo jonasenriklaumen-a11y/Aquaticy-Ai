@@ -217,6 +217,9 @@ class Learning:
         self.account_id = owner if owner != "lokal" else ""
         with self.connect() as conn:
             conn.executescript(SCHEMA)
+        from aquaticy.research import ResearchCache
+
+        self.research = ResearchCache(self)
         secure_file(self.path)
 
     @contextmanager
@@ -240,6 +243,7 @@ class Learning:
         return str(row[0]) if row else ""
 
     def status(self) -> dict:
+        self.research.sweep()
         with self.connect() as conn:
             self._expire(conn)
             count = conn.execute(
@@ -252,6 +256,10 @@ class Learning:
                 "enabled": bool(self.ticket(conn)),
                 "version": LEGAL_VERSION,
                 "contributions": count,
+                "research_items": conn.execute(
+                    "SELECT COUNT(*) FROM research_facts WHERE owner=?",
+                    (self.owner,),
+                ).fetchone()[0] if self.ticket(conn) else 0,
             }
 
     @staticmethod
@@ -292,6 +300,7 @@ class Learning:
         return self.status()
 
     def _erase(self, conn) -> None:
+        self.research.erase(conn)
         conn.execute("DELETE FROM learning_contributions WHERE owner=?", (self.owner,))
         conn.execute(
             "DELETE FROM learning_facts WHERE id NOT IN (SELECT fact FROM learning_contributions)"

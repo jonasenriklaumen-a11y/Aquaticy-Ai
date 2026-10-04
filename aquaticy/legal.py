@@ -5,7 +5,7 @@ Die Seiten beschreiben nur Verhalten, das im Code nachpruefbar ist.
 
 from __future__ import annotations
 
-LEGAL_VERSION = "2026-10-04.1"
+LEGAL_VERSION = "2026-10-04.2"
 LEGAL_ROUTES = ("/privacy", "/cookies", "/terms", "/accessibility")
 
 
@@ -93,6 +93,29 @@ verschlüsseltes Änderungsprotokoll wird nach seiner vorhandenen Aufbewahrungsf
 Bereits in Antworten anderer Konten verwendete öffentliche Auszüge und Sicherungen lassen
 sich dadurch nicht nachträglich entfernen. Änderungen dieser Erklärung erfordern eine
 neue ausdrückliche Zustimmung.</p>
+<h3>Kontoeigener Recherchecache (48 Stunden)</h3>
+<p>Die oben beschriebene freiwillige Zustimmung umfasst zusätzlich einen getrennten
+Recherchecache für dein Konto. Er speichert höchstens drei kurze Originalauszüge pro
+Recherche aus öffentlichen Wikipedia-Artikeln, auch über Personen, mit ihrer Quelle.
+Private Chatangaben und vollständige Antworten werden nicht übernommen. Erkennbare
+Kontaktangaben, Geheimnisse und sensible Personenangaben werden ausgeschlossen. Diese
+Filter können nicht jeden Grenzfall erkennen; deshalb sind die Auszüge ausschließlich
+für dein eigenes Konto verfügbar und werden nicht in das gemeinsame Wissen übernommen.</p>
+<p>Texte und Quellen sind verschlüsselt, die Suchbegriffe und Kontozuordnung sind
+Schlüssel-Hashes. Bei späteren passenden Fragen dienen die Auszüge nur als zusätzliche,
+unvertrauenswürdige Recherchegrundlage für eine neu formulierte Antwort. Sie werden an
+den dafür gewählten Modellanbieter übermittelt. Wichtige und aktuelle Angaben sollen
+erneut geprüft werden. Es findet kein Training der Modellgewichte statt.</p>
+<p>Ab der ersten Übernahme ist ein Auszug höchstens 48 Stunden nutzbar. Erneute Fragen
+verlängern diese Frist nicht. Jeder Lesezugriff sperrt abgelaufene Auszüge sofort und
+bereinigt sie. Zusätzlich räumt der laufende Webserver automatisch zum Ablauf auf;
+bei ausgeschaltetem Server erfolgt die Bereinigung nach dem nächsten Start.
+Pro Konto sind höchstens 100, insgesamt 2.000 Auszüge gespeichert. Ausschalten,
+„Alle Daten löschen“ und „Konto löschen“ entfernen auch diesen Recherchecache.
+Im verbundenen Server-Verbund wird er zur Nutzung desselben Kontos repliziert;
+andere Konten erhalten keinen Zugriff. Löschungen im Verbund gelten nach dem nächsten
+erfolgreichen Abgleich. Bestehende Chatverläufe, Sicherungen und das verschlüsselte
+Verbund-Änderungsprotokoll haben ihre eigenen Aufbewahrungsfristen.</p>
 <p>Sitzungen laufen nach 30 Tagen ab. Alte Werkstätten werden nach ihrer Leerlaufzeit entfernt.
 Chats, Uploads, Erinnerungen und Aufträge bleiben bis zum Löschen durch den Nutzer oder
 Betreiber erhalten. In der Web-App kannst du Chats einzeln entfernen, Uploads leeren und

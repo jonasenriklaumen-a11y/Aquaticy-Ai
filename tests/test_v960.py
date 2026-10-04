@@ -75,7 +75,7 @@ def test_version_is_962() -> None:
     import aquaticy
 
     assert aquaticy.__version__ == "9.6.7"
-    assert 'window.__AQUATICY_VERSION__ || "9.6.7 Luna"' in web.UI_FILE.read_text(
+    assert 'window.__AQUATICY_VERSION__ || "9.6.7 Terra"' in web.UI_FILE.read_text(
         encoding="utf-8"
     )
 
@@ -408,7 +408,7 @@ def test_internal_versions_show_a_yellow_note() -> None:
     # 9.6.2 ist eine oeffentliche Fassung: kein Zusatz, kein gelber Hinweis --
     # der Mechanismus bleibt fuer die naechste interne Fassung.
     assert aquaticy.__stage__ == "" and not aquaticy.INTERNAL
-    assert aquaticy.VERSION_LABEL == "9.6.7 Luna"
+    assert aquaticy.VERSION_LABEL == "9.6.7 Terra"
     html = _ui()
     assert 'id="intern-hinweis"' in html and "--intern-bg:#ffe27a" in html
     assert "window.__AQUATICY_INTERNAL__ = " in Path(web.__file__).read_text(encoding="utf-8")

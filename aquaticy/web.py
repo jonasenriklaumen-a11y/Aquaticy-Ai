@@ -5617,6 +5617,10 @@ def serve(
     except Exception:  # pragma: no cover - Auftraege duerfen den Start nie kosten
         pass
     server = ThreadingHTTPServer((host, port), Handler)
+    from aquaticy.learning import Learning
+    from aquaticy.research import start_cleanup
+
+    research_stop, research_worker = start_cleanup(Learning(data_dir).research)
     global SERVER, CLUSTER
     SERVER = server
     # Server-Verbund (9.6.1): laeuft nur, wenn er in den Dev settings an ist.
@@ -5647,6 +5651,8 @@ def serve(
         pass
     finally:
         server.server_close()
+        research_stop.set()
+        research_worker.join(timeout=6)
         if CLUSTER is not None:
             CLUSTER.stop()
         TOKEN = ""
