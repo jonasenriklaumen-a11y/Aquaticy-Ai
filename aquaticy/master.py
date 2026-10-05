@@ -26,12 +26,12 @@ zurueck: der Master darf die Recherche verbessern, aber niemals verhindern.
 
 from __future__ import annotations
 
-import json
 from dataclasses import dataclass, field
 from typing import Any
 
 from aquaticy import metering
 from aquaticy.config import Settings
+from aquaticy.jsonutil import loads as bounded_json
 from aquaticy.pace import key_of as pace_key_of
 from aquaticy.pace import paced
 from aquaticy.subagents import Task, as_task
@@ -208,8 +208,8 @@ def _json_call(
     if start == -1 or end == -1:
         return {}
     try:
-        payload = json.loads(raw[start : end + 1])
-    except json.JSONDecodeError:
+        payload = bounded_json(raw[start : end + 1])
+    except (ValueError, RecursionError):
         return {}
     return payload if isinstance(payload, dict) else {}
 

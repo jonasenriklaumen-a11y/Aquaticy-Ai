@@ -23,6 +23,7 @@ from typing import Any
 from aquaticy import metering
 from aquaticy.cache import Cache
 from aquaticy.config import Settings
+from aquaticy.jsonutil import loads as bounded_json
 from aquaticy.pace import key_of as pace_key_of
 from aquaticy.pace import paced
 from aquaticy.tools import TOOL_SCHEMAS, EventHook, Toolbox
@@ -395,8 +396,8 @@ def _parse_plan(raw: str, question: str, limit: int) -> tuple[bool, list[str]]:
         start, end = raw.find("{"), raw.rfind("}")
         if start != -1 and end != -1:
             try:
-                payload = json.loads(raw[start : end + 1])
-            except json.JSONDecodeError:
+                payload = bounded_json(raw[start : end + 1])
+            except (ValueError, RecursionError):
                 payload = None
 
     if not isinstance(payload, dict):
@@ -442,8 +443,8 @@ def _parse_task_list(raw: str) -> list[str]:
     if start == -1 or end == -1:
         return []
     try:
-        data = json.loads(raw[start : end + 1])
-    except json.JSONDecodeError:
+        data = bounded_json(raw[start : end + 1])
+    except (ValueError, RecursionError):
         return []
     if not isinstance(data, list):
         return []
@@ -716,8 +717,8 @@ def _run_one(
                 name = call["function"]["name"]
                 raw = call["function"]["arguments"] or "{}"
                 try:
-                    arguments = json.loads(raw)
-                except json.JSONDecodeError:
+                    arguments = bounded_json(raw)
+                except (ValueError, RecursionError):
                     arguments = {}
                 try:
                     payload = box.call(name, arguments if isinstance(arguments, dict) else {})

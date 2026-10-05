@@ -156,7 +156,8 @@ def load_secret_file(path: Path, factory: Callable[[], bytes], minimum_size: int
                 with contextlib.suppress(FileExistsError):
                     os.link(temporary, path)
             except OSError as exc:
-                if exc.errno not in {errno.ENOTSUP, errno.ENOSYS, errno.EPERM}:
+                if (exc.errno not in {errno.ENOTSUP, errno.ENOSYS, errno.EPERM}
+                        and getattr(exc, "winerror", None) not in {1, 50, 1314}):
                     raise
                 # FAT and other filesystems without hard links remain usable.
                 # SQLite's process lock serializes complete atomic publication;

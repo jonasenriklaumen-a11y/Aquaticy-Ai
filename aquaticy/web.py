@@ -4402,6 +4402,11 @@ class Handler(BaseHTTPRequestHandler):
                 if AIGUARD.is_banned(ip=self._client_ip()) is not None:
                     self._json({"ok": False, "error": BANNED_MESSAGE, "code": "banned"}, 403)
                     return
+            try:
+                token = AUTH.create_session(account, self._device(), self._client_ip())
+            except ValueError:
+                self._json({"ok": False, "error": "E-Mail oder Passwort stimmt nicht."}, 401)
+                return
             AUTH.note_seen(account.id, self._client_ip())
             # Anmeldung von einem unbekannten Geraet (9.5.32): ein Hinweis fuer
             # das Konto selbst -- wer sein Konto nicht selbst benutzt hat,
@@ -4418,7 +4423,6 @@ class Handler(BaseHTTPRequestHandler):
                 AUTH.note_device(account.id, geraet)
             with contextlib.suppress(Exception):
                 start_user_scheduler(account)
-            token = AUTH.create_session(account, self._device(), self._client_ip())
             if (payload.get("learning_accepted") is True
                     and payload.get("learning_version") == LEGAL_VERSION
                     and (AIGUARD is None or AIGUARD.is_banned(

@@ -36,3 +36,27 @@ def loads(raw: bytes | str) -> Any:
             elif token in ("]", "}"):
                 depth -= 1
     return json.loads(text)
+
+
+def raw_decode(raw: str, index: int = 0) -> tuple[Any, int]:
+    """Decode one bounded value, retaining concatenated tool-call support."""
+    if raw[index:index + 1] not in ("[", "{"):
+        return json.JSONDecoder().raw_decode(raw, index)
+    quoted = False
+    depth = 0
+    for match in _STRUCTURE.finditer(raw, index):
+        token = match.group()
+        if token == '"':
+            quoted = not quoted
+        elif not quoted:
+            if token in ("[", "{"):
+                depth += 1
+                if depth > MAX_DEPTH:
+                    raise JsonDepthError("Die Anfrage ist zu stark verschachtelt.")
+            elif token in ("]", "}"):
+                depth -= 1
+                if depth == 0:
+                    end = match.end()
+                    return json.loads(raw[index:end]), end
+    # Preserve standard syntax errors for incomplete values.
+    return loads(raw[index:]), len(raw)

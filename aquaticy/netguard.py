@@ -582,18 +582,45 @@ def get(
 def _get(client: httpx.Client, aktuell: str, frist: float, max_bytes: Limit,
          follow_redirects: bool, max_redirects: int, headers: dict[str, str] | None,
          timeout: Any) -> httpx.Response:
+    previous = httpx.URL(aktuell)
+    stripped = False
+    downgraded = False
     for _ in range(max(0, int(max_redirects)) + 1):
         if time.monotonic() > frist:
             raise httpx.ReadTimeout("Die Seite antwortet zu langsam.", request=None)
         check_url(aktuell)
-        with client.stream("GET", aktuell, headers=headers, timeout=timeout,
-                           follow_redirects=False) as antwort:
+        target = httpx.URL(aktuell)
+        same_origin = (previous.scheme, previous.host, previous.port) == (
+            target.scheme, target.host, target.port)
+        safe_upgrade = (previous.host == target.host and previous.scheme == "http"
+                        and target.scheme == "https" and previous.port in (None, 80)
+                        and target.port in (None, 443))
+        stripped = stripped or not (same_origin or safe_upgrade)
+        downgraded = downgraded or (previous.scheme == "https" and target.scheme == "http")
+        request = client.build_request("GET", target, headers=headers, timeout=timeout)
+        if stripped:
+            for name in ("Authorization", "Proxy-Authorization", "Cookie", "X-Api-Key",
+                         "Api-Key", "X-Auth-Token"):
+                request.headers.pop(name, None)
+            request.url = request.url.copy_with(username=None, password=None)
+            # Keep cookies explicitly scoped to the destination; never carry
+            # a raw Cookie header or unscoped client cookies to another origin.
+            scoped = httpx.Cookies()
+            for cookie in client.cookies.jar:
+                if cookie.domain:
+                    scoped.jar.set_cookie(cookie)
+            if not downgraded:
+                scoped.set_cookie_header(request)
+        auth = None if stripped else httpx.USE_CLIENT_DEFAULT
+        with contextlib.closing(client.send(request, stream=True, auth=auth,
+                                           follow_redirects=False)) as antwort:
             if antwort.is_redirect and follow_redirects:
                 ziel = antwort.headers.get("location", "")
                 if not ziel:
                     raise httpx.RemoteProtocolError("Weiterleitung ohne Ziel.",
                                                     request=antwort.request)
                 aktuell = urljoin(str(antwort.url), ziel)
+                previous = target
                 continue
             inhalt = b"" if antwort.is_redirect else _lesen(antwort, max_bytes, frist)
             kopf = [(k, v) for k, v in antwort.headers.multi_items() if k.lower() not in _WEG]

@@ -15,7 +15,7 @@ import time
 from collections import defaultdict, deque
 from collections.abc import Iterator
 from contextlib import contextmanager, suppress
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
@@ -89,6 +89,9 @@ class Account:
     #: niemand -- `aquaticy list` zeigt "#" und die ersten acht Zeichen.
     last_ip: str = ""
     last_seen: float = 0.0
+    # Account-bound proof of the credential version read by this operation.
+    # Password hashes and salts never enter public account responses.
+    _credential: bytes = field(default=b"", repr=False, compare=False)
 
     @property
     def pro(self) -> bool:
@@ -202,6 +205,10 @@ def normalize_email(email: str) -> str:
     value = (email or "").strip().lower()
     if len(value) > 254 or not EMAIL_RE.fullmatch(value):
         raise ValueError("Bitte gib eine gültige E-Mail-Adresse ein.")
+    try:
+        value.encode("utf-8")
+    except UnicodeError as exc:
+        raise ValueError("Bitte gib eine gültige E-Mail-Adresse ein.") from exc
     return value
 
 
@@ -225,6 +232,10 @@ def normalize_username(username: str) -> str:
     value = " ".join((username or "").strip().split())
     if not USERNAME_RE.fullmatch(value):
         raise ValueError("Der Nutzername braucht 2 bis 40 sichtbare Zeichen.")
+    try:
+        value.encode("utf-8")
+    except UnicodeError as exc:
+        raise ValueError("Der Nutzername enthält ungültige Zeichen.") from exc
     return value
 
 
@@ -692,7 +703,13 @@ class AuthStore:
             str(row["username"]),
             str(row["last_ip"]) if "last_ip" in schluessel and row["last_ip"] else "",
             float(row["last_seen"]) if "last_seen" in schluessel and row["last_seen"] else 0.0,
+            self._credential_for(row),
         )
+
+    def _credential_for(self, row: sqlite3.Row | dict) -> bytes:
+        message = (b"aquaticy/credential\0" + str(row["id"]).encode("utf-8") + b"\0"
+                   + bytes(row["password_salt"]) + bytes(row["password_hash"]))
+        return hmac.new(self._pepper, message, hashlib.sha256).digest()
 
     def register(
         self,
@@ -809,7 +826,8 @@ class AuthStore:
         folder = self.profile_dir(user_id)
         secure_directory(folder)
         return Account(user_id, email, plan, now, username, self.ip_key(adresse),
-                       now if adresse else 0.0)
+                       now if adresse else 0.0, self._credential_for({
+                           "id": user_id, "password_hash": password_hash, "password_salt": salt}))
 
     # -- Geraete und Anhaltspunkte (9.5.31) ---------------------------------
     def _assess(self, conn: sqlite3.Connection, email: str, ip: str,
@@ -955,11 +973,24 @@ class AuthStore:
             if not hmac.compare_digest(_password_hash(password, salz), gespeichert):
                 return None
             neues_salz = secrets.token_bytes(16)
+            upgraded = _argon_hash(password, neues_salz, self._pepper)
             with suppress(sqlite3.Error), self._lock, self._connect() as conn:
-                conn.execute(
-                    "UPDATE users SET password_hash=?, password_salt=? WHERE id=?",
-                    (_argon_hash(password, neues_salz, self._pepper), neues_salz,
-                     row["id"]))
+                updated = conn.execute(
+                    "UPDATE users SET password_hash=?, password_salt=? WHERE id=? "
+                    "AND password_hash=? AND password_salt=?",
+                    (upgraded, neues_salz, row["id"], gespeichert, salz)).rowcount
+                if not updated:
+                    current = conn.execute("SELECT * FROM users WHERE id=?",
+                                           (row["id"],)).fetchone()
+                    # Another login may have upgraded the same password. It
+                    # remains valid; a genuinely changed password must win.
+                    if current is None or not _argon_verify(
+                            password, bytes(current["password_salt"]), self._pepper,
+                            bytes(current["password_hash"])):
+                        return None
+                    row = current
+                else:
+                    row = conn.execute("SELECT * FROM users WHERE id=?", (row["id"],)).fetchone()
         return self._account(row)
 
     def verify_password(self, account: Account, password: str) -> bool:
@@ -973,6 +1004,12 @@ class AuthStore:
         token = secrets.token_urlsafe(32)
         now = time.time()
         with self._lock, self._connect() as conn:
+            conn.execute("BEGIN IMMEDIATE")
+            current = conn.execute("SELECT id,password_hash,password_salt FROM users WHERE id=?",
+                                   (account.id,)).fetchone()
+            if current is None or not hmac.compare_digest(
+                    account._credential, self._credential_for(current)):
+                raise ValueError("Das Passwort wurde inzwischen geändert. Bitte melde dich neu an.")
             conn.execute("DELETE FROM sessions WHERE expires_at < ?", (now,))
             conn.execute(
                 "INSERT INTO sessions VALUES (?, ?, ?, ?, ?, ?)",
@@ -1168,16 +1205,26 @@ class AuthStore:
         Raises:
             ValueError: altes Passwort falsch oder neues zu schwach.
         """
-        if not self.verify_password(account, old):
+        verified = self.authenticate(account.email, old) if account.email else None
+        if verified is None or verified.id != account.id:
             raise ValueError("Das bisherige Passwort stimmt nicht.")
         validate_password(new)
         if hmac.compare_digest(old.encode("utf-8"), new.encode("utf-8")):
             raise ValueError("Das neue Passwort muss sich vom alten unterscheiden.")
         salz = secrets.token_bytes(16)
+        new_hash = _argon_hash(new, salz, self._pepper)
+        keep = _secret_hash(keep_token, self._pepper) if keep_token else ""
         with self._lock, self._connect() as conn:
+            conn.execute("BEGIN IMMEDIATE")
+            current = conn.execute("SELECT id,password_hash,password_salt FROM users WHERE id=?",
+                                   (account.id,)).fetchone()
+            if current is None or not hmac.compare_digest(
+                    verified._credential, self._credential_for(current)):
+                raise ValueError("Das bisherige Passwort stimmt nicht mehr.")
             conn.execute("UPDATE users SET password_hash=?, password_salt=? WHERE id=?",
-                         (_argon_hash(new, salz, self._pepper), salz, account.id))
-        self.logout_others(account.id, keep_token)
+                         (new_hash, salz, account.id))
+            conn.execute("DELETE FROM sessions WHERE user_id=? AND token_hash!=?",
+                         (account.id, keep))
         self.add_event(account.id, "passwort", "Passwort geändert")
 
     def wipe_data(self, account: Account) -> None:

@@ -1,15 +1,26 @@
-# Aquaticy AI 9.6.8 Luna
+# Aquaticy AI 9.6.8 Terra
 
 **Aquaticy** recherchiert für dich. Du stellst eine Frage, Aquaticy sucht im Web, liest die
 passenden Seiten und fasst das Ergebnis zusammen — mit Quelle an jeder Angabe. Es läuft im
 Terminal, im Browser und auf dem Handy.
 
-Neu in **9.6.8 Luna**: Schlüsseldateien werden vollständig und ohne Überschreiben
+Neu in **9.6.8 Terra**: Anmeldungen und Passwortänderungen sind gegen parallele
+Änderungen abgesichert. Neue Sitzungen müssen zum tatsächlich geprüften Passwortstand
+passen; Passwortwechsel und Widerruf anderer Sitzungen erfolgen gemeinsam. Die Umstellung
+alter Passwort-Hashes überschreibt keine zwischenzeitlichen Änderungen. Der geschützte
+Abruf-Helper gibt bei Herkunftswechseln keine Anmeldedaten weiter und behält zulässig
+zugeordnete Cookies. Stark verschachtelte Modellargumente werden kontrolliert abgewiesen;
+zusammengefügte gültige Tool-Aufrufe bleiben unterstützt. Ungültige Unicode-Kontofelder
+und fehlende Hardlinks unter Windows werden kontrolliert behandelt. Funktionen und
+Schutzprüfungen bleiben erhalten.
+
+Seit **9.6.8 Luna**: Schlüsseldateien werden vollständig und ohne Überschreiben
 konkurrierender Erstellungen angelegt. Beschädigte vorhandene Schlüssel werden mit einer
 verständlichen Meldung abgewiesen und bleiben für eine Wiederherstellung erhalten.
 Passwortänderungen mit Unicode, fehlerhafte HTTP-Eingaben und Nullpotenzen werden korrekt
 behandelt. Fremdes JSON erhält eine feste Verschachtelungsgrenze; fehlerhafte Produktdaten
-verhindern nicht die Auswertung gültiger Informationen derselben Seite. Fehlerprotokolle geben keine Anfrage-URLs oder Ausnahmeinhalte mit möglichen
+verhindern nicht die Auswertung gültiger Informationen derselben Seite. Fehlerprotokolle geben keine Anfrage-URLs oder
+Ausnahmeinhalte mit möglichen
 Geheimnissen aus. Der Recherchecache unterscheidet ausdrücklich angegebene Personennamen
 mit demselben Nachnamen. Bestehende Funktionen, Schutzprüfungen und Cache-Fristen bleiben.
 
@@ -77,6 +88,7 @@ $ aquaticy
 
 - [Was Aquaticy kann](#was-aquaticy-kann)
 - [Quickstart](#quickstart)
+- [Prüfbericht zu 9.6.8 Terra](TESTREPORT-9.6.8-Terra.md)
 - [Prüfbericht zu 9.6.8 Luna](TESTREPORT-9.6.8.md)
 - [Prüfbericht zu 9.6.7 Terra v2](TESTREPORT-9.6.7-Terra-v2.md)
 - [Prüfbericht zu 9.6.7 Terra](TESTREPORT-9.6.7-Terra.md)
@@ -173,7 +185,7 @@ $ aquaticy
 git clone --branch Aquaticy-ai --single-branch https://github.com/jonasenriklaumen-a11y/Aquaticy-Ai.git
 cd Aquaticy-Ai
 uv tool install --force --reinstall .
-aquaticy --version            # 9.6.8 Luna
+aquaticy --version            # 9.6.8 Terra
 
 # 2. Einrichten — fragt nach Modell und Schlüssel und testet beide
 aquaticy setup

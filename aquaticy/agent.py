@@ -30,6 +30,8 @@ from aquaticy.guardrails import (
     rules_prompt,
 )
 from aquaticy.injection import wrap_block
+from aquaticy.jsonutil import loads as bounded_json
+from aquaticy.jsonutil import raw_decode as bounded_decode
 from aquaticy.models import Product
 from aquaticy.pace import key_of as pace_key_of
 from aquaticy.pace import paced
@@ -1067,7 +1069,7 @@ def _in_call_order(suchen: list[str], ab: int, tool_calls: list[dict[str, Any]])
         if call["function"]["name"] != "web_search":
             continue
         try:
-            frage = str(json.loads(call["function"].get("arguments") or "{}").get("query") or "")
+            frage = str(bounded_json(call["function"].get("arguments") or "{}").get("query") or "")
         except (ValueError, AttributeError):
             continue
         frage = frage.strip()
@@ -3109,8 +3111,8 @@ class Agent:
             }
         raw_args = call["function"].get("arguments") or "{}"
         try:
-            arguments = json.loads(raw_args) if isinstance(raw_args, str) else dict(raw_args)
-        except json.JSONDecodeError:
+            arguments = bounded_json(raw_args) if isinstance(raw_args, str) else dict(raw_args)
+        except (ValueError, RecursionError):
             arguments = {}
         if not isinstance(arguments, dict):
             arguments = {}
@@ -3699,9 +3701,9 @@ def sanitize_history(messages: list[dict[str, Any]]) -> None:
                 continue
             raw = str(function.get("arguments") or "{}")
             try:
-                json.loads(raw)
+                bounded_json(raw)
                 continue
-            except json.JSONDecodeError:
+            except (ValueError, RecursionError):
                 pass
             pieces = split_json_objects(raw)
             function["arguments"] = pieces[0] if pieces else "{}"
@@ -3716,7 +3718,6 @@ def split_json_objects(raw: str) -> list[str]:
     NAECHSTEN Aufruf mit "Extra data" sterben, weil es die Argumente aus dem
     Verlauf zurueckparst.
     """
-    decoder = json.JSONDecoder()
     objects: list[str] = []
     index = 0
     raw = raw.strip()
@@ -3726,8 +3727,8 @@ def split_json_objects(raw: str) -> list[str]:
         if index >= len(raw):
             break
         try:
-            value, end = decoder.raw_decode(raw, index)
-        except json.JSONDecodeError:
+            value, end = bounded_decode(raw, index)
+        except (ValueError, RecursionError):
             break
         if isinstance(value, dict):
             objects.append(json.dumps(value, ensure_ascii=False))
@@ -3777,8 +3778,8 @@ def _parse_spec_json(raw: str) -> dict[str, str]:
     if start == -1 or end == -1:
         return {}
     try:
-        data = json.loads(raw[start : end + 1])
-    except json.JSONDecodeError:
+        data = bounded_json(raw[start : end + 1])
+    except (ValueError, RecursionError):
         return {}
     if not isinstance(data, dict):
         return {}
