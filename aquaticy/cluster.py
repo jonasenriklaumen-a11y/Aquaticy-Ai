@@ -66,6 +66,9 @@ from typing import Any
 MAX_NODES = 10
 #: UDP-Port fuer das Finden im lokalen Netz.
 DISCOVERY_PORT = int(os.environ.get("AQUATICY_CLUSTER_PORT", "8766") or 8766)
+# Laengste Pause zwischen zwei Versuchen, ein abgegebenes Konto freizugeben.
+RELEASE_RETRY_FIRST = 2.0
+RELEASE_RETRY_MAX = 60.0
 BEACON_SECONDS = 5.0
 #: So lange bleibt ein gefundener Server in der Liste, ohne sich zu melden.
 DISCOVERY_TTL = 20.0
@@ -1296,8 +1299,24 @@ class Cluster:
             threading.Thread(target=self._release_quietly, args=(user,), daemon=True).start()
 
     def _release_quietly(self, user: str) -> None:
-        with contextlib.suppress(Exception):
-            self.hooks.release(user)
+        """Gibt ein Konto ab, das der Master woanders hinlegt -- notfalls spaeter.
+
+        Laeuft hier gerade ein Chat, lehnt release ab. Dann wird es wieder
+        versucht, bis es klappt, das Konto wieder hier wohnt oder der Verbund
+        stoppt (9.6.8 Ultra) -- sonst liefen VM und Sitzung ewig weiter.
+        """
+        pause = RELEASE_RETRY_FIRST
+        while not self._stop.is_set():
+            try:
+                if self.hooks.release(user):
+                    return
+            except Exception:
+                pass
+            with self._lock:
+                if self.homes.get(user) == self.node_id:
+                    return
+            self._stop.wait(pause)
+            pause = min(pause * 2, RELEASE_RETRY_MAX)
 
     def failover(self, node: str) -> int:
         """Master: die Konten eines ausgefallenen Servers auf die anderen verteilen.

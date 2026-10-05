@@ -1,10 +1,16 @@
-# Aquaticy AI 9.6.8 Sol
+# Aquaticy AI 9.6.8 Ultra
 
 **Aquaticy** recherchiert für dich. Du stellst eine Frage, Aquaticy sucht im Web, liest die
 passenden Seiten und fasst das Ergebnis zusammen — mit Quelle an jeder Angabe. Es läuft im
 Terminal, im Browser und auf dem Handy.
 
-Neu in **9.6.8 Sol**: Fehler sehen Nutzer nur noch als allgemeine Meldung — in einem
+Neu in **9.6.8 Ultra**: Fehlerkorrekturen zu Sol — scheitert der Start, wird der Port wieder
+frei und kein Auftragsplaner läuft weiter; ohne Netz erscheint nur der Offline-Hinweis statt
+des Fehlerfensters; ein Server, der nach einer Übernahme zurückkommt, gibt Konten auch dann
+noch ab, wenn dort gerade ein Chat lief; technische Fehlertexte von Bibliotheken kommen im
+Chat nicht mehr an.
+
+Seit **9.6.8 Sol**: Fehler sehen Nutzer nur noch als allgemeine Meldung — in einem
 eigenen Fehlerfenster bzw. auf einer Fehlerseite, nie als technischen Fehlertext; Hinweise,
 die sagen, was zu tun ist (Passwort zu kurz, Limit erreicht), bleiben. Aquaticy fängt
 Störungen selbst ab: belegter Port → der nächste freie (die Adresse steht im Terminal);
@@ -199,7 +205,7 @@ $ aquaticy
 git clone --branch Aquaticy-ai --single-branch https://github.com/jonasenriklaumen-a11y/Aquaticy-Ai.git
 cd Aquaticy-Ai
 uv tool install --force --reinstall .
-aquaticy --version            # 9.6.8 Sol
+aquaticy --version            # 9.6.8 Ultra
 
 # 2. Einrichten — fragt nach Modell und Schlüssel und testet beide
 aquaticy setup

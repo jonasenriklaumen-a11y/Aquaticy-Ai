@@ -2464,7 +2464,7 @@ document.querySelectorAll(".note").forEach((note) => {
 const thread = $("#thread"), main = $("#main"), input = $("#input"), send = $("#send");
 let busy = false;
 let currentChat = "";
-const aquaticyVersion = window.__AQUATICY_VERSION__ || "9.6.8 Sol";
+const aquaticyVersion = window.__AQUATICY_VERSION__ || "9.6.8 Ultra";
 $("#version").textContent = "v" + aquaticyVersion;
 // Interne oder Test-Fassung (9.6.0): unten mittig ein gelber Hinweis.
 const aquaticyIntern = window.__AQUATICY_INTERNAL__ === true
@@ -2745,10 +2745,18 @@ function api(path, options = {}, versuch = 0){
       // Ein Fehler des Servers (5xx) bekommt das Fehlerfenster; was die Seite
       // selbst erklaert (Limit, Anmeldung, Eingabe), nicht.
       if (res.status >= 500) zeigeFehler();
+      // Der Server antwortet wieder: ein Hinweis von vorhin verschwindet.
+      if (navigator.onLine) $("#offline-hinweis").hidden = true;
       return res;
     }, (err) => {
       if (err && err.name !== "AbortError" && nochmal())
         return pause(700 * (versuch + 1)).then(() => api(path, options, versuch + 1));
+      // Netz weg oder Server nicht erreichbar: dafuer ist der Hinweis oben da,
+      // nicht das Fehlerfenster (9.6.8 Ultra).
+      if (err && err.name !== "AbortError"){
+        try { err.netz = true; } catch {}
+        $("#offline-hinweis").hidden = false;
+      }
       throw err;
     });
 }
@@ -5902,7 +5910,8 @@ window.addEventListener("error", (e) => {
 });
 window.addEventListener("unhandledrejection", (e) => {
   const grund = e.reason;
-  if (grund && (grund.name === "AbortError" || grund.gezeigt)) return;
+  if (grund && (grund.name === "AbortError" || grund.gezeigt || grund.netz)) return;
+  if (!navigator.onLine) return;  // das zeigt schon der Offline-Hinweis
   zeigeFehler();
 });
 function hinweis(text, title = "Hinweis"){

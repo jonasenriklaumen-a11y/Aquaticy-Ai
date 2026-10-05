@@ -657,7 +657,7 @@ def test_the_version_carries_its_name(tmp_path: Path, monkeypatch: pytest.Monkey
     teile = (aquaticy.__version__, aquaticy.__codename__, aquaticy.__stage__)
     erwartet = " ".join(t for t in teile if t)
     assert erwartet == aquaticy.VERSION_LABEL
-    assert aquaticy.__codename__ == "Sol"
+    assert aquaticy.__codename__ == "Ultra"
     runner = CliRunner()
     assert aquaticy.VERSION_LABEL in runner.invoke(cli.app, ["version"]).output
     # "aquaticy list" zeigt, wie viele eigene Schluessel ein Konto hat --

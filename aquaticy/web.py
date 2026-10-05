@@ -467,7 +467,7 @@ GENERIC_ERROR = "Da ist bei Aquaticy etwas schiefgelaufen. Bitte versuch es glei
 #: oder Bibliotheken, Statuscodes, Stapel, Systemfehlernummern.
 _TECHNISCH = re.compile(
     r"\b[A-Z][A-Za-z]*(?:Error|Exception|Warning)\b|Traceback|\bErrno\b|"
-    r"\b(?:HTTP|Fehler|Status|status code|code)\s*\(?\d{3}\b|\(\d{3}\)|"
+    r"\b(?:HTTP|Fehler|Status|status code|code|Antwort)\s*\(?\d{3}\b|\(\d{3}\)|"
     r"\blitellm\b|\bhttpx\b|\bsqlite3?\b|File \"|line \d+|0x[0-9a-f]{6,}")
 
 
@@ -482,6 +482,33 @@ def public_error(text: str) -> str:
     if not wert or _TECHNISCH.search(wert):
         return GENERIC_ERROR
     return wert
+
+
+#: Was Python und Bibliotheken als ValueError werfen -- englisch und technisch.
+_BIBLIOTHEK = re.compile(
+    r"invalid literal|could not convert|codec can't|values to unpack|math domain|"
+    r"substring not found|not in list|does not match format|unconverted data|"
+    r"embedded null|^Expecting |^Invalid |is not a valid|unsupported|must be|"
+    r"out of range|cannot be|object has no|argument", re.IGNORECASE)
+
+
+def user_hint(exc: BaseException) -> str:
+    """Der Satz aus einem absichtlichen Hinweis -- sonst die allgemeine Meldung.
+
+    Absichtliche Hinweise sind ValueError oder FileNotFoundError -- oder eigene
+    Unterklassen aus Aquaticy (CalcError, AddOnError ...) -- mit einem Satz
+    fuer Menschen ("x.env ist kein Bild."). Was Bibliotheken werfen, ist eine
+    fremde Unterklasse (UnicodeDecodeError, JSONDecodeError) oder ein englischer
+    Fachtext ("invalid literal for int() ...") -- das wird allgemein (9.6.8 Ultra).
+    """
+    art = type(exc)
+    eigen = art.__module__.split(".")[0] == "aquaticy"
+    if not eigen and art not in (ValueError, FileNotFoundError):
+        return GENERIC_ERROR
+    text = str(exc).strip()
+    if not text or _BIBLIOTHEK.search(text):
+        return GENERIC_ERROR
+    return public_error(text)
 
 
 def error_page(status: int) -> bytes:
@@ -2107,6 +2134,20 @@ def start_user_scheduler(account: Account) -> None:
         )
         scheduler.start()
         USER_SCHEDULERS[account.id] = scheduler
+
+
+def _stop_schedulers() -> None:
+    """Haelt alle Planer an -- beim Beenden und vor einem Neustart (9.6.8 Ultra)."""
+    global SCHEDULER
+    with _SCHEDULER_LOCK:
+        planer = list(USER_SCHEDULERS.values())
+        USER_SCHEDULERS.clear()
+    if SCHEDULER is not None:
+        planer.append(SCHEDULER)
+        SCHEDULER = None
+    for eins in planer:
+        with contextlib.suppress(Exception):
+            eins.stop()
 
 
 def forget_account_runtime(account: Account) -> None:
@@ -5405,11 +5446,11 @@ p{{margin:0 0 8px;color:#57534a}}</style></head><body><main>
                 # Absichtliche Hinweise (etwa "/image: das ist kein Bild") sind
                 # ValueError mit einem Satz fuer Menschen; sie gehen durch den
                 # Filter. Alles andere ist ein technischer Fehler (9.6.8 Sol).
-                if isinstance(exc, (ValueError, FileNotFoundError)):
-                    meldung = public_error(scrub_error(str(exc), geheim))
+                meldung = user_hint(exc)
+                if meldung != GENERIC_ERROR:
+                    meldung = public_error(scrub_error(meldung, geheim))
                 else:
                     print(f"  [Fehler] Chat: {type(exc).__name__}")
-                    meldung = GENERIC_ERROR
                 lauf.add({"type": "error", "message": meldung})
             finally:
                 # Ohne ein "done" bliebe im Browser der blinkende Cursor
@@ -5802,49 +5843,62 @@ def serve(
             start_user_scheduler(account)
     except Exception:  # pragma: no cover - Auftraege duerfen den Start nie kosten
         pass
-    server = bind_server(host, port)
+    try:
+        server = bind_server(host, port)
+    except BaseException:
+        # Kein Port frei: auch dann darf kein Planer weiterlaufen.
+        _stop_schedulers()
+        raise
     if server.server_address[1] != port and port:
         print(f"  Port {port} ist belegt oder gesperrt -- Aquaticy laeuft auf Port "
               f"{server.server_address[1]}.")
     port = server.server_address[1]
-    from aquaticy.learning import Learning
-    from aquaticy.research import start_cleanup
-
-    research_stop, research_worker = start_cleanup(Learning(data_dir).research)
     global SERVER, CLUSTER
-    SERVER = server
-    # Server-Verbund (9.6.1): laeuft nur, wenn er in den Dev settings an ist.
+    research_stop: threading.Event | None = None
+    research_worker: threading.Thread | None = None
+    # Alles nach dem Binden steht im try: scheitert der Start (etwa eine gesperrte
+    # Datenbank), wird der Port trotzdem frei und der Planer haelt an. Sonst nahm
+    # der Neustart den naechsten Port, und der alte nahm Verbindungen an, ohne je
+    # zu antworten (9.6.8 Ultra).
     try:
-        frage = cluster.TerminalPrompt()
-        CLUSTER = cluster.Cluster(data_dir, host=host, port=port, version=VERSION_LABEL,
-                                  hooks=cluster.Hooks(load=_cluster_load,
-                                                      release=_cluster_release,
-                                                      adopt=_cluster_adopt,
-                                                      restart=_cluster_restart, ask=frage))
-        frage.cluster = CLUSTER
-        CLUSTER.start()
-        if CLUSTER.joined:
-            rolle = "Master" if CLUSTER.is_master else "Mitglied"
-            print(f"  Verbund:    {rolle}, {len(CLUSTER.members())} Server")
-    except Exception as exc:  # pragma: no cover - der Verbund darf nie den Start kosten
-        print(f"  [Verbund] nicht gestartet: {type(exc).__name__}: {exc}")
-        CLUSTER = None
-    threading.Thread(target=_warm_up, daemon=True).start()
-    if open_browser:
-        # Auf dem eigenen Rechner ist 127.0.0.1 die zuverlaessigste Adresse --
-        # die steht immer an letzter Stelle.
-        local = urls_for(host, port, token)[-1]
-        threading.Timer(0.6, lambda: webbrowser.open(local)).start()
-    try:
+        from aquaticy.learning import Learning
+        from aquaticy.research import start_cleanup
+
+        research_stop, research_worker = start_cleanup(Learning(data_dir).research)
+        SERVER = server
+        # Server-Verbund (9.6.1): laeuft nur, wenn er in den Dev settings an ist.
+        try:
+            frage = cluster.TerminalPrompt()
+            CLUSTER = cluster.Cluster(data_dir, host=host, port=port, version=VERSION_LABEL,
+                                      hooks=cluster.Hooks(load=_cluster_load,
+                                                          release=_cluster_release,
+                                                          adopt=_cluster_adopt,
+                                                          restart=_cluster_restart, ask=frage))
+            frage.cluster = CLUSTER
+            CLUSTER.start()
+            if CLUSTER.joined:
+                rolle = "Master" if CLUSTER.is_master else "Mitglied"
+                print(f"  Verbund:    {rolle}, {len(CLUSTER.members())} Server")
+        except Exception as exc:  # pragma: no cover - der Verbund darf nie den Start kosten
+            print(f"  [Verbund] nicht gestartet: {type(exc).__name__}: {exc}")
+            CLUSTER = None
+        threading.Thread(target=_warm_up, daemon=True).start()
+        if open_browser:
+            # Auf dem eigenen Rechner ist 127.0.0.1 die zuverlaessigste Adresse --
+            # die steht immer an letzter Stelle.
+            local = urls_for(host, port, token)[-1]
+            threading.Timer(0.6, lambda: webbrowser.open(local)).start()
         server.serve_forever()
     except KeyboardInterrupt:
         pass
     finally:
         server.server_close()
-        research_stop.set()
-        research_worker.join(timeout=6)
+        if research_stop is not None and research_worker is not None:
+            research_stop.set()
+            research_worker.join(timeout=6)
         if CLUSTER is not None:
             CLUSTER.stop()
+        _stop_schedulers()
         TOKEN = ""
         AUTH = None
     # Der Beitritt laeuft in einem Daemon-Thread. Dort kann der Prozess nach
