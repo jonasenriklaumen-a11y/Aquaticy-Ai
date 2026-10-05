@@ -461,6 +461,61 @@ DENIED_PAGE = """<!doctype html><html lang="de"><meta charset="utf-8">
 Start im Terminal steht &mdash; die mit <code>?token=</code> am Ende.</p>
 </div></body></html>"""
 
+#: Was Nutzer bei einem technischen Fehler lesen (9.6.8 Sol) -- nie den Fehler selbst.
+GENERIC_ERROR = "Da ist bei Aquaticy etwas schiefgelaufen. Bitte versuch es gleich noch einmal."
+#: Woran ein technischer Fehlertext zu erkennen ist: Fehlernamen aus Python
+#: oder Bibliotheken, Statuscodes, Stapel, Systemfehlernummern.
+_TECHNISCH = re.compile(
+    r"\b[A-Z][A-Za-z]*(?:Error|Exception|Warning)\b|Traceback|\bErrno\b|"
+    r"\b(?:HTTP|Fehler|Status|status code|code)\s*\(?\d{3}\b|\(\d{3}\)|"
+    r"\blitellm\b|\bhttpx\b|\bsqlite3?\b|File \"|line \d+|0x[0-9a-f]{6,}")
+
+
+def public_error(text: str) -> str:
+    """Ein Fehlertext fuer Menschen: Hinweise bleiben, Technisches wird allgemein.
+
+    Ein Satz wie "Das Passwort braucht mindestens 12 Zeichen" sagt, was zu tun
+    ist, und bleibt. "TimeoutError: ..." oder "Fehler 502" sagt Nutzern nichts
+    und verraet womoeglich Interna -- daraus wird die allgemeine Meldung.
+    """
+    wert = " ".join(str(text or "").split())
+    if not wert or _TECHNISCH.search(wert):
+        return GENERIC_ERROR
+    return wert
+
+
+def error_page(status: int) -> bytes:
+    """Eine Fehlerseite fuer den Browser -- allgemein, im Stil der Oberflaeche."""
+    titel, satz = {
+        404: ("Diese Seite gibt es nicht.",
+              "Vielleicht hat sich ein Tippfehler in die Adresse geschlichen."),
+        405: ("Das geht hier nicht.", "Diese Adresse ist nicht zum direkten Aufrufen gedacht."),
+    }.get(status, ("Da ist etwas schiefgelaufen.",
+                   "Bitte versuch es gleich noch einmal. Wenn es so bleibt, lade die Seite "
+                   "später neu."))
+    return f"""<!doctype html><html lang="de"><meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Fehler – Aquaticy AI</title>
+<link rel="icon" type="image/png" href="/favicon-32.png">
+<style>
+:root{{--bg:#f6f5f0;--fg:#26251f;--muted:#5f5d54;--accent:#2f7a53;--card:#fffefa;--line:#e3e1d8}}
+@media (prefers-color-scheme:dark){{:root{{--bg:#191a17;--fg:#f2f1ea;--muted:#b6b3a8;
+  --accent:#5fcf8f;--card:#22231f;--line:#34352f}}}}
+body{{margin:0;min-height:100vh;display:grid;place-items:center;background:var(--bg);
+  color:var(--fg);font:16px/1.6 system-ui,-apple-system,"Segoe UI",sans-serif;padding:16px;
+  box-sizing:border-box}}
+main{{max-width:30rem;width:100%;text-align:center;background:var(--card);
+  border:1px solid var(--line);border-radius:18px;padding:32px 24px}}
+img{{width:56px;height:56px}}
+h1{{font-size:21px;margin:14px 0 6px}}
+p{{color:var(--muted);margin:0 0 22px}}
+a{{display:inline-block;background:var(--accent);color:#fff;text-decoration:none;
+  border-radius:999px;padding:9px 20px;font-weight:600}}
+</style>
+<main><img src="/logo.png" alt=""><h1>{titel}</h1><p>{satz}</p>
+<a href="/">Zur Startseite</a></main></html>""".encode()
+
+
 AUTH_COOKIE = "aquaticy_session"
 CONSENT_COOKIE = "aquaticy_consent"
 AUTH: AuthStore | None = None
@@ -502,6 +557,13 @@ LOGIN_FAILS = RateLimiter(attempts=10, window_seconds=15 * 60)
 #: So gross darf eine Anmeldung, Registrierung oder Zustimmung hoechstens sein.
 AUTH_BODY_BYTES = 16_384
 REQUEST_LIMIT = RateLimiter(attempts=240, window_seconds=60)
+#: Obergrenze je Adresse ueber alle Konten (9.6.8 Sol). REQUEST_LIMIT zaehlt
+#: angemeldete Anfragen je KONTO -- sonst teilten sich alle Nutzer hinter
+#: einem Router (Familie, Buero, NAT) dieselben 240 und sperrten sich
+#: gegenseitig aus. Diese Grenze haelt trotzdem jede einzelne Adresse auf,
+#: die mit vielen Konten oder erfundenen Cookies flutet -- sie wird vor dem
+#: Nachschlagen der Sitzung geprueft und kostet nur einen Zaehler.
+ADDRESS_LIMIT = RateLimiter(attempts=1200, window_seconds=60)
 #: Schluessel testen, je Konto: genug, um einen neuen Schluessel ein paarmal zu
 #: probieren -- zu wenig, um den Server als Pruefstelle fuer fremde Schluessel
 #: zu missbrauchen (jeder Test ist eine Anfrage beim Anbieter).
@@ -3223,11 +3285,16 @@ class Handler(BaseHTTPRequestHandler):
         # Das Logo zaehlt nicht mit (9.6.0): jede Seite laedt es mehrfach, und es
         # ist eine feste, kleine Datei -- sonst frass es das Anfragen-Limit auf.
         # Im Verbund weitergereichte Anfragen hat der Eingang schon gezaehlt.
-        if (route not in STATIC_FILES and not weitergereicht
-                and not REQUEST_LIMIT.allow(client)):
+        gezaehlt = route not in STATIC_FILES and not weitergereicht
+        if gezaehlt and not ADDRESS_LIMIT.allow(client):
             self._json({"error": "Zu viele Anfragen. Bitte warte kurz."}, 429)
             return
         account = self._account()
+        # Je Konto, wenn angemeldet; sonst je Adresse (9.6.8 Sol).
+        if gezaehlt and not REQUEST_LIMIT.allow(
+                f"konto:{account.id}" if account is not None else f"ip:{client}"):
+            self._json({"error": "Zu viele Anfragen. Bitte warte kurz."}, 429)
+            return
         public = route in {
             "/",
             "/index.html",
@@ -3288,8 +3355,7 @@ class Handler(BaseHTTPRequestHandler):
             print(f"  [Fehler] {self.command}: {type(exc).__name__}")
             if not self.responded:
                 with contextlib.suppress(OSError):
-                    self._json({"error": "Da ist bei Aquaticy etwas schiefgelaufen. "
-                                         "Versuch es gleich noch einmal."}, 500)
+                    self._error(500)
         finally:
             if previous is None:
                 with contextlib.suppress(AttributeError):
@@ -3470,7 +3536,31 @@ class Handler(BaseHTTPRequestHandler):
             # Fehlertexte gehen seit 9.6.0 immer durch den Schluessel-Filter --
             # vorher nur die Ereignisse eines Laufs, nicht die 500er der Routen.
             payload = {**payload, "error": scrub_error(payload["error"])}
+            # Seit 9.6.8 Sol: Serverfehler (5xx) nur allgemein, und was in
+            # anderen Antworten technisch aussieht, ebenso.
+            payload["error"] = (GENERIC_ERROR if status >= 500
+                                else public_error(payload["error"]))
         self._send(status, json.dumps(payload, ensure_ascii=False).encode(), "application/json")
+
+    def _wants_page(self) -> bool:
+        """Ruft ein Mensch die Adresse im Browser auf (statt die Seite per Skript)?"""
+        route = self._route()
+        return (self.command in ("GET", "HEAD") and not route.startswith(("/api/", "/cluster/"))
+                and "text/html" in (self.headers.get("Accept") or ""))
+
+    def _error(self, status: int, message: str = "") -> None:
+        """Fehler als Seite fuer den Browser oder als JSON fuer die Oberflaeche."""
+        if self._wants_page():
+            body = error_page(status)
+            self.send_response(status)
+            self.send_header("Content-Type", "text/html; charset=utf-8")
+            self.send_header("Content-Length", str(len(body)))
+            self.send_header("Cache-Control", "no-store")
+            self.end_headers()
+            if self.command != "HEAD":
+                self.wfile.write(body)
+            return
+        self._json({"error": message or GENERIC_ERROR}, status)
 
     def _json_cookie(
         self, payload: dict[str, Any], name: str, value: str, max_age: int, status: int = 200,
@@ -4284,7 +4374,7 @@ class Handler(BaseHTTPRequestHandler):
                 }
             )
         else:
-            self._json({"error": "unbekannter Pfad"}, 404)
+            self._error(404, "unbekannter Pfad")
 
     def _post(self) -> None:
         if not self._authorized():
@@ -5244,6 +5334,10 @@ p{{margin:0 0 8px;color:#57534a}}</style></head><body><main>
             kind = "chunk" if name == "answer_chunk" else name
             if geheim and kind not in ("chunk", "thought"):
                 payload = scrub_payload(payload, geheim)
+            if kind == "error":
+                # 9.6.8 Sol: im Chat nie der technische Fehler, nur ein Satz fuer
+                # Menschen. Hinweise wie das erreichte Limit bleiben stehen.
+                payload = {**payload, "message": public_error(str(payload.get("message", "")))}
             if AIGUARD is not None and konto is not None and kind == "abuse":
                 # Seit 9.5.24 entscheidet Ai-guard aus Art und Schwere (aus
                 # demselben Prüf-Aufruf des Rechtsrahmens): Chatsperre, Bann
@@ -5308,8 +5402,15 @@ p{{margin:0 0 8px;color:#57534a}}</style></head><body><main>
                     image_mode=image_mode,
                 )
             except Exception as exc:
-                lauf.add({"type": "error",
-                          "message": scrub_error(f"{type(exc).__name__}: {exc}", geheim)})
+                # Absichtliche Hinweise (etwa "/image: das ist kein Bild") sind
+                # ValueError mit einem Satz fuer Menschen; sie gehen durch den
+                # Filter. Alles andere ist ein technischer Fehler (9.6.8 Sol).
+                if isinstance(exc, (ValueError, FileNotFoundError)):
+                    meldung = public_error(scrub_error(str(exc), geheim))
+                else:
+                    print(f"  [Fehler] Chat: {type(exc).__name__}")
+                    meldung = GENERIC_ERROR
+                lauf.add({"type": "error", "message": meldung})
             finally:
                 # Ohne ein "done" bliebe im Browser der blinkende Cursor
                 # stehen -- die Oberflaeche waere scheinbar haengen.
@@ -5580,6 +5681,10 @@ def cluster_action(session: Any, payload: dict[str, Any]) -> tuple[dict[str, Any
             if not CLUSTER.is_master:
                 return {"error": "Entfernen kann nur der Master."}, 403
             CLUSTER.remove(str(payload.get("node", "")))
+        elif aktion == "failover":
+            if not CLUSTER.is_master:
+                return {"error": "Konten übernehmen kann nur der Master."}, 403
+            CLUSTER.failover(str(payload.get("node", "")))
         elif aktion == "leave":
             CLUSTER.leave()
         else:
@@ -5589,6 +5694,64 @@ def cluster_action(session: Any, payload: dict[str, Any]) -> tuple[dict[str, Any
     except (OSError, ValueError) as exc:
         return {"error": f"Der andere Server ist nicht erreichbar ({type(exc).__name__})."}, 502
     return CLUSTER.view(), 200
+
+
+#: Wie viele Ersatz-Ports nach dem eingestellten probiert werden (9.6.8 Sol).
+BACKUP_PORTS = 20
+_PORT_BELEGT = {98, 48, 10048, 13, 10013}  # EADDRINUSE / EACCES (Linux, macOS, Windows)
+
+
+def port_candidates(port: int) -> list[int]:
+    """Der eingestellte Port und dahinter die Ersatz-Ports.
+
+    Den UDP-Port des Server-Verbunds laesst die Liste aus, damit sich beides
+    nicht verwechseln laesst. Port 0 heisst "irgendeiner" -- dann nur der.
+    """
+    port = int(port)
+    if port == 0:
+        return [0]
+    out = [port]
+    kandidat = port
+    while len(out) <= BACKUP_PORTS and kandidat < 65535:
+        kandidat += 1
+        if kandidat != cluster.DISCOVERY_PORT:
+            out.append(kandidat)
+    if port < 1024 and DEFAULT_PORT not in out:
+        out.append(DEFAULT_PORT)  # ein privilegierter Port ist oft nur fuer root frei
+    return out
+
+
+def free_port(host: str, port: int) -> int:
+    """Der erste freie Port ab *port* -- fuer die Adresse, die vor dem Start gezeigt wird."""
+    for kandidat in port_candidates(port):
+        familie = socket.AF_INET6 if ":" in host else socket.AF_INET
+        with contextlib.closing(socket.socket(familie, socket.SOCK_STREAM)) as probe:
+            probe.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+            try:
+                probe.bind((host, kandidat))
+            except OSError as exc:
+                if exc.errno in _PORT_BELEGT:
+                    continue
+                raise
+            return kandidat
+    return port
+
+
+def bind_server(host: str, port: int) -> ThreadingHTTPServer:
+    """Der Webserver auf dem eingestellten Port -- oder dem naechsten freien (9.6.8 Sol).
+
+    Ein belegter oder gesperrter Port ist kein Grund, nicht zu starten: Aquaticy
+    nimmt den naechsten und sagt im Terminal, welcher es geworden ist.
+    """
+    letzter: OSError | None = None
+    for kandidat in port_candidates(port):
+        try:
+            return ThreadingHTTPServer((host, kandidat), Handler)
+        except OSError as exc:
+            if exc.errno not in _PORT_BELEGT:
+                raise
+            letzter = exc
+    raise letzter or OSError("Kein freier Port gefunden.")
 
 
 def serve(
@@ -5639,7 +5802,11 @@ def serve(
             start_user_scheduler(account)
     except Exception:  # pragma: no cover - Auftraege duerfen den Start nie kosten
         pass
-    server = ThreadingHTTPServer((host, port), Handler)
+    server = bind_server(host, port)
+    if server.server_address[1] != port and port:
+        print(f"  Port {port} ist belegt oder gesperrt -- Aquaticy laeuft auf Port "
+              f"{server.server_address[1]}.")
+    port = server.server_address[1]
     from aquaticy.learning import Learning
     from aquaticy.research import start_cleanup
 

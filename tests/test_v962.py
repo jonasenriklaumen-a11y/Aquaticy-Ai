@@ -18,7 +18,7 @@ def test_version_is_public_962() -> None:
 
     # Seit 9.6.2.5 (Pruefrunde nach 9.6.2) -- weiterhin oeffentlich.
     assert aquaticy.__version__ == "9.6.8"
-    assert aquaticy.VERSION_LABEL == "9.6.8 Terra" and not aquaticy.INTERNAL
+    assert aquaticy.VERSION_LABEL == "9.6.8 Sol" and not aquaticy.INTERNAL
 
 
 def test_sign_in_buttons_and_quick_link() -> None:

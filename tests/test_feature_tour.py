@@ -68,6 +68,7 @@ def tour(server: tuple[int, Path], request: pytest.FixtureRequest,  # noqa: F811
          monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> Tour:
     port, _ = server
     monkeypatch.setattr(web, "REQUEST_LIMIT", web.RateLimiter(attempts=10_000, window_seconds=60))
+    monkeypatch.setattr(web, "ADDRESS_LIMIT", web.RateLimiter(attempts=10_000, window_seconds=60))
     # Nur hier: das Kontingent ist in test_end_to_end eigens geprueft, und
     # der grosse Systemtext kostet je Frage einige tausend Token.
     monkeypatch.setattr("aquaticy.quota.SESSION_TOKENS", 10**9)

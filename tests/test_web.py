@@ -391,7 +391,9 @@ def test_agent_crash_becomes_an_error_event(client, session: web.ChatSession) ->
     assert status == 200
     events = sse_events(body)
     assert events[0]["type"] == "error"
-    assert "Modell weg" in events[0]["message"]
+    # Seit 9.6.8 Sol: nie der technische Fehler, nur eine allgemeine Meldung.
+    assert "Modell weg" not in events[0]["message"]
+    assert events[0]["message"] == web.GENERIC_ERROR
     assert events[-1]["type"] == "done"
 
 
@@ -423,7 +425,8 @@ def test_config_post_reports_failures(
     monkeypatch.setattr(web, "write_env_file", boom)
     status, body = client("POST", "/api/config", {"AQUATICY_LOCATION": "Kiel"})
     assert status == 500
-    assert "Platte voll" in json.loads(body)["error"]
+    # Seit 9.6.8 Sol: ein Serverfehler sagt nur allgemein, dass es nicht ging.
+    assert json.loads(body)["error"] == web.GENERIC_ERROR
 
 
 # -- Oberflaeche ----------------------------------------------------------

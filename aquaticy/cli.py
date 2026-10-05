@@ -798,9 +798,14 @@ def web_command(
     fuer andere Geraete erreichbar -- im heimischen Netz und ueber Tailscale.
     Es genuegt dann Adresse und Port, mehr wird nicht abgefragt.
     """
-    from aquaticy.web import addresses_for, is_public_host, serve, token_problem
+    from aquaticy.web import addresses_for, free_port, is_public_host, serve, token_problem
 
     bind = host or ("0.0.0.0" if lan else "127.0.0.1")
+    # Ersatz-Port (9.6.8 Sol): ist der eingestellte belegt, gleich den naechsten
+    # freien nehmen und die richtige Adresse zeigen -- statt abzubrechen.
+    gewuenscht = port
+    with contextlib.suppress(OSError):
+        port = free_port(bind, port)
     public = is_public_host(bind)
     access = token.strip()
     problem = token_problem(access)
@@ -821,6 +826,9 @@ def web_command(
     elif public:
         lines.append("[dim]Kein Zugangswort: Adresse und Port genuegen.[/dim]")
     lines.append("[dim]Einstellungen aendert man in der Oberflaeche. Beenden mit Strg+C.[/dim]")
+    if port != gewuenscht:
+        lines.append(f"[yellow]Port {gewuenscht} ist belegt -- "
+                     f"Aquaticy nimmt Port {port}.[/yellow]")
     console.print(Panel.fit("\n".join(line for line in lines if line), border_style="green"))
 
     problems = settings.missing_requirements()
@@ -830,14 +838,33 @@ def web_command(
             + "; ".join(problems)
             + "\n[dim]Laesst sich in der Oberflaeche unter Einstellungen beheben.[/dim]"
         )
-    try:
-        serve(host=bind, port=port, open_browser=open_browser, token=access)
-    except OSError as exc:
-        console.print(f"[red]Start fehlgeschlagen:[/red] {exc}")
-        console.print(
-            f"[dim]Laeuft aquaticy schon? Sonst anderen Port: --port {port + 1}[/dim]"
-        )
-        raise typer.Exit(code=1) from exc
+    import time as _time
+
+    # Selbstheilung (9.6.8 Sol): stuerzt der Server unerwartet ab, startet er
+    # neu -- hoechstens fuenfmal in zehn Minuten, damit ein dauerhafter Fehler
+    # nicht in einer Endlosschleife kreist.
+    neustarts: list[float] = []
+    while True:
+        try:
+            serve(host=bind, port=port, open_browser=open_browser, token=access)
+            break
+        except OSError as exc:
+            console.print(f"[red]Start fehlgeschlagen:[/red] {type(exc).__name__}")
+            console.print(
+                f"[dim]Laeuft aquaticy schon? Sonst anderen Port: --port {port + 1}[/dim]"
+            )
+            raise typer.Exit(code=1) from exc
+        except Exception as exc:
+            jetzt = _time.monotonic()
+            neustarts = [t for t in neustarts if jetzt - t < 600]
+            if len(neustarts) >= 5:
+                console.print("[red]Aquaticy ist wiederholt abgestuerzt und bleibt aus.[/red]")
+                raise typer.Exit(code=1) from exc
+            neustarts.append(jetzt)
+            console.print(f"[yellow]Aquaticy ist abgestuerzt ({type(exc).__name__}) -- "
+                          "starte in 2 Sekunden neu ...[/yellow]")
+            open_browser = False
+            _time.sleep(2)
     console.print("[dim]Beendet.[/dim]")
 
 

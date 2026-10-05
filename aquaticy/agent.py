@@ -1899,6 +1899,10 @@ class Agent:
         nicht. Im Pro-Modus, weil genau das der Modus ist -- wer ihn waehlt,
         bittet um die beste Leistung, die da ist.
         """
+        if getattr(self, "_ausweich_model", ""):
+            # Ausweichmodell (9.6.8 Sol): das eigentliche antwortete nicht --
+            # fuer den Rest dieses Turns uebernimmt das schnelle Modell.
+            return self._ausweich_model
         if clean_mode(self.mode) in ("code", "pro"):
             return self._strongest_model() or self.settings.model
         if getattr(self, "_auto_pick", ""):
@@ -2347,6 +2351,9 @@ class Agent:
                 last_error = exc
                 detail = f"{type(exc).__name__}: {exc}"
                 if attempt + 1 >= attempts:
+                    if is_transient(detail) and self._switch_to_backup_model():
+                        # Ein frischer Satz Versuche mit dem Ausweichmodell.
+                        return self._completion_with_retry(messages, stream=stream)
                     break
 
                 from aquaticy.local_model import free_memory, resource_problem
@@ -2364,11 +2371,39 @@ class Agent:
                 else:
                     break  # echter Fehler -- Wiederholen hilft nicht
                 time.sleep(min(2**attempt, 8))
+                # Vor dem letzten Versuch schon umschalten: wer auf den Anbieter
+                # wartet, hat lange genug gewartet.
+                if (attempt + 2 >= attempts and is_transient(detail)
+                        and self._switch_to_backup_model()):
+                    return self._completion_with_retry(messages, stream=stream)
             else:
                 self._model_ready()
                 return antwort
 
         raise last_error if last_error else RuntimeError("LLM-Aufruf fehlgeschlagen")
+
+    def _switch_to_backup_model(self) -> bool:
+        """Schaltet fuer diesen Turn auf ein Ausweichmodell um (9.6.8 Sol).
+
+        Nur das schnelle Modell desselben Anbieters: es laeuft mit demselben
+        Schluessel und denselben Grenzen -- nie ungefragt bei einem anderen
+        Anbieter, der woanders abrechnet. Hoechstens einmal je Turn.
+        """
+        if getattr(self, "_ausweich_model", ""):
+            return False
+        from aquaticy.config import provider_of
+        from aquaticy.system import fast_model
+
+        aktuell = self.active_model
+        try:
+            ersatz = fast_model(self.settings)
+        except Exception:
+            return False
+        if not ersatz or ersatz == aktuell or provider_of(ersatz) != provider_of(aktuell):
+            return False
+        self._ausweich_model = ersatz
+        self._emit("retry", attempt=0, reason="Ausweichmodell", detail="")
+        return True
 
     def _completion(self, messages: list[dict[str, Any]], *, stream: bool) -> dict[str, Any]:
         """Ein LLM-Aufruf; gibt eine Assistant-Nachricht als Dict zurueck."""
@@ -2527,6 +2562,7 @@ class Agent:
                 und Aquaticy malt mit einem Bildmodell statt zu suchen.
         """
         question = question.strip()
+        self._ausweich_model = ""
         learning = getattr(self, "learning", None)
         self.toolbox.learning_ticket = ""
         if learning is not None:

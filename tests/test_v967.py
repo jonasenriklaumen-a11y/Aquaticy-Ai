@@ -48,9 +48,19 @@ def test_no_retroactive_learning_and_explicit_current_consent(learners):
             first.set_consent(enabled, version)
     first.set_consent(True, LEGAL_VERSION)
     assert contribute(first) == 1
+    # 9.6.8 Sol: das eigene Konto sieht den Auszug sofort, andere erst nach
+    # einer unabhaengigen Bestaetigung durch ein zweites Konto.
+    assert first.recall(QUESTION) == [{"text": FACT, "source": SOURCE}]
+    assert second.recall(QUESTION) == []
+    assert contribute(first) == 0
+    auth, _, _ = learners
+    third_account = auth.register("person9@example.org", "ein-test-passwort", "normal",
+                                  terms_accepted=True, terms_version="old")
+    third = Learning(auth.profile_dir(third_account.id))
+    third.set_consent(True, LEGAL_VERSION)
+    assert contribute(third) == 1
     assert second.recall(QUESTION) == [{"text": FACT, "source": SOURCE}]
     assert not second.status()["enabled"]  # Reading does not grant contribution consent.
-    assert contribute(first) == 0
 
 
 def test_encrypted_data_and_blind_search_index(learners):
@@ -248,6 +258,13 @@ def test_real_chat_turn_then_another_account_uses_shared_knowledge(
         assert agent.ask(QUESTION, stream=False).answer == FACT
         assert not second.recall(QUESTION)
         assert agent.ask(QUESTION, stream=False).answer == FACT
+        assert first.recall(QUESTION)  # der eigene Beitrag gilt sofort
+        assert not second.recall(QUESTION)  # fuer andere erst nach Bestaetigung (9.6.8 Sol)
+        drittes = auth.register("person8@example.org", "ein-test-passwort", "normal",
+                                terms_accepted=True, terms_version="old")
+        third = Learning(auth.profile_dir(drittes.id))
+        third.set_consent(True, LEGAL_VERSION)
+        assert contribute(third) == 1
         assert second.recall(QUESTION)
     finally:
         agent.close()
@@ -422,3 +439,12 @@ def test_browser_learning_controls_and_batched_renderer(parallel_site):
             assert not errors
         finally:
             browser.close()
+
+
+def test_single_contributor_cannot_spread_a_fact_alone(learners):
+    """9.6.8 Sol: ein einzelnes (womoeglich praepariertes) Konto verbreitet nichts."""
+    _, _, (first, second) = learners
+    first.set_consent(True, LEGAL_VERSION)
+    assert contribute(first) == 1
+    assert first.recall(QUESTION) and not second.recall(QUESTION)
+    assert learning.MIN_CONFIRMATIONS >= 2

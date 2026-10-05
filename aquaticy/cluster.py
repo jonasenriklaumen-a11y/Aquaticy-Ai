@@ -1282,10 +1282,57 @@ class Cluster:
             neu["secret"] = self.info["secret"]
             neu.pop("previous", None)
             self.state["cluster"] = neu
+            abgegeben: list[str] = []
             if isinstance(homes, dict):
-                self.state["homes"] = {str(u): str(n) for u, n in homes.items()
-                                       if _USER_RE.match(str(u))}
+                neue = {str(u): str(n) for u, n in homes.items() if _USER_RE.match(str(u))}
+                # Konten, die der Master inzwischen woanders hinlegt (etwa nach
+                # einer Uebernahme, waehrend dieser Server weg war), werden hier
+                # angehalten -- sonst liefen Auftraege und Sitzungen weiter (9.6.8 Sol).
+                abgegeben = [u for u, n in self.homes.items()
+                             if n == self.node_id and neue.get(u, n) != self.node_id]
+                self.state["homes"] = neue
             self._save()
+        for user in abgegeben:
+            threading.Thread(target=self._release_quietly, args=(user,), daemon=True).start()
+
+    def _release_quietly(self, user: str) -> None:
+        with contextlib.suppress(Exception):
+            self.hooks.release(user)
+
+    def failover(self, node: str) -> int:
+        """Master: die Konten eines ausgefallenen Servers auf die anderen verteilen.
+
+        Bewusst ein Knopf, keine Automatik (9.6.8 Sol): die Kopien auf den
+        anderen Servern koennen ein paar Sekunden hinter dem ausgefallenen
+        zurueckliegen. Ob das in Kauf genommen wird, entscheidet ein Mensch,
+        der weiss, dass der Server wirklich aus ist. Kommt er zurueck, gibt er
+        die Konten ab (siehe _take_members). Returns: wie viele Konten.
+        """
+        if not self.is_master:
+            raise ClusterError("Konten übernehmen kann nur der Master.")
+        if node == self.node_id or self.member(node) is None:
+            raise ClusterError("Diesen Server gibt es im Verbund nicht.")
+        if self.alive(node):
+            raise ClusterError("Der Server antwortet noch — eine Übernahme ist nicht nötig.")
+        verteilt: list[tuple[str, str]] = []
+        with self._lock:
+            for user in [u for u, n in list(self.homes.items()) if n == node]:
+                ziel = self.least_loaded()
+                if ziel == node or not self.alive(ziel):
+                    continue
+                self.homes[user] = ziel
+                self._moving.discard(user)
+                verteilt.append((user, ziel))
+            self._save()
+        self.broadcast()
+        for user, ziel in verteilt:
+            if ziel == self.node_id:
+                with contextlib.suppress(Exception):
+                    self.hooks.adopt(user)
+            else:
+                with contextlib.suppress(ClusterError, OSError, ValueError):
+                    self.call(ziel, "adopt", {"user": user})
+        return len(verteilt)
 
     def remove(self, node: str, notify: bool = True) -> None:
         """Master: nimmt einen Server aus dem Verbund."""
@@ -2015,6 +2062,7 @@ class Cluster:
             einladungen = [e.public() for e in self.invites_out.values()
                            if _now() - e.created < INVITE_SECONDS * 2]
         return {"enabled": self.enabled, "joined": self.joined,
+                "dead_after": DEAD_AFTER,
                 "joining": bool(self.info and self.info.get("joining")),
                 "master": self.is_master, "node": self.node_id, "name": self.node["name"],
                 "lan": self.lan_ready(), "max": MAX_NODES, "members": mitglieder,

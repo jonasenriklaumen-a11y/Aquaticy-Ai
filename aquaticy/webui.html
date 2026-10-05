@@ -1215,6 +1215,13 @@ input:focus,select:focus{border-color:var(--accent)}
 .addon-sheet{max-width:44rem}
 .addon-list{display:flex;flex-direction:column;gap:10px;margin-top:12px}
 /* KI-Konten (9.6.1) */
+.error-dot{background:var(--err)}
+/* Offline (9.6.8 Sol): ein schmaler Streifen statt eines Fehlers. */
+.offline-hinweis{position:fixed;top:10px;left:50%;transform:translateX(-50%);z-index:90;
+  max-width:calc(100vw - 32px);background:var(--surface);color:var(--text-2);
+  border:1px solid var(--line-2);border-radius:999px;padding:6px 14px;
+  font-size:calc(12.5px * var(--fs));box-shadow:0 2px 10px rgba(0,0,0,.08)}
+.offline-hinweis[hidden]{display:none}
 .linked-title{font-size:calc(14px * var(--fs));margin:18px 0 0}
 .linked-lead{margin-top:6px}
 .linked-list{display:flex;flex-direction:column;gap:10px;margin-top:10px}
@@ -1664,6 +1671,25 @@ input:focus-visible,select:focus-visible,.side-search input:focus-visible,
     <div class="actions">
       <button type="button" class="btn" id="guard-cancel">Abbrechen</button>
       <button type="button" class="btn primary" id="guard-ok">Weiter</button>
+    </div>
+  </div>
+</div>
+
+<!-- Fehlerfenster (9.6.8 Sol): nur eine allgemeine Meldung, nie der technische
+     Fehler -- der steht hoechstens kurz und ohne Inhalt im Protokoll des Servers. -->
+<div class="offline-hinweis" id="offline-hinweis" role="status" hidden>Keine Verbindung —
+  Aquaticy macht von selbst weiter, sobald das Netz wieder da ist.</div>
+
+<div class="overlay ask" id="errorbox">
+  <div class="sheet ask-sheet" role="alertdialog" aria-modal="true"
+       aria-labelledby="error-title" aria-describedby="error-text">
+    <div class="ask-head"><span class="ask-dot error-dot"></span>Fehler</div>
+    <div class="ask-q" id="error-title">Da ist etwas schiefgelaufen.</div>
+    <div class="note" id="error-text">Bitte versuch es gleich noch einmal. Wenn es so bleibt,
+      lade die Seite neu.</div>
+    <div class="actions">
+      <button type="button" class="btn" id="error-reload">Seite neu laden</button>
+      <button type="button" class="btn primary" id="error-ok">Schließen</button>
     </div>
   </div>
 </div>
@@ -2417,6 +2443,15 @@ input:focus-visible,select:focus-visible,.side-search input:focus-visible,
 
 <script>
 const $ = (s) => document.querySelector(s);
+// Fehler (9.6.8 Sol): Nutzer sehen nur allgemeine Meldungen. Was technisch
+// aussieht -- Fehlernamen, Codes, Stapel -- wird nie angezeigt.
+const FEHLER_ALLGEMEIN = "Da ist etwas schiefgelaufen. Bitte versuch es gleich noch einmal.";
+const FEHLER_VERBINDUNG = "Keine Verbindung zu Aquaticy. Bitte prüfe die Verbindung und versuch es gleich noch einmal.";
+const TECHNISCH = /\b[A-Z][A-Za-z]*(Error|Exception)\b|Traceback|\bErrno\b|\bHTTP\s*\d{3}\b|\bstatus code\b|Failed to fetch|NetworkError|Load failed|undefined|null is not|is not a function|Unexpected token|JSON/;
+function nutzerFehler(text, ersatz = FEHLER_ALLGEMEIN){
+  const t = String(text ?? "").trim();
+  return !t || TECHNISCH.test(t) ? ersatz : t;
+}
 // Feste Hinweise aus dem HTML (9.6.2): ".note" bricht Zeilen wie im Text um
 // (pre-line) -- gewollt fuer Meldungen, die das Skript mit "\n" setzt. Bei den
 // festen Absaetzen hier im Quelltext stehen aber die Umbrueche des Editors,
@@ -2429,7 +2464,7 @@ document.querySelectorAll(".note").forEach((note) => {
 const thread = $("#thread"), main = $("#main"), input = $("#input"), send = $("#send");
 let busy = false;
 let currentChat = "";
-const aquaticyVersion = window.__AQUATICY_VERSION__ || "9.6.8 Terra";
+const aquaticyVersion = window.__AQUATICY_VERSION__ || "9.6.8 Sol";
 $("#version").textContent = "v" + aquaticyVersion;
 // Interne oder Test-Fassung (9.6.0): unten mittig ein gelber Hinweis.
 const aquaticyIntern = window.__AQUATICY_INTERNAL__ === true
@@ -2693,10 +2728,29 @@ let currentModel = "";
    Es gehoert weder in localStorage noch in JavaScript. */
 if (location.search) history.replaceState(null, "", location.pathname);
 
-function api(path, options = {}){
+const pause = (ms) => new Promise((fertig) => setTimeout(fertig, ms));
+function api(path, options = {}, versuch = 0){
   const headers = Object.assign({}, options.headers);
   if (currentChat) headers["X-Aquaticy-Chat"] = currentChat;
-  return fetch(path, Object.assign({credentials:"same-origin"}, options, { headers }));
+  // Lesen darf es von selbst noch einmal versuchen (9.6.8 Sol) -- Schreiben
+  // nie: ein zweites "Senden" oder "Loeschen" waere eine zweite Aktion.
+  const lesen = !options.method || options.method.toUpperCase() === "GET";
+  const nochmal = () => lesen && versuch < 2 && !options.signal?.aborted;
+  return fetch(path, Object.assign({credentials:"same-origin"}, options, { headers }))
+    .then((res) => {
+      if ([502, 503, 504].includes(res.status) && nochmal()){
+        res.body?.cancel?.();
+        return pause(500 * (versuch + 1)).then(() => api(path, options, versuch + 1));
+      }
+      // Ein Fehler des Servers (5xx) bekommt das Fehlerfenster; was die Seite
+      // selbst erklaert (Limit, Anmeldung, Eingabe), nicht.
+      if (res.status >= 500) zeigeFehler();
+      return res;
+    }, (err) => {
+      if (err && err.name !== "AbortError" && nochmal())
+        return pause(700 * (versuch + 1)).then(() => api(path, options, versuch + 1));
+      throw err;
+    });
 }
 
 /* ---------- Einwilligung und Konto ---------- */
@@ -3513,7 +3567,7 @@ async function runCommand(line){
     });
     const data = await res.json();
     if (view !== chatView) return;
-    bubble.innerHTML = md(data.ok ? (data.text || "") : ("**Das hat nicht geklappt:** " + data.error));
+    bubble.innerHTML = md(data.ok ? (data.text || "") : ("**Das hat nicht geklappt:** " + nutzerFehler(data.error)));
     // /export: die Datei kommt als Download -- nicht als Pfad auf dem Server,
     // mit dem man an einem anderen Geraet nichts anfangen kann.
     if (data.ok && data.download && typeof data.download.content === "string"){
@@ -3525,7 +3579,7 @@ async function runCommand(line){
     if (data.reload){ refreshHeader(); }
   } catch (err){
     if (view !== chatView) return;
-    bubble.innerHTML = md("**Das hat nicht geklappt:** " + String(err));
+    bubble.innerHTML = md("**Das hat nicht geklappt:** " + FEHLER_VERBINDUNG);
   }
   scroll();
   setBusy(false); input.focus();
@@ -3626,8 +3680,8 @@ async function verfolge(hole, steps, bubble, text){
     const res = await hole();
     if (view !== chatView){ await res.body?.cancel(); return; }
     if (!res.ok){
-      let message = `HTTP ${res.status}`, daten = null;
-      try { daten = await res.json(); message = daten.error || message; } catch {}
+      let message = FEHLER_ALLGEMEIN, daten = null;
+      try { daten = await res.json(); message = nutzerFehler(daten.error); } catch {}
       if (daten && daten.code === "quota"){
         // Das Limit ist erreicht: der Satz vom Server sagt, welches und wann
         // es sich zuruecksetzt, darunter die Balken wie in den Einstellungen.
@@ -3687,6 +3741,8 @@ async function verfolge(hole, steps, bubble, text){
       || /network|fetch|load failed|abgebrochen/i.test(String(err.message || err));
     if (err && err.gezeigt){
       // Schon dargestellt (Limit erreicht) -- keine zweite Fehlerzeile.
+    } else if (broken && await wiederAnhaengen(steps, bubble, text, hole)){
+      return;   // die Antwort laeuft in derselben Blase weiter
     } else if (broken){
       step(steps, "[Verbindung]",
         answer
@@ -3695,7 +3751,7 @@ async function verfolge(hole, steps, bubble, text){
             + "Bei einem Modell aus der Cloud kann die erste Antwort etwas dauern.",
         "warn");
     } else {
-      step(steps, "[Fehler]", String(err), "err");
+      step(steps, "[Fehler]", nutzerFehler(err && err.message), "err");
     }
     if (answer) bubble.innerHTML = md(answer);
     if (!(err && err.gezeigt)) wiederholenKnopf(bubble, text);
@@ -3958,7 +4014,11 @@ async function verfolge(hole, steps, bubble, text){
       case "calculate": step(steps, "[Rechne]", ev.expression); break;
       case "remember": step(steps, "[Merke]", ev.text); break;
       case "fallback": step(steps, "[Ausweich]", `${ev.source} → ${ev.target}`, "warn"); break;
-      case "retry": step(steps, "[Neu]", `Versuch ${ev.attempt}: ${ev.reason}`, "warn"); break;
+      case "retry":
+        if (ev.reason === "Ausweichmodell")
+          step(steps, "[Ausweichen]", "Das Modell antwortet gerade nicht — ein anderes übernimmt.", "warn");
+        else step(steps, "[Neu]", `Versuch ${ev.attempt}: ${ev.reason}`, "warn");
+        break;
       case "banned":
         // Ai-guard hat das Konto gesperrt (9.5.16 Lion). Seit 9.5.24 erscheint
         // dazu sofort das rote „Info“ mit Dauer und Grund.
@@ -3980,7 +4040,7 @@ async function verfolge(hole, steps, bubble, text){
         step(steps, "[Ai-guard]", "In den Normal-Modus gewechselt (virtual machine aus).");
         break;
       case "error":
-        step(steps, "[Fehler]", ev.message, "err");
+        step(steps, "[Fehler]", nutzerFehler(ev.message), "err");
         if (!answer) wiederholenKnopf(bubble, text);
         break;
       case "interim":
@@ -4026,6 +4086,48 @@ async function verfolge(hole, steps, bubble, text){
 // werden. Der Lauf liegt jetzt auf dem Server; hier haengen wir uns wieder
 // an und lassen den ganzen Verlauf ab Ereignis 0 nachwachsen, als waere man
 // nie weg gewesen.
+// Reisst die Leitung mitten in einer Antwort ab (WLAN-Wechsel, kurzer
+// Aussetzer, Server-Neustart), haengt sich die Seite selbst wieder an den Lauf
+// an -- er laeuft auf dem Server weiter (9.6.8 Sol). Hoechstens dreimal.
+async function wiederAnhaengen(steps, bubble, text, hole){
+  const versuch = hole._versuch || 0;
+  if (versuch >= 3) return false;
+  const view = chatView;
+  if (!navigator.onLine){
+    await Promise.race([new Promise((da) => addEventListener("online", da, { once: true })),
+                        pause(30_000)]);
+  }
+  await pause(1000 * (versuch + 1));
+  if (view !== chatView) return true;
+  let stand;
+  try {
+    const res = await api("/api/runstate");
+    if (!res.ok) return false;
+    stand = await res.json();
+  } catch { return false; }
+  if (view !== chatView) return true;
+  if (!stand || !stand.resume || !stand.id || (text && stand.question && stand.question !== text))
+    return false;
+  // Ab Ereignis 0: Schritte und Text wachsen noch einmal so nach, wie sie kamen.
+  steps.replaceChildren();
+  bubble.innerHTML = "";
+  const neu = () => {
+    running = new AbortController();
+    return api("/api/run?since=0&id=" + encodeURIComponent(stand.id), { signal: running.signal });
+  };
+  neu._versuch = versuch + 1;
+  await verfolge(neu, steps, bubble, text);
+  return true;
+}
+
+// Offline-Hinweis: dezent oben, verschwindet von selbst wieder.
+function zeigeOffline(){ $("#offline-hinweis").hidden = navigator.onLine; }
+addEventListener("offline", zeigeOffline);
+addEventListener("online", () => {
+  zeigeOffline();
+  if (!busy){ refreshHeader?.(); loadRecents?.(); }
+});
+
 async function wiederAufnehmen(){
   const view = chatView;
   let stand;
@@ -5662,7 +5764,7 @@ $("#learning-enabled").addEventListener("change", async (event) => {
       : "Zustimmung widerrufen und eigene Beiträge entfernt.";
   } catch (err) {
     control.checked = !enabled;
-    $("#learning-status").textContent = String(err.message || err);
+    $("#learning-status").textContent = nutzerFehler(err && err.message);
   } finally { control.disabled = false; }
 });
 
@@ -5778,6 +5880,31 @@ $("#guard-input").addEventListener("keydown", (e) => {
   if (e.key === "Enter"){ e.preventDefault(); guardSchliessen(true); }
 });
 // Kurzformen: eine Meldung (nur "OK") und eine Ja/Nein-Frage.
+// Das Fehlerfenster: hoechstens eins zur Zeit und nicht im Sekundentakt.
+const errorBox = $("#errorbox");
+let fehlerZuletzt = 0;
+function zeigeFehler(text = ""){
+  if (errorBox.classList.contains("open") || Date.now() - fehlerZuletzt < 15_000) return;
+  fehlerZuletzt = Date.now();
+  $("#error-text").textContent = nutzerFehler(text,
+    "Bitte versuch es gleich noch einmal. Wenn es so bleibt, lade die Seite neu.");
+  openOverlay(errorBox);
+  requestAnimationFrame(() => $("#error-ok").focus());
+}
+$("#error-ok").addEventListener("click", () => closeOverlay(errorBox));
+$("#error-reload").addEventListener("click", () => location.reload());
+errorBox.addEventListener("click", (e) => { if (e.target === errorBox) closeOverlay(errorBox); });
+errorBox.addEventListener("keydown", (e) => { if (e.key === "Escape") closeOverlay(errorBox); });
+// Ein Fehler im Skript selbst: ein allgemeines Fenster statt stiller Funkstille.
+// Abgebrochene Abrufe (Tab gewechselt, neuer Chat) sind kein Fehler.
+window.addEventListener("error", (e) => {
+  if (e.message && !/ResizeObserver/.test(e.message)) zeigeFehler();
+});
+window.addEventListener("unhandledrejection", (e) => {
+  const grund = e.reason;
+  if (grund && (grund.name === "AbortError" || grund.gezeigt)) return;
+  zeigeFehler();
+});
 function hinweis(text, title = "Hinweis"){
   return guardDialog({ title, text, ok: "OK" });
 }
@@ -6574,7 +6701,7 @@ async function sofortSpeichern(schalter){
     refreshHeader();
   } catch (fehler){
     schalter.checked = !schalter.checked;
-    zeigeGespeichert(fehler.message || "Das ließ sich nicht speichern.", true);
+    zeigeGespeichert(nutzerFehler(fehler.message, "Das ließ sich nicht speichern."), true);
   }
 }
 // Ein kleiner Hinweis oben im Fenster, in der Farbe des Designs (9.6.0) -- statt
@@ -6601,7 +6728,7 @@ async function feldSpeichern(feld){
     zeigeGespeichert();
     refreshHeader();
   } catch (fehler){
-    zeigeGespeichert(fehler.message || "Das ließ sich nicht speichern.", true);
+    zeigeGespeichert(nutzerFehler(fehler.message, "Das ließ sich nicht speichern."), true);
   }
 }
 form.addEventListener("change", (e) => {
@@ -6719,7 +6846,16 @@ function verbundZeigen(d){
     const last = m.alive ? ` · ${m.accounts} Konten · ${m.runs} laufende Antworten`
       + (typeof m.cpu === "number" ? ` · CPU ${Math.round(m.cpu * 100)} %` : "") : " · nicht erreichbar";
     let knopf = "", tun = null;
-    if (d.master && !m.self){
+    if (d.master && !m.self && !m.alive && m.accounts > 0){
+      // 9.6.8 Sol: ein ausgefallener Server haelt seine Konten nicht mehr fest.
+      knopf = "Konten übernehmen";
+      tun = async () => {
+        if (await frage(`Die ${m.accounts} Konten von „${m.name}“ übernehmen?`,
+            "Nur, wenn der Server wirklich aus ist: die anderen Server arbeiten dann mit ihrer letzten Kopie weiter, die wenige Sekunden zurückliegen kann. Kommt der Server zurück, gibt er die Konten ab.",
+            "Übernehmen"))
+          await verbundTun({ action: "failover", node: m.node });
+      };
+    } else if (d.master && !m.self){
       knopf = "Entfernen";
       tun = async () => {
         if (await frage(`„${m.name}“ aus dem Verbund nehmen?`, "Der Server behält seine Kopie der Daten, bekommt aber keine neuen mehr.", "Entfernen"))
@@ -6768,7 +6904,7 @@ function verbundZeigen(d){
     const ziel = `${e.peer.name || "Server"} (${e.peer.address})`;
     text.textContent = e.status === "pending"
       ? `Warte auf ${ziel}: dort im Terminal mit „yes“ oder „no“ antworten.`
-      : `${ziel}: ${e.message}`;
+      : `${ziel}: ${nutzerFehler(e.message)}`;
     const codeRow = box.querySelector(".code-row");
     if (!e.needs_code && codeRow) codeRow.remove();
     if (e.needs_code && !codeRow){
@@ -7473,7 +7609,7 @@ $("#save-model").addEventListener("click", async () => {
     });
     data = await res.json();
   } catch (err){
-    note.className = "note bad"; note.textContent = String(err); return;
+    note.className = "note bad"; note.textContent = nutzerFehler(err && err.message); return;
   }
   if (!data.ok){
     note.className = "note bad"; note.textContent = data.error || "Das hat nicht geklappt.";
@@ -7538,7 +7674,7 @@ async function showLoad(){
   if (!note.innerHTML) note.textContent = "Sehe nach …";
   let data;
   try { data = await (await api("/api/system")).json(); }
-  catch (err){ note.className = "note bad"; note.textContent = String(err); return; }
+  catch (err){ note.className = "note bad"; note.textContent = nutzerFehler(err && err.message); return; }
 
   // Name, Wert und Zusatz jeder Anzeige schreibt der Server (9.5.14).
   const parts = (data.gauges || []).map(g => gauge(g.name, g.value, g.sub, g.percent));
@@ -7574,7 +7710,7 @@ async function haCall(payload){
     });
     return await res.json();
   } catch (err){
-    note.className = "note bad"; note.textContent = String(err);
+    note.className = "note bad"; note.textContent = nutzerFehler(err && err.message);
     return null;
   }
 }

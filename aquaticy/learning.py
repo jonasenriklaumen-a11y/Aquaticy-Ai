@@ -23,6 +23,11 @@ from aquaticy.privacy import ServerSecrets, key_root
 
 MAX_FACTS = 2000
 MAX_CONTRIBUTIONS = 200
+#: Ab so vielen unabhaengigen Konten sehen auch andere einen Auszug (9.6.8 Sol).
+#: Wikipedia kann jeder bearbeiten: ein einzelner, kurz eingeschleuster Satz
+#: soll nicht 30 Tage lang allen Konten vorgelegt werden. Das beitragende
+#: Konto selbst sieht seine Auszuege sofort.
+MIN_CONFIRMATIONS = 2
 LIFETIME = 30 * 86400
 # Deliberately narrow: no biographies, user pages, medicine, weapons or news.
 # Expanding this policy requires reviewing both privacy and poisoning risks.
@@ -410,9 +415,12 @@ class Learning:
                 "SELECT f.id,f.text,f.source FROM learning_terms t "
                 "JOIN learning_facts f ON f.id=t.fact WHERE t.term IN ("
                 + ",".join("?" for _ in hashes)
-                + ") AND f.expires>? "
+                + ") AND f.expires>? AND ("
+                "(SELECT COUNT(*) FROM learning_contributions c WHERE c.fact=f.id)>=? "
+                "OR EXISTS (SELECT 1 FROM learning_contributions c "
+                "WHERE c.fact=f.id AND c.owner=?)) "
                 "GROUP BY f.id ORDER BY COUNT(*) DESC,f.created DESC,f.id LIMIT 3",
-                (*hashes, time.time()),
+                (*hashes, time.time(), MIN_CONFIRMATIONS, self.owner),
             ).fetchall()
         result = []
         for key, sealed, source in rows:

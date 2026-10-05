@@ -318,7 +318,8 @@ def test_web_returns_503_instead_of_using_stale_profile(
             "User-Agent": "Test", "Cookie": f"{web.AUTH_COOKIE}={token}"})
         antwort = verbindung.getresponse()
         assert antwort.status == 503
-        assert b"Heimserver" in antwort.read()
+        # Seit 9.6.8 Sol: Serverfehler nur allgemein, ohne Interna des Verbunds.
+        assert web.GENERIC_ERROR.encode() in antwort.read()
         verbindung.close()
     finally:
         server.shutdown()
@@ -443,3 +444,33 @@ def test_unexpected_errors_come_back_as_answer(verbund: Any, monkeypatch) -> Non
     monkeypatch.setattr(a, "my_generations", kaputt)
     with pytest.raises(cluster.ClusterError, match="OSError"):
         b.call(a.node_id, "gens", {})
+
+
+def test_failover_moves_accounts_of_a_dead_server_and_it_releases_on_return(verbund) -> None:
+    """9.6.8 Sol: Konten eines ausgefallenen Servers lassen sich per Knopf uebernehmen."""
+    a, b, _, _, gefragt, neustarts = verbund
+    _verbinden(a, b, gefragt, neustarts)
+    b.sync_once()
+    a.homes["konto1"] = b.node_id
+    b.homes["konto1"] = b.node_id
+    a.last_ok[b.node_id] = time.time()
+    with pytest.raises(cluster.ClusterError, match="antwortet noch"):
+        a.failover(b.node_id)
+    a.last_ok[b.node_id] = 0.0  # B ist weg -- und wirklich nicht erreichbar
+    netz = a._transport
+
+    def weg(ziel, pfad, body, timeout):
+        if int(ziel["port"]) == 1002:
+            raise OSError("B ist aus")
+        return netz(ziel, pfad, body, timeout)
+
+    a._transport = weg
+    assert a.failover(b.node_id) == 1
+    a._transport = netz
+    assert a.homes["konto1"] == a.node_id and a.is_home("konto1")
+    # B kommt zurueck, bekommt die neue Zuteilung und gibt das Konto ab.
+    abgegeben: list[str] = []
+    b.hooks.release = lambda user: abgegeben.append(user) or True
+    b._take_members(a.public_info(), a.homes)
+    _warte(lambda: abgegeben == ["konto1"])
+    assert not b.is_home("konto1")

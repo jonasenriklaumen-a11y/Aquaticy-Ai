@@ -1,8 +1,22 @@
-# Aquaticy AI 9.6.8 Terra
+# Aquaticy AI 9.6.8 Sol
 
 **Aquaticy** recherchiert für dich. Du stellst eine Frage, Aquaticy sucht im Web, liest die
 passenden Seiten und fasst das Ergebnis zusammen — mit Quelle an jeder Angabe. Es läuft im
 Terminal, im Browser und auf dem Handy.
+
+Neu in **9.6.8 Sol**: Fehler sehen Nutzer nur noch als allgemeine Meldung — in einem
+eigenen Fehlerfenster bzw. auf einer Fehlerseite, nie als technischen Fehlertext; Hinweise,
+die sagen, was zu tun ist (Passwort zu kurz, Limit erreicht), bleiben. Aquaticy fängt
+Störungen selbst ab: belegter Port → der nächste freie (die Adresse steht im Terminal);
+Absturz → automatischer Neustart (höchstens fünfmal in zehn Minuten); Modell-Anbieter
+streikt → das schnelle Modell desselben Anbieters übernimmt; kurzer Verbindungsabbruch →
+die Seite versucht Lesezugriffe erneut und hängt sich an eine laufende Antwort wieder an;
+offline → ein dezenter Hinweis, danach geht es von selbst weiter. Das Anfragelimit zählt
+angemeldet je Konto statt je Adresse (Nutzer hinter einem Router sperren sich nicht mehr
+gegenseitig aus), mit einer großzügigen Obergrenze je Adresse. Gemeinsames Wissen erreicht
+andere Konten erst, wenn mindestens zwei Konten denselben Auszug unabhängig gefunden haben.
+Im Server-Verbund kann der Master die Konten eines ausgefallenen Servers per Knopf
+übernehmen.
 
 Neu in **9.6.8 Terra**: Anmeldungen und Passwortänderungen sind gegen parallele
 Änderungen abgesichert. Neue Sitzungen müssen zum tatsächlich geprüften Passwortstand
@@ -185,7 +199,7 @@ $ aquaticy
 git clone --branch Aquaticy-ai --single-branch https://github.com/jonasenriklaumen-a11y/Aquaticy-Ai.git
 cd Aquaticy-Ai
 uv tool install --force --reinstall .
-aquaticy --version            # 9.6.8 Terra
+aquaticy --version            # 9.6.8 Sol
 
 # 2. Einrichten — fragt nach Modell und Schlüssel und testet beide
 aquaticy setup
