@@ -44,12 +44,12 @@ KI-gesteuert zu erkennen.
 from __future__ import annotations
 
 import base64
-import json
 import re
 from collections.abc import Callable
 from typing import Any
 
 from aquaticy import metering
+from aquaticy.jsonutil import loads
 
 #: Die Groesse des Bildschirms in der virtual machine (siehe aquaticy-desktop).
 WIDTH, HEIGHT = 1280, 800
@@ -381,8 +381,8 @@ def parse_object(raw: str) -> dict[str, Any] | None:
     if start == -1 or end <= start:
         return None
     try:
-        value = json.loads(text[start : end + 1])
-    except json.JSONDecodeError:
+        value = loads(text[start : end + 1])
+    except (ValueError, RecursionError):
         return None
     return value if isinstance(value, dict) else None
 

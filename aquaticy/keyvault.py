@@ -129,17 +129,9 @@ def masked(value: str) -> str:
 
 def load_secret(path: Path) -> bytes:
     """Das Geheimnis des Servers fuer den Schluesselbund -- einmal angelegt, geschuetzt."""
-    from aquaticy.memory import secure_file
+    from aquaticy.memory import load_secret_file
 
-    if path.is_file():
-        wert = path.read_bytes()
-        if len(wert) >= 32:
-            return wert
-    wert = secrets.token_bytes(32)
-    path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_bytes(wert)
-    secure_file(path)
-    return wert
+    return load_secret_file(path, lambda: secrets.token_bytes(32), 32)
 
 
 class KeyVault:

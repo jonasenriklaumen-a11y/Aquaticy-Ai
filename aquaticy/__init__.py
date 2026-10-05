@@ -1,10 +1,10 @@
 """aquaticy -- ein KI-Rechercheagent fuer die Kommandozeile."""
 
-__version__ = "9.6.7"
+__version__ = "9.6.8"
 
 #: Der Name dieser Fassung. Er steht ueberall hinter der Versionsnummer, wo
 #: Menschen sie lesen -- nicht in Paketangaben und Kennungen fuer Server.
-__codename__ = "Terra v2"
+__codename__ = "Luna"
 
 #: Interne oder Test-Fassung (seit 9.6.0): "Intern", "Test" -- leer fuer eine
 #: oeffentliche Fassung. Steht dann hinter dem Namen, und die Oberflaeche zeigt

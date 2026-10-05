@@ -61,11 +61,11 @@ def _evaluate(node: ast.AST) -> float:
         return _UNARY[type(node.op)](_evaluate(node.operand))
     if isinstance(node, ast.BinOp) and type(node.op) in _BINARY:
         left, right = _evaluate(node.left), _evaluate(node.right)
-        if isinstance(node.op, ast.Pow):
-            if abs(right) > 12 or abs(left) > MAX_POWER:
-                raise CalcError("Exponent zu gross.")
-            return left**right
         try:
+            if isinstance(node.op, ast.Pow):
+                if abs(right) > 12 or abs(left) > MAX_POWER:
+                    raise CalcError("Exponent zu gross.")
+                return left**right
             return _BINARY[type(node.op)](left, right)
         except ZeroDivisionError as exc:
             raise CalcError("Division durch null.") from exc

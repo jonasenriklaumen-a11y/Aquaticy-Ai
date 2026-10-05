@@ -38,7 +38,6 @@ from __future__ import annotations
 import functools
 import hashlib
 import ipaddress
-import json
 import logging
 import math
 import re
@@ -52,6 +51,8 @@ from contextlib import closing, contextmanager
 from dataclasses import dataclass
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
+
+from aquaticy.jsonutil import loads
 
 if TYPE_CHECKING:
     from collections.abc import Iterator
@@ -1828,8 +1829,8 @@ def parse_judgement(raw: str) -> tuple[bool, str] | None:
     if start == -1 or end <= start:
         return None
     try:
-        payload = json.loads(raw[start : end + 1])
-    except json.JSONDecodeError:
+        payload = loads(raw[start : end + 1])
+    except (ValueError, RecursionError):
         return None
     if not isinstance(payload, dict):
         return None

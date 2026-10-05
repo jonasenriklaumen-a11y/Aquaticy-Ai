@@ -44,6 +44,7 @@ from dataclasses import dataclass, replace
 from typing import TYPE_CHECKING, Any
 
 from aquaticy import metering
+from aquaticy.jsonutil import loads
 
 if TYPE_CHECKING:
     from collections.abc import Callable
@@ -512,8 +513,8 @@ def parse_verdict(raw: str) -> Verdict | None:
     if start == -1 or end <= start:
         return None
     try:
-        payload = json.loads(raw[start : end + 1])
-    except json.JSONDecodeError:
+        payload = loads(raw[start : end + 1])
+    except (ValueError, RecursionError):
         return None
     if not isinstance(payload, dict):
         return None

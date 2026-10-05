@@ -32,9 +32,12 @@ jedem Start neu abgeleitet, und auf der Platte liegt gar keiner.
 from __future__ import annotations
 
 import contextlib
+import errno
 import os
 import sqlite3
 import subprocess
+import tempfile
+from collections.abc import Callable
 from contextlib import closing
 from dataclasses import dataclass
 from pathlib import Path
@@ -124,6 +127,63 @@ def secure_file(path: Path) -> None:
         )
 
 
+def load_secret_file(path: Path, factory: Callable[[], bytes], minimum_size: int,
+                     *, strip: bool = False) -> bytes:
+    """Publish a complete owner-only secret without replacing another creator's key.
+
+    Existing corrupt files are preserved and rejected. Never silently rotate a
+    key: encrypted records and password hashes may already depend on it.
+    """
+    path = Path(path)
+    try:
+        value = path.read_bytes()
+    except FileNotFoundError:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        temporary = None
+        try:
+            with tempfile.NamedTemporaryFile(prefix=".aquaticy-key-", dir=path.parent,
+                                             delete=False) as handle:
+                temporary = Path(handle.name)
+                secure_file(temporary)
+                value = factory()
+                if len(value) < minimum_size:
+                    raise CipherError("Der neue Schlüssel ist unvollständig.")
+                handle.write(value)
+                handle.flush()
+                os.fsync(handle.fileno())
+            # Unlike replace(), link() cannot overwrite a competing key.
+            try:
+                with contextlib.suppress(FileExistsError):
+                    os.link(temporary, path)
+            except OSError as exc:
+                if exc.errno not in {errno.ENOTSUP, errno.ENOSYS, errno.EPERM}:
+                    raise
+                # FAT and other filesystems without hard links remain usable.
+                # SQLite's process lock serializes complete atomic publication;
+                # this sidecar contains no key material and is kept for reuse.
+                guard_path = path.parent / ".aquaticy-keylock.db"
+                with closing(sqlite3.connect(guard_path, timeout=15)) as guard:
+                    secure_file(guard_path)
+                    guard.execute("BEGIN IMMEDIATE")
+                    try:
+                        path.read_bytes()
+                    except FileNotFoundError:
+                        os.replace(temporary, path)
+                    guard.commit()
+            value = path.read_bytes()
+        finally:
+            if temporary is not None:
+                with contextlib.suppress(FileNotFoundError):
+                    temporary.unlink()
+    if strip:
+        value = value.strip()
+    if len(value) < minimum_size:
+        raise CipherError(f"Die Schlüsseldatei {path.name} ist beschädigt. "
+                          "Stelle die ursprüngliche Datei aus einer Sicherung wieder her.")
+    secure_file(path)
+    return value
+
+
 class Cipher:
     """Verschluesselt einzelne Textfelder mit Fernet (AES-128 plus HMAC).
 
@@ -187,14 +247,11 @@ def _key_from_file(path: Path) -> bytes:
     """Liest den Schluessel oder legt beim ersten Mal einen an."""
     from cryptography.fernet import Fernet
 
-    if path.is_file():
-        key = path.read_bytes().strip()
-        if key:
-            return key
-    key = Fernet.generate_key()
-    path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_bytes(key)
-    secure_file(path)
+    key = load_secret_file(path, Fernet.generate_key, 1, strip=True)
+    try:
+        Fernet(key)
+    except ValueError as exc:
+        raise CipherError("Die Schlüsseldatei memory.key ist beschädigt.") from exc
     return key
 
 
@@ -203,15 +260,7 @@ def _salt_for(folder: Path) -> bytes:
     import secrets
 
     pfad = folder / SALT_FILE
-    if pfad.is_file():
-        salz = pfad.read_bytes()
-        if len(salz) >= 16:
-            return salz
-    salz = secrets.token_bytes(16)
-    folder.mkdir(parents=True, exist_ok=True)
-    pfad.write_bytes(salz)
-    secure_file(pfad)
-    return salz
+    return load_secret_file(pfad, lambda: secrets.token_bytes(16), 16)
 
 
 def _key_from_passphrase(passphrase: str, salt: bytes) -> bytes:

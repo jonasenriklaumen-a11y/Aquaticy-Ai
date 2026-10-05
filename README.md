@@ -1,10 +1,19 @@
-# Aquaticy AI 9.6.7 Terra v2
+# Aquaticy AI 9.6.8 Luna
 
 **Aquaticy** recherchiert für dich. Du stellst eine Frage, Aquaticy sucht im Web, liest die
 passenden Seiten und fasst das Ergebnis zusammen — mit Quelle an jeder Angabe. Es läuft im
 Terminal, im Browser und auf dem Handy.
 
-Neu in **9.6.7 Terra v2**: Der Recherchecache speichert zulässige Aussagen der
+Neu in **9.6.8 Luna**: Schlüsseldateien werden vollständig und ohne Überschreiben
+konkurrierender Erstellungen angelegt. Beschädigte vorhandene Schlüssel werden mit einer
+verständlichen Meldung abgewiesen und bleiben für eine Wiederherstellung erhalten.
+Passwortänderungen mit Unicode, fehlerhafte HTTP-Eingaben und Nullpotenzen werden korrekt
+behandelt. Fremdes JSON erhält eine feste Verschachtelungsgrenze; fehlerhafte Produktdaten
+verhindern nicht die Auswertung gültiger Informationen derselben Seite. Fehlerprotokolle geben keine Anfrage-URLs oder Ausnahmeinhalte mit möglichen
+Geheimnissen aus. Der Recherchecache unterscheidet ausdrücklich angegebene Personennamen
+mit demselben Nachnamen. Bestehende Funktionen, Schutzprüfungen und Cache-Fristen bleiben.
+
+Seit **9.6.7 Terra v2**: Der Recherchecache speichert zulässige Aussagen der
 recherchierten öffentlichen Quellentexte als einzelne kurze **Stichpunkte mit Quelle**.
 Die Auswahl ist nicht mehr auf drei Aussagen oder nur die bereits in der ersten Antwort
 verwendeten Informationen beschränkt. Auch weitere Aussagen zum recherchierten Thema
@@ -68,6 +77,7 @@ $ aquaticy
 
 - [Was Aquaticy kann](#was-aquaticy-kann)
 - [Quickstart](#quickstart)
+- [Prüfbericht zu 9.6.8 Luna](TESTREPORT-9.6.8.md)
 - [Prüfbericht zu 9.6.7 Terra v2](TESTREPORT-9.6.7-Terra-v2.md)
 - [Prüfbericht zu 9.6.7 Terra](TESTREPORT-9.6.7-Terra.md)
 - [Prüfbericht zu 9.6.7 Luna](TESTREPORT-9.6.7.md)
@@ -163,7 +173,7 @@ $ aquaticy
 git clone --branch Aquaticy-ai --single-branch https://github.com/jonasenriklaumen-a11y/Aquaticy-Ai.git
 cd Aquaticy-Ai
 uv tool install --force --reinstall .
-aquaticy --version            # 9.6.7 Terra v2
+aquaticy --version            # 9.6.8 Luna
 
 # 2. Einrichten — fragt nach Modell und Schlüssel und testet beide
 aquaticy setup

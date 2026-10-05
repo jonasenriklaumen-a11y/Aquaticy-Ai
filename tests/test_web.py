@@ -1063,8 +1063,10 @@ def test_a_broken_route_answers_500_instead_of_dying(
     status, _, body = raw_request(port, "GET", "/api/config")
     assert status == 500
     assert json.loads(body)["error"].startswith("Da ist bei Aquaticy etwas schiefgelaufen.")
-    assert "RuntimeError: kaputt" in capfd.readouterr().out
-    assert "Traceback" not in capfd.readouterr().err
+    output = capfd.readouterr()
+    assert "RuntimeError" in output.out
+    assert "kaputt" not in output.out
+    assert "Traceback" not in output.out + output.err
     # Der Server lebt weiter.
     assert raw_request(port, "GET", "/")[0] == 200
 

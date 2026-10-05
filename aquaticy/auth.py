@@ -215,6 +215,10 @@ def validate_password(password: str) -> None:
         raise ValueError(f"Das Passwort braucht mindestens {MIN_PASSWORD} Zeichen.")
     if len(password) > 128:
         raise ValueError("Das Passwort darf höchstens 128 Zeichen lang sein.")
+    try:
+        password.encode("utf-8")
+    except UnicodeError as exc:
+        raise ValueError("Das Passwort enthält ungültige Zeichen.") from exc
 
 
 def normalize_username(username: str) -> str:
@@ -415,14 +419,9 @@ class AuthStore:
 
     def _load_pepper(self) -> bytes:
         path = self.data_dir / "auth.key"
-        if path.is_file():
-            value = path.read_bytes()
-            if len(value) >= 32:
-                return value
-        value = secrets.token_bytes(32)
-        path.write_bytes(value)
-        secure_file(path)
-        return value
+        from aquaticy.memory import load_secret_file
+
+        return load_secret_file(path, lambda: secrets.token_bytes(32), 32)
 
     @contextmanager
     def _connect(self) -> Iterator[sqlite3.Connection]:
@@ -933,6 +932,11 @@ class AuthStore:
             # niemand dem Server einen Megabyte-Hash auf (seit 9.5.22).
             _argon_hash("", b"\0" * 16, self._pepper)
             return None
+        try:
+            password.encode("utf-8")
+        except UnicodeError:
+            _argon_hash("", b"\0" * 16, self._pepper)
+            return None
         with self._connect() as conn:
             row = conn.execute("SELECT * FROM users WHERE email = ?",
                                (self._email_key(email),)).fetchone()
@@ -1167,7 +1171,7 @@ class AuthStore:
         if not self.verify_password(account, old):
             raise ValueError("Das bisherige Passwort stimmt nicht.")
         validate_password(new)
-        if hmac.compare_digest(str(old), str(new)):
+        if hmac.compare_digest(old.encode("utf-8"), new.encode("utf-8")):
             raise ValueError("Das neue Passwort muss sich vom alten unterscheiden.")
         salz = secrets.token_bytes(16)
         with self._lock, self._connect() as conn:

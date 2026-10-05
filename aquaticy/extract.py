@@ -14,13 +14,13 @@ nichts herauskommt.
 
 from __future__ import annotations
 
-import json
 import re
 from typing import Any
 from urllib.parse import urljoin, urlparse
 
 from selectolax.parser import HTMLParser, Node
 
+from aquaticy.jsonutil import loads
 from aquaticy.models import Product, domain_of
 
 #: Ueberschriften, unter denen typischerweise technische Daten stehen.
@@ -131,12 +131,12 @@ def _iter_jsonld_objects(tree: HTMLParser) -> list[dict[str, Any]]:
         if not raw.strip():
             continue
         try:
-            data = json.loads(raw)
-        except json.JSONDecodeError:
+            data = loads(raw)
+        except (ValueError, RecursionError):
             # Manche Seiten haengen mehrere JSON-Objekte hintereinander.
             try:
-                data = json.loads(f"[{raw.strip().rstrip(',')}]")
-            except json.JSONDecodeError:
+                data = loads(f"[{raw.strip().rstrip(',')}]")
+            except (ValueError, RecursionError):
                 continue
         _flatten_jsonld(data, objects)
     return objects

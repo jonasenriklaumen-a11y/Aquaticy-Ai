@@ -12,6 +12,7 @@ set -euo pipefail
 
 cd "$(dirname "$0")"
 mkdir -p exports
+COMPOSE=(docker compose)
 
 # Unter Linux laeuft der Container unter der eigenen UID, damit Exporte
 # nicht root gehoeren. Docker Desktop (macOS/Windows) regelt das selbst.
@@ -26,18 +27,18 @@ fi
 # `aquaticy lan` wie `connect-ha` faenden nichts.
 if [[ "${1:-}" == "--lan" ]]; then
     shift
-    export AQUATICY_NETWORK=host
+    COMPOSE+=(-f compose.yaml -f compose.host.yaml)
 fi
 
 case "${1:-}" in
     --build)
         shift
-        docker compose build aquaticy
+        "${COMPOSE[@]}" build aquaticy
         ;;
     --setup)
         # Der Container darf nur nach /work schreiben; von dort holen wir
         # die fertige .env ins Projektverzeichnis.
-        docker compose run --rm aquaticy setup --env-file /work/.env
+        "${COMPOSE[@]}" run --rm aquaticy setup --env-file /work/.env
         if [[ -f exports/.env ]]; then
             mv exports/.env .env
             echo "Konfiguration gespeichert in $(pwd)/.env"
@@ -59,4 +60,4 @@ if ! grep -q '^SEARXNG_SECRET=.' .env; then
     printf '\nSEARXNG_SECRET=%s\n' "$geheim" >> .env
 fi
 
-exec docker compose run --rm aquaticy "$@"
+exec "${COMPOSE[@]}" run --rm aquaticy "$@"

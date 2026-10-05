@@ -61,11 +61,22 @@ def source_url(url: str) -> str:
         return ""
 
 
-def matches_subject(url: str, query: set[str]) -> bool:
+def matches_subject(url: str, query: set[str], question: str = "") -> bool:
     title = unquote(urlsplit(url).path[6:]).split("(")[0].replace("_", " ").strip()
     tokens = words(title)
     last = words(title.split()[-1]) if title else set()
-    return bool(tokens and (tokens <= query or last & query))
+    if tokens and tokens <= query:
+        return True
+    if not last & query:
+        return False
+    # A surname-only question remains useful. An explicit different full name
+    # must not receive another person's facts just because the surname matches.
+    for name in re.findall(r"\b[A-ZÄÖÜ][a-zäöüß]+(?:\s+[A-ZÄÖÜ][a-zäöüß]+){1,3}\b",
+                           unicodedata.normalize("NFKC", question)):
+        named = words(name)
+        if named & last and named - tokens:
+            return False
+    return bool(tokens)
 
 
 def safe_text(text: str, private: set[str] | None = None) -> bool:
@@ -146,7 +157,7 @@ class ResearchCache:
                 continue
             # The title must match a nontrivial query token: avoids accumulating
             # unrelated people merely mentioned in a researched article.
-            if not matches_subject(url, query):
+            if not matches_subject(url, query, question):
                 continue
             if len(words(body[:48000]) & used) < 3:
                 continue  # The successful answer must actually concern this source.
@@ -233,7 +244,7 @@ class ResearchCache:
                 valid = secrets.compare_digest(key, store.secrets.blind(
                     "research-fact", store.owner + "\n" + url + "\n" + text))
             if (min(expires, created + LIFETIME) > time.time() and safe_text(text)
-                    and source_url(url) and matches_subject(url, set(terms))
+                    and source_url(url) and matches_subject(url, set(terms), question)
                     and valid):
                 bullet = "- " + re.sub(r"^[-•*]\s+", "", text)
                 if characters + len(bullet) > MAX_CONTEXT_CHARS:

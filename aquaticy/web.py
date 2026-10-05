@@ -3160,10 +3160,14 @@ class Handler(BaseHTTPRequestHandler):
         if not super().parse_request():
             return False
         try:
+            urlsplit(self.path)  # Malformed absolute request targets must fail before routing.
             # Eindeutige Grenzen auch bei Routen, die keinen JSON-Koerper lesen.
             self._body_length(MAX_BODY_BYTES * 2)
         except (BadRequest, TooLarge) as exc:
             self._reject_body(exc)
+            return False
+        except ValueError:
+            self._reject_body(BadRequest("Ungültiger Anfragepfad."))
             return False
         return True
 
@@ -3279,7 +3283,9 @@ class Handler(BaseHTTPRequestHandler):
                 with contextlib.suppress(OSError):
                     self._json({"error": str(exc)}, 400)
         except Exception as exc:
-            print(f"  [Fehler] {self.command} {self.path}: {type(exc).__name__}: {exc}")
+            # Request URLs can contain access tokens; exception messages can
+            # contain passwords, private input or provider credentials.
+            print(f"  [Fehler] {self.command}: {type(exc).__name__}")
             if not self.responded:
                 with contextlib.suppress(OSError):
                     self._json({"error": "Da ist bei Aquaticy etwas schiefgelaufen. "
@@ -3383,7 +3389,11 @@ class Handler(BaseHTTPRequestHandler):
                     self._json({"error": "Zu viele Anfragen."}, 429)
                     return
                 try:
-                    anfrage = json.loads(daten or b"{}")
+                    from aquaticy.jsonutil import JsonDepthError, loads
+
+                    anfrage = loads(daten or b"{}")
+                except (JsonDepthError, RecursionError) as exc:
+                    raise BadRequest("Die Anfrage ist zu stark verschachtelt.") from exc
                 except ValueError:
                     anfrage = {}
                 if not isinstance(anfrage, dict):
@@ -3394,7 +3404,9 @@ class Handler(BaseHTTPRequestHandler):
                 self._json(handler(anfrage, direkt))
             else:
                 self._json({"error": "unbekannter Pfad"}, 404)
-        except (cluster.ClusterError, ValueError, binascii.Error) as exc:
+        except BadRequest as exc:
+            self._reject_body(exc)
+        except (cluster.ClusterError, ValueError, RecursionError, binascii.Error) as exc:
             if not self.responded:
                 self._json({"error": str(exc) if isinstance(exc, cluster.ClusterError)
                             else "Ungültige Anfrage."}, 403)
@@ -3546,7 +3558,10 @@ class Handler(BaseHTTPRequestHandler):
         origin = (self.headers.get("Origin") or "").strip()
         if not origin:
             return True
-        parsed = urlsplit(origin)
+        try:
+            parsed = urlsplit(origin)
+        except ValueError:
+            return False
         return parsed.scheme in {"http", "https"} and parsed.netloc == (
             self.headers.get("Host") or ""
         )
@@ -3632,8 +3647,12 @@ class Handler(BaseHTTPRequestHandler):
     def _read_json(self, limit: int = 0) -> dict[str, Any]:
         """Liest den JSON-Koerper. *limit*: kleinere Obergrenze fuer diese Route."""
         data = self._read_body(min(limit or MAX_BODY_BYTES, MAX_BODY_BYTES))
+        from aquaticy.jsonutil import JsonDepthError, loads
+
         try:
-            gelesen = json.loads(data or b"{}")
+            gelesen = loads(data or b"{}")
+        except (JsonDepthError, RecursionError) as exc:
+            raise BadRequest("Die Anfrage ist zu stark verschachtelt.") from exc
         except (json.JSONDecodeError, ValueError):
             return {}  # kaputtes JSON ist eine leere Anfrage, kein Absturz
         # Gueltiges JSON ist noch kein Formular: `[]`, `"text"` und `0` sind

@@ -44,6 +44,8 @@ from typing import Any
 
 import httpx
 
+from aquaticy.jsonutil import loads
+
 #: Die Anbieter: Name im Schluesselbund, Praefix fuer LiteLLM, wo es den Schluessel gibt.
 PROVIDERS: dict[str, dict[str, str]] = {
     "anthropic": {"label": "Claude", "company": "Anthropic", "key": "ANTHROPIC_API_KEY",
@@ -371,7 +373,7 @@ def _judge(text: str) -> tuple[bool, str]:
     roh = text.strip().removeprefix("```json").removeprefix("```").removesuffix("```")
     start, ende = roh.find("{"), roh.rfind("}")
     with contextlib.suppress(ValueError):
-        daten = json.loads(roh[start:ende + 1])
+        daten = loads(roh[start:ende + 1])
         if isinstance(daten, dict) and isinstance(daten.get("ok"), bool):
             return daten["ok"], str(daten.get("feedback") or "").strip()
     return False, "Das Urteil war kein gültiges JSON mit einem booleschen 'ok'-Wert."

@@ -38,7 +38,7 @@ import secrets
 import threading
 from pathlib import Path
 
-from aquaticy.memory import CipherError, secure_file
+from aquaticy.memory import CipherError, load_secret_file
 
 #: Die Datei mit dem Hauptschluessel -- neben der Kontendatenbank.
 KEY_FILE = "data.key"
@@ -74,20 +74,7 @@ def master_key(root: Path | str) -> bytes:
         if schluessel in _masters:
             return _masters[schluessel]
         pfad = wurzel / KEY_FILE
-        wert = b""
-        if pfad.is_file():
-            wert = pfad.read_bytes()
-        if len(wert) < 32:
-            wert = secrets.token_bytes(32)
-            wurzel.mkdir(parents=True, exist_ok=True)
-            # Exklusiv anlegen: zwei Prozesse duerfen nicht zwei Schluessel
-            # schreiben -- sonst waere, was der erste verschluesselt, verloren.
-            try:
-                with pfad.open("xb") as datei:
-                    datei.write(wert)
-            except FileExistsError:
-                wert = pfad.read_bytes()
-            secure_file(pfad)
+        wert = load_secret_file(pfad, lambda: secrets.token_bytes(32), 32)
         _masters[schluessel] = wert
         return wert
 

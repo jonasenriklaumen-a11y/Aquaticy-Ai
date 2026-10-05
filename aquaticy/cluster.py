@@ -343,8 +343,8 @@ class SharedDb:
         """Triggername -> (Tabelle, Spalten, Art) fuer den heutigen Stand."""
         out: dict[str, tuple[str, list[str], str]] = {}
         for tabelle, (cols, _) in self._tables(conn).items():
-            sig = hashlib.sha1("|".join(cols).encode()).hexdigest()[:10]
-            stamm = "_cl_" + hashlib.sha1(tabelle.encode()).hexdigest()[:10]
+            sig = hashlib.sha1("|".join(cols).encode(), usedforsecurity=False).hexdigest()[:10]
+            stamm = "_cl_" + hashlib.sha1(tabelle.encode(), usedforsecurity=False).hexdigest()[:10]
             for op in ("i", "u", "d"):
                 out[f"{stamm}_{op}_{sig}"] = (tabelle, cols, op)
         return out
@@ -919,8 +919,10 @@ class Cluster:
         if not lan_ip_ok(adresse):
             return
         try:
-            b = json.loads(daten[:2048])
-        except ValueError:
+            from aquaticy.jsonutil import loads
+
+            b = loads(daten[:2048])
+        except (ValueError, RecursionError):
             return
         if not isinstance(b, dict) or b.get("app") != "aquaticy":
             return
@@ -969,10 +971,12 @@ class Cluster:
     def _unwrap(self, raw: bytes, key_for: Callable[[str], list[bytes]]
                 ) -> tuple[str, str, dict, str, bytes]:
         try:
-            aussen = json.loads(raw)
+            from aquaticy.jsonutil import loads
+
+            aussen = loads(raw)
             absender = str(aussen["from"])
             box = _unb64(aussen["box"])
-        except (ValueError, KeyError, TypeError) as exc:
+        except (ValueError, RecursionError, KeyError, TypeError) as exc:
             raise ClusterError("Ungueltige Nachricht.") from exc
         schluessel = key_for(absender)
         if not schluessel:
@@ -980,7 +984,10 @@ class Cluster:
         innen: Any = None
         for key in schluessel:
             with contextlib.suppress(ClusterError):
-                innen = json.loads(unseal(key, box, "rpc"))
+                try:
+                    innen = loads(unseal(key, box, "rpc"))
+                except (ValueError, RecursionError) as exc:
+                    raise ClusterError("Ungueltige Nachricht.") from exc
                 break
         if not isinstance(innen, dict):
             raise ClusterError("Nachricht ist nicht vom Verbund.")
@@ -1525,7 +1532,8 @@ class Cluster:
             with self._lock:
                 abzug = self._snapshots.get(schluessel)
             if abzug is None or abzug[1] != sig or not abzug[0].exists():
-                ziel = self.dir / "tmp" / f"{hashlib.sha1(schluessel.encode()).hexdigest()}.db"
+                kennung = hashlib.sha1(schluessel.encode(), usedforsecurity=False).hexdigest()
+                ziel = self.dir / "tmp" / f"{kennung}.db"
                 snapshot_sqlite(pfad, ziel)
                 abzug = (ziel, sig)
                 with self._lock:
