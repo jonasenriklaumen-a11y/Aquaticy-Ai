@@ -2392,14 +2392,19 @@ class Agent:
         if getattr(self, "_ausweich_model", ""):
             return False
         from aquaticy.config import provider_of
-        from aquaticy.system import fast_model
+        from aquaticy.system import FAST_MODELS, fast_model
 
         aktuell = self.active_model
+        # Nach dem Modell, das gerade WIRKLICH antwortet (9.6.9 Luna) -- im
+        # Code-Modus kann das ein anderer Anbieter sein als das Hauptmodell.
+        anbieter = provider_of(aktuell)
         try:
             ersatz = fast_model(self.settings)
         except Exception:
-            return False
-        if not ersatz or ersatz == aktuell or provider_of(ersatz) != provider_of(aktuell):
+            ersatz = ""
+        if not ersatz or provider_of(ersatz) != anbieter:
+            ersatz = FAST_MODELS.get(anbieter, "")
+        if not ersatz or ersatz == aktuell or provider_of(ersatz) != anbieter:
             return False
         self._ausweich_model = ersatz
         self._emit("retry", attempt=0, reason="Ausweichmodell", detail="")

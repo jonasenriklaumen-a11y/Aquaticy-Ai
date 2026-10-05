@@ -84,7 +84,10 @@ SLOT_BY_NAME: dict[str, Slot] = {slot.name: slot for slot in SLOTS}
 #: GitHub-Token stand bis dahin im Klartext in der .env des Kontos).
 #: Seit 9.5.34 auch das Home-Assistant-Token und das Google-Client-Geheimnis
 #: -- sie standen bis dahin im Klartext in der .env des Kontos.
-INTERNAL_SECRETS = frozenset({"AQUATICY_GITHUB_TOKEN", "HA_TOKEN", "GOOGLE_CLIENT_SECRET"})
+#: HA_TOKEN_URL (9.6.9 Luna): die Adresse, fuer die der Home-Assistant-Token
+#: eingetragen wurde -- der Token geht nur dorthin.
+INTERNAL_SECRETS = frozenset({"AQUATICY_GITHUB_TOKEN", "HA_TOKEN", "HA_TOKEN_URL",
+                              "GOOGLE_CLIENT_SECRET"})
 MODEL_KEY_NAMES = frozenset(s.name for s in SLOTS if s.art == "modell")
 SEARCH_KEY_NAMES = frozenset(s.name for s in SLOTS if s.art == "suche")
 

@@ -798,7 +798,14 @@ def web_command(
     fuer andere Geraete erreichbar -- im heimischen Netz und ueber Tailscale.
     Es genuegt dann Adresse und Port, mehr wird nicht abgefragt.
     """
-    from aquaticy.web import addresses_for, free_port, is_public_host, serve, token_problem
+    from aquaticy.web import (
+        AlreadyRunning,
+        addresses_for,
+        free_port,
+        is_public_host,
+        serve,
+        token_problem,
+    )
 
     bind = host or ("0.0.0.0" if lan else "127.0.0.1")
     # Ersatz-Port (9.6.8 Sol): ist der eingestellte belegt, gleich den naechsten
@@ -848,6 +855,12 @@ def web_command(
         try:
             serve(host=bind, port=port, open_browser=open_browser, token=access)
             break
+        except AlreadyRunning as exc:
+            # Kein Neustart: ein zweites Aquaticy auf denselben Daten ist kein Absturz.
+            console.print(f"[red]{exc}[/red]")
+            console.print("[dim]Das laufende findest du unter der Adresse, die es beim "
+                          "Start angezeigt hat.[/dim]")
+            raise typer.Exit(code=1) from exc
         except OSError as exc:
             console.print(f"[red]Start fehlgeschlagen:[/red] {type(exc).__name__}")
             console.print(

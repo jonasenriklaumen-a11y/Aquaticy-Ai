@@ -1345,6 +1345,103 @@ input:focus-visible,select:focus-visible,.side-search input:focus-visible,
   .send{width:44px;height:44px}
   .tool.stop{min-height:44px;min-width:44px}
 }
+
+/* =====================================================================
+   9.6.9 Luna: auf jedem Geraet schoen -- nicht nur am Rechner.
+   Handy (bis 599px): eine echte Kopfzeile mit Logo und "Neuer Chat",
+   Fenster ueber den ganzen Bildschirm, Abschnitte als wischbare Leiste,
+   Daumen-grosse Ziele und Abstand zu Notch und Wischleiste.
+   ===================================================================== */
+.topbrand,.topnew{display:none}
+body.collapsed .topnew{display:inline-flex}
+.topbrand{align-items:center;gap:7px;font-weight:600;letter-spacing:-.01em;
+  font-size:calc(15px * var(--fs));color:var(--text);white-space:nowrap}
+.topbrand img{width:22px;height:22px;flex:0 0 auto}
+.topnew{font-size:calc(19px * var(--fs));color:var(--text-2)}
+/* Lange Adressen und E-Mails brechen um, statt hinauszuragen. */
+.account-grid strong,.sheet td,.sheet code,.auth-card{overflow-wrap:anywhere}
+@supports (height:100dvh){
+  /* Die Browserleiste am Handy faehrt ein und aus -- dvh folgt ihr, die
+     Eingabe bleibt sichtbar. */
+  html,body{height:100dvh}
+}
+button,a,input,select,textarea,label{-webkit-tap-highlight-color:transparent}
+button{touch-action:manipulation}
+
+@media (max-width:900px){
+  .topbrand{display:flex}
+  .topbrand + .where{border-left:1px solid var(--line);padding-left:10px}
+  .topnew{display:inline-flex}
+  .topbar{position:sticky;top:0;z-index:20;background:var(--bg);
+    padding-top:max(10px, env(safe-area-inset-top))}
+  /* Ein Daumen braucht etwa 44px. */
+  .topbar .iconbtn{min-width:44px;min-height:44px;display:inline-flex;align-items:center;
+    justify-content:center;font-size:calc(19px * var(--fs));border-radius:12px}
+  .side-btn{padding:12px 10px}
+  .recent,.recents .item,#recents>*{min-height:40px}
+}
+
+@media (max-width:599px){
+  /* Kopfzeile: Menue links, Logo in der Mitte, Neuer Chat rechts. */
+  .topbar{flex-wrap:wrap;row-gap:0;padding-left:6px;padding-right:6px;padding-bottom:4px;
+    border-bottom:1px solid var(--line)}
+  #btn-side{order:0}
+  .topbrand{order:1;flex:1;justify-content:center}
+  #btn-vmfiles{order:2}
+  .topnew{order:3}
+  .topbar .spacer{display:none}
+  .topbar .where{order:4;width:100%;text-align:center;padding:0 8px 2px;border-left:0;
+    font-size:calc(11.5px * var(--fs))}
+  .topbar .where:empty{display:none}
+  /* Das Logo steht schon oben -- ein zweites ueber der Begruessung schob
+     auf kleinen Handys alles unter die Kopfzeile. */
+  .hello .star{display:none}
+  /* Die Kopfzeile ist jetzt hoeher -- die Modellauswahl setzt tiefer an. */
+  .picker{max-height:calc(100vh - 200px)}
+  @supports (height:100dvh){.picker{max-height:calc(100dvh - 200px)}}
+
+  /* Fenster (Einstellungen, Design, Merkzettel ...) ueber den ganzen
+     Bildschirm statt als schwebende Karte mit Rand. Die Rueckfragen
+     bleiben, was sie sind: eine Karte, die von unten kommt. */
+  .overlay:not(.ask){padding:0;align-items:stretch}
+  .overlay:not(.ask)>.sheet{max-width:100%;border-radius:0;border:0;min-height:100%;
+    max-height:100vh;padding:16px 16px calc(24px + env(safe-area-inset-bottom))}
+  @supports (height:100dvh){.overlay:not(.ask)>.sheet{max-height:100dvh}}
+  .overlay:not(.ask) .sheet-head{margin:-16px -16px 0;border-radius:0;top:-16px;
+    padding:max(12px, env(safe-area-inset-top)) 16px 10px}
+  .sheet .lead{font-size:calc(12.5px * var(--fs))}
+  /* Die vielen Abschnitte als eine Zeile zum Wischen -- vorher nahmen sie
+     ein Drittel des Bildschirms ein, bevor das erste Feld kam. */
+  .secnav{flex-wrap:nowrap;overflow-x:auto;scrollbar-width:none;margin:10px -16px 0;
+    padding:0 16px 2px;scroll-padding-inline:16px;scroll-snap-type:x proximity;
+    -webkit-overflow-scrolling:touch}
+  .secnav::-webkit-scrollbar{display:none}
+  .secnav button{flex:0 0 auto;scroll-snap-align:start;padding:7px 13px}
+  fieldset{scroll-margin-top:8rem}
+  .account-grid{grid-template-columns:auto minmax(0,1fr);gap:8px 14px}
+  .actions{flex-wrap:wrap}
+
+  /* Anmeldung: randlos statt einer Karte mit doppeltem Rand. */
+  .auth-gate{padding:0;place-items:stretch}
+  .auth-card{width:100%;border-radius:0;border:0;box-shadow:none;
+    padding:max(22px, env(safe-area-inset-top)) 20px calc(24px + env(safe-area-inset-bottom))}
+  .auth-card h1{font-size:calc(25px * var(--fs))}
+
+  .thread{padding-bottom:calc(180px + env(safe-area-inset-bottom))}
+  .msg.bot .bubble{line-height:1.62}
+  .bubble pre{font-size:calc(12.5px * var(--fs));padding:11px 12px}
+}
+
+/* Sehr schmal (kleine Handys, 320-360px): der Modellname weicht einem
+   Sinnbild, damit die Knopfzeile nicht leer aussieht oder bricht. */
+@media (max-width:360px){
+  .modelpick #model-name{display:none}
+  .modelpick::before{content:"✦";color:var(--accent);font-size:calc(13px * var(--fs))}
+  .modelpick{padding:5px 9px;max-width:none;flex:0 0 auto}
+  .modelpick .caret{display:none}
+  .mode{padding:4px 6px}
+  .hello h1{font-size:calc(20px * var(--fs))}
+}
 </style>
 </head>
 <body class="start">
@@ -1467,10 +1564,14 @@ input:focus-visible,select:focus-visible,.side-search input:focus-visible,
   <div class="topbar">
     <button class="iconbtn" id="btn-side" title="Seitenleiste"
             aria-label="Seitenleiste ein- oder ausblenden">☰</button>
+    <span class="topbrand" aria-hidden="true"><img src="/logo.png" width="22" height="22"
+          alt="">Aquaticy</span>
     <span class="where" id="status" role="status" aria-live="polite"></span>
     <span class="spacer"></span>
     <button class="iconbtn" id="btn-vmfiles" title="Dateien in der virtual machine"
             aria-label="Dateien in der virtual machine" hidden>🗀</button>
+    <button class="iconbtn topnew" id="btn-new-top" title="Neuer Chat"
+            aria-label="Neuer Chat">＋</button>
   </div>
 
   <div class="picker" id="picker-models" hidden>
@@ -2464,7 +2565,7 @@ document.querySelectorAll(".note").forEach((note) => {
 const thread = $("#thread"), main = $("#main"), input = $("#input"), send = $("#send");
 let busy = false;
 let currentChat = "";
-const aquaticyVersion = window.__AQUATICY_VERSION__ || "9.6.8 Ultra";
+const aquaticyVersion = window.__AQUATICY_VERSION__ || "9.6.9 Luna";
 $("#version").textContent = "v" + aquaticyVersion;
 // Interne oder Test-Fassung (9.6.0): unten mittig ein gelber Hinweis.
 const aquaticyIntern = window.__AQUATICY_INTERNAL__ === true
@@ -3731,7 +3832,10 @@ async function verfolge(hole, steps, bubble, text){
         handle(ev);
       }
     }
-    if (!completed && answer) renderer.flush();
+    // Ohne "done" ist der Strom nicht fertig, sondern abgerissen (9.6.9 Luna) --
+    // etwa ein Proxy, der die Leitung sauber schliesst. Dann wie bei einem
+    // Netzfehler wieder anhaengen, statt die Teilantwort als fertig zu zeigen.
+    if (!completed) throw new TypeError("Verbindung abgebrochen");
   } catch (err){
     renderer.cancel();
     if (view !== chatView) return;
@@ -4267,6 +4371,8 @@ async function neuerChat({ leiste = true } = {}){
   restoreDraft();
 }
 $("#btn-new").addEventListener("click", () => neuerChat());
+// Auf dem Handy liegt "Neuer Chat" auch oben -- ohne erst die Leiste zu oeffnen.
+$("#btn-new-top").addEventListener("click", () => neuerChat());
 $("#btn-notes").addEventListener("click", () => {
   if (narrow()) document.body.classList.add("collapsed");
   ask("/notes");

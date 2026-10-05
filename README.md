@@ -1,10 +1,19 @@
-# Aquaticy AI 9.6.8 Ultra
+# Aquaticy AI 9.6.9 Luna
 
 **Aquaticy** recherchiert für dich. Du stellst eine Frage, Aquaticy sucht im Web, liest die
 passenden Seiten und fasst das Ergebnis zusammen — mit Quelle an jeder Angabe. Es läuft im
 Terminal, im Browser und auf dem Handy.
 
-Neu in **9.6.8 Ultra**: Fehlerkorrekturen zu Sol — scheitert der Start, wird der Port wieder
+Neu in **9.6.9 Luna**: Aquaticy sieht auf jedem Gerät gut aus — auf dem Handy eine eigene
+Kopfzeile mit Logo und „Neuer Chat“, Einstellungen über den ganzen Bildschirm mit wischbarer
+Abschnittsleiste, Anmeldung ohne Rand, daumengroße Knöpfe und Abstand zu Notch und Wischleiste.
+Dazu Sicherheits- und Fehlerkorrekturen: Der Home-Assistant-Token des Betreibers geht nie an
+ein Konto, und jeder Token ist an seine Adresse gebunden; der Rücksprung von Google klappt
+trotz SameSite=Strict (eigenes, an Browser und state gebundenes Cookie); das Ausweichmodell
+richtet sich nach dem Modell, das gerade wirklich antwortet; ein Antwortstrom ohne Abschluss
+wird wieder aufgenommen; ein zweites Aquaticy auf demselben Datenordner startet nicht mehr.
+
+Seit **9.6.8 Ultra**: Fehlerkorrekturen zu Sol — scheitert der Start, wird der Port wieder
 frei und kein Auftragsplaner läuft weiter; ohne Netz erscheint nur der Offline-Hinweis statt
 des Fehlerfensters; ein Server, der nach einer Übernahme zurückkommt, gibt Konten auch dann
 noch ab, wenn dort gerade ein Chat lief; technische Fehlertexte von Bibliotheken kommen im
@@ -205,7 +214,7 @@ $ aquaticy
 git clone --branch Aquaticy-ai --single-branch https://github.com/jonasenriklaumen-a11y/Aquaticy-Ai.git
 cd Aquaticy-Ai
 uv tool install --force --reinstall .
-aquaticy --version            # 9.6.8 Ultra
+aquaticy --version            # 9.6.9 Luna
 
 # 2. Einrichten — fragt nach Modell und Schlüssel und testet beide
 aquaticy setup

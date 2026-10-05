@@ -14,6 +14,7 @@ import base64
 import binascii
 import contextlib
 import gzip
+import hashlib
 import hmac
 import io
 import json
@@ -1006,6 +1007,10 @@ def _profile_settings(profile: Path, plan: str, account: Account | None = None) 
     # Ohne ${VAR}-Ersetzung (config.read_env_file): sonst holte ein Wert wie
     # "${MISTRAL_API_KEY}" einen Schluessel des Servers in dieses Konto.
     raw = read_env_file(settings.env_path)
+    # Home Assistant des Betreibers bekommt ein Konto nie (9.6.9 Luna): sonst
+    # schickte der Verbindungstest dessen Token an eine Adresse des Kontos.
+    settings.ha_url = ""
+    settings.ha_token = ""
     for key, attr in _STRING_SETTINGS.items():
         if key in raw:
             setattr(settings, attr, raw[key].strip())
@@ -1061,6 +1066,7 @@ def _profile_settings(profile: Path, plan: str, account: Account | None = None) 
             gespeichert = tresor.secret(name)
             if gespeichert:
                 setattr(settings, attr, gespeichert)
+    _bind_ha_token(settings, tresor)
     # Den Such-Schluessel des Betreibers teilt ein normales Konto nur bei der
     # Suchmaschine, die der Betreiber selbst gewaehlt hat (seit 9.5.16).
     settings.account_email = str(getattr(account, "email", "") or "")
@@ -2136,6 +2142,29 @@ def start_user_scheduler(account: Account) -> None:
         USER_SCHEDULERS[account.id] = scheduler
 
 
+def _bind_ha_token(settings: Settings, tresor: Any) -> None:
+    """Der Home-Assistant-Token eines Kontos gilt nur fuer seine Adresse (9.6.9 Luna).
+
+    Beim Speichern steht die Adresse mit im Schluesselbund (HA_TOKEN_URL).
+    Zeigt die Einstellung danach woanders hin, wird der Token nicht benutzt --
+    fuer die neue Adresse traegt man ihn neu ein. Ein Token aus der Zeit vor
+    der Bindung wird einmal an die Adresse gebunden, die gerade gilt.
+    """
+    from aquaticy.homeassistant import normalize_url
+
+    if not settings.ha_token:
+        return
+    with contextlib.suppress(Exception):
+        gebunden = tresor.secret("HA_TOKEN_URL")
+        jetzt = normalize_url(settings.ha_url)
+        if not gebunden and jetzt:
+            tresor.set_secret("HA_TOKEN_URL", jetzt)
+            return
+        if gebunden and gebunden == jetzt:
+            return
+    settings.ha_token = ""
+
+
 def _stop_schedulers() -> None:
     """Haelt alle Planer an -- beim Beenden und vor einem Neustart (9.6.8 Ultra)."""
     global SCHEDULER
@@ -2322,22 +2351,30 @@ def google_state(settings: Settings) -> dict[str, Any]:
 #: Anmeldung begonnen hat. Ohne ihn konnte jemand einem angemeldeten Opfer
 #: seinen eigenen Google-Code unterschieben (Login-CSRF): dann laese Aquaticy
 #: im Konto des Opfers die Mails des Angreifers -- oder umgekehrt.
-_GOOGLE_STATES: dict[str, tuple[str, float]] = {}
+_GOOGLE_STATES: dict[str, tuple[str, float, str]] = {}
+#: Bindet eine Google-Anmeldung an den Browser, der sie begonnen hat (9.6.9 Luna).
+#: SameSite=Lax, weil das Sitzungscookie (Strict) beim Ruecksprung von Google
+#: nicht mitkommt; nur fuer /google, nur zehn Minuten, nur einmal.
+GOOGLE_FLOW_COOKIE = "aquaticy_google_flow"
 _GOOGLE_STATES_LOCK = threading.Lock()
 GOOGLE_STATE_SECONDS = 600.0
 
 
-def google_state_new(account_id: str) -> str:
-    """Ein neuer, einmaliger state fuer genau dieses Konto."""
+def _flow_hash(browser: str) -> str:
+    return hashlib.sha256(browser.encode("utf-8")).hexdigest() if browser else ""
+
+
+def google_state_new(account_id: str, browser: str = "") -> str:
+    """Ein neuer, einmaliger state fuer genau dieses Konto (und diesen Browser)."""
     import secrets as _secrets
 
     state = _secrets.token_urlsafe(32)
     jetzt = time.time()
     with _GOOGLE_STATES_LOCK:
-        for alt, (_, bis) in list(_GOOGLE_STATES.items()):
+        for alt, (_, bis, _b) in list(_GOOGLE_STATES.items()):
             if bis < jetzt:
                 _GOOGLE_STATES.pop(alt, None)
-        _GOOGLE_STATES[state] = (account_id, jetzt + GOOGLE_STATE_SECONDS)
+        _GOOGLE_STATES[state] = (account_id, jetzt + GOOGLE_STATE_SECONDS, _flow_hash(browser))
     return state
 
 
@@ -2349,8 +2386,28 @@ def google_state_take(state: str, account_id: str) -> bool:
         eintrag = _GOOGLE_STATES.pop(state, None)
     if eintrag is None:
         return False
-    konto, bis = eintrag
+    konto, bis, _ = eintrag
     return bis >= time.time() and hmac.compare_digest(konto, account_id)
+
+
+def google_state_take_browser(state: str, browser: str) -> str | None:
+    """Loest einen state ueber das Ablauf-Cookie ein -- fuer den Ruecksprung.
+
+    Returns: die Kontokennung, fuer die die Anmeldung begonnen wurde -- oder
+    None, wenn state oder Browser nicht passen. Einmalig wie google_state_take.
+    """
+    if not state or not browser:
+        return None
+    with _GOOGLE_STATES_LOCK:
+        eintrag = _GOOGLE_STATES.pop(state, None)
+    if eintrag is None:
+        return None
+    konto, bis, erwartet = eintrag
+    if bis < time.time() or not erwartet:
+        return None
+    if not hmac.compare_digest(erwartet, _flow_hash(browser)):
+        return None
+    return konto
 
 
 def google_redirect(host: str = "") -> str:
@@ -2482,6 +2539,14 @@ def save_values(payload: dict[str, Any]) -> Path:
     geheim: dict[str, str] = {}
     if ha_token:
         geheim["HA_TOKEN"] = ha_token
+        # Gebunden an die Adresse, fuer die er eingetragen wird (9.6.9 Luna).
+        from aquaticy.homeassistant import normalize_url
+
+        ziel = normalize_url(str(values.get("AQUATICY_HA_URL")
+                                 or payload.get("AQUATICY_HA_URL")
+                                 or session.settings().ha_url))
+        if ziel:
+            geheim["HA_TOKEN_URL"] = ziel
     # Eigene API-Schluessel eines Kontos gehen in seinen Schluesselbund
     # (aquaticy/keyvault.py) -- nie in eine .env, nie in die Umgebung.
     schluessel: dict[str, str] = {}
@@ -2500,6 +2565,7 @@ def save_values(payload: dict[str, Any]) -> Path:
         geheim["GOOGLE_CLIENT_SECRET"] = google_secret
     if geheim and session.profile is None:
         # Lokal ohne Konten bleibt es bei der .env des Betreibers.
+        geheim.pop("HA_TOKEN_URL", None)
         values.update(geheim)
         geheim = {}
     search_key = str(payload.get(SEARCH_KEY_FIELD, "")).strip()
@@ -3320,6 +3386,7 @@ class Handler(BaseHTTPRequestHandler):
         dann immer wieder. Eine Zeile im Terminal und ein 500 sind brauchbarer.
         """
         self.responded = False
+        self.__dict__.pop("_pending_headers", None)
         route = self._route()
         client = self._client_ip()
         weitergereicht = bool(getattr(self, "_cluster_user", ""))
@@ -3564,11 +3631,22 @@ class Handler(BaseHTTPRequestHandler):
             self.close_connection = True
 
     # -- Hilfen -----------------------------------------------------------
+    def _queue_header(self, name: str, wert: str) -> None:
+        """Eine Kopfzeile fuer die naechste Antwort (etwa ein Cookie, 9.6.9 Luna)."""
+        if not isinstance(self.__dict__.get("_pending_headers"), list):
+            self._pending_headers: list[tuple[str, str]] = []
+        self._pending_headers.append((name, wert))
+
+    def _flush_headers(self) -> None:
+        for name, wert in self.__dict__.pop("_pending_headers", None) or ():
+            self.send_header(name, wert)
+
     def _send(self, status: int, body: bytes, content_type: str) -> None:
         self.send_response(status)
         self.send_header("Content-Type", content_type)
         self.send_header("Content-Length", str(len(body)))
         self.send_header("Cache-Control", "no-store")
+        self._flush_headers()
         self.end_headers()
         self.wfile.write(body)
 
@@ -4083,7 +4161,11 @@ class Handler(BaseHTTPRequestHandler):
         if self._route() in STATIC_FILES:
             self._send_static(self._route())
             return
-        if not self._authorized():
+        # Der Ruecksprung von Google (9.6.9 Luna): auch das Zugangswort-Cookie
+        # ist SameSite=Strict und fehlt dann. Das Ablauf-Cookie reicht hier --
+        # _google_return prueft es zusammen mit dem einmaligen state.
+        ruecksprung = self._route() == "/google" and bool(self._cookie(GOOGLE_FLOW_COOKIE))
+        if not ruecksprung and not self._authorized():
             self._deny()
             return
         route = self._route()
@@ -4722,15 +4804,33 @@ class Handler(BaseHTTPRequestHandler):
         # und nur mit ihrem einmaligen state (9.5.15). Ohne Konto landeten
         # die Schluessel sonst im Profil des Servers.
         konto = self._account()
-        if AUTH is not None and konto is None:
-            self._google_page(False, "Bitte melde dich zuerst bei Aquaticy an und verbinde "
-                                     "Google dann aus den Einstellungen.")
-            return
-        if not google_state_take(state, getattr(konto, "id", "") or ""):
-            self._google_page(False, "Diese Rückmeldung von Google gehört zu keiner "
-                                     "Anmeldung, die du hier begonnen hast (oder sie ist "
-                                     "abgelaufen). Bitte in den Einstellungen neu verbinden.")
-            return
+        abgelaufen = ("Diese Rückmeldung von Google gehört zu keiner Anmeldung, die du "
+                      "hier begonnen hast (oder sie ist abgelaufen). Bitte in den "
+                      "Einstellungen neu verbinden.")
+        if konto is not None or (AUTH is None and self._authorized()):
+            if not google_state_take(state, getattr(konto, "id", "") or ""):
+                self._google_page(False, abgelaufen)
+                return
+        elif AUTH is None:
+            # Ohne Konten, aber das Zugangswort-Cookie fehlte: nur mit dem
+            # Ablauf-Cookie dieses Browsers.
+            if google_state_take_browser(state, self._cookie(GOOGLE_FLOW_COOKIE)) is None:
+                self._google_page(False, abgelaufen)
+                return
+        else:
+            # Von Google zurueck kommt das Sitzungscookie (SameSite=Strict) nicht
+            # mit (9.6.9 Luna). Dann gilt das Ablauf-Cookie: es ist an diesen
+            # Browser und an genau diesen state gebunden und nennt das Konto.
+            kennung = google_state_take_browser(state, self._cookie(GOOGLE_FLOW_COOKIE))
+            konto = AUTH.account(kennung) if kennung else None
+            if konto is None:
+                self._google_page(False, "Bitte melde dich zuerst bei Aquaticy an und "
+                                         "verbinde Google dann aus den Einstellungen.")
+                return
+            _REQUEST.session = SESSIONS.get(konto)
+        self._queue_header(
+            "Set-Cookie", f"{GOOGLE_FLOW_COOKIE}=; Path=/google; Max-Age=0; HttpOnly; "
+                          "SameSite=Lax")
         settings = SESSION.settings()
         if not settings.google_client_id or not settings.google_client_secret:
             self._google_page(False, "Client-ID und Secret fehlen -- erst speichern.")
@@ -4771,6 +4871,8 @@ p{{margin:0 0 8px;color:#57534a}}</style></head><body><main>
         self.send_response(200)
         self.send_header("Content-Type", "text/html; charset=utf-8")
         self.send_header("Content-Length", str(len(raw)))
+        self.send_header("Cache-Control", "no-store")
+        self._flush_headers()
         self.end_headers()
         self.wfile.write(raw)
 
@@ -4905,7 +5007,13 @@ p{{margin:0 0 8px;color:#57534a}}</style></head><body><main>
             if darf_aendern is None:
                 darf_aendern = settings.google_write
             try:
-                state = google_state_new(getattr(SESSION.account, "id", "") or "")
+                browser = secrets.token_urlsafe(32)
+                state = google_state_new(getattr(SESSION.account, "id", "") or "", browser)
+                self._queue_header(
+                    "Set-Cookie",
+                    f"{GOOGLE_FLOW_COOKIE}={browser}; Path=/google; "
+                    f"Max-Age={int(GOOGLE_STATE_SECONDS)}; HttpOnly; SameSite=Lax"
+                    + ("; Secure" if self._https() else ""))
                 return {
                     "ok": True,
                     "url": consent_url(client_id, redirect, state,
@@ -5795,6 +5903,59 @@ def bind_server(host: str, port: int) -> ThreadingHTTPServer:
     raise letzter or OSError("Kein freier Port gefunden.")
 
 
+class AlreadyRunning(RuntimeError):
+    """Ein anderes Aquaticy arbeitet schon mit diesem Datenordner (9.6.9 Luna)."""
+
+
+class DataDirLock:
+    """Haelt den Datenordner fuer genau einen laufenden Server.
+
+    Seit dem Ersatz-Port (9.6.8 Sol) brach ein versehentlich zweimal
+    gestartetes Aquaticy nicht mehr ab, sondern lief auf dem naechsten Port
+    mit denselben Daten mit -- Auftraege liefen doppelt, Schreibzugriffe
+    kamen sich in die Quere. Die Sperre gibt das Betriebssystem frei, sobald
+    der Prozess endet, auch nach einem harten Absturz.
+    """
+
+    def __init__(self, data_dir: Path) -> None:
+        data_dir.mkdir(parents=True, exist_ok=True)
+        self.path = data_dir / "aquaticy.lock"
+        self._file: Any = open(self.path, "a+b")  # noqa: SIM115 - lebt bis release()
+        try:
+            self._lock()
+        except OSError as exc:
+            self._file.close()
+            raise AlreadyRunning(
+                "Aquaticy läuft mit diesem Datenordner schon -- ein zweites Mal "
+                "starten würde Aufträge doppelt ausführen.") from exc
+
+    def _lock(self) -> None:
+        try:
+            import fcntl
+        except ImportError:  # Windows
+            import msvcrt
+
+            self._file.seek(0)
+            msvcrt.locking(self._file.fileno(), msvcrt.LK_NBLCK, 1)
+            return
+        fcntl.flock(self._file.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
+
+    def release(self) -> None:
+        if self._file.closed:
+            return
+        with contextlib.suppress(OSError):
+            try:
+                import fcntl
+
+                fcntl.flock(self._file.fileno(), fcntl.LOCK_UN)
+            except ImportError:  # Windows
+                import msvcrt
+
+                self._file.seek(0)
+                msvcrt.locking(self._file.fileno(), msvcrt.LK_UNLCK, 1)
+        self._file.close()
+
+
 def serve(
     host: str = "127.0.0.1",
     port: int = DEFAULT_PORT,
@@ -5806,7 +5967,31 @@ def serve(
     Den Zugang schuetzen die Konten: ohne Anmeldung gibt es nichts ausser der
     Anmeldeseite. *token* ist eine freiwillige zweite Schranke davor
     (``aquaticy web --token``) -- gesetzt wird es nur, wenn man es angibt.
+
+    Raises:
+        AlreadyRunning: wenn ein anderes Aquaticy denselben Datenordner nutzt.
     """
+    sperre = DataDirLock(get_settings().data_dir)
+    try:
+        _serve(host, port, open_browser, token)
+    except BaseException:
+        # Was vor dem Binden scheitert, darf keinen Planer zuruecklassen.
+        _stop_schedulers()
+        raise
+    finally:
+        sperre.release()
+    if _CLUSTER_RESTART.is_set():
+        # Neustart erst, wenn Port UND Datenordner frei sind.
+        import sys
+
+        with contextlib.suppress(Exception):
+            sys.stdout.flush()
+            sys.stderr.flush()
+        os.execv(sys.executable, [sys.executable, "-c", "from aquaticy.cli import main; main()",
+                                 *sys.argv[1:]])
+
+
+def _serve(host: str, port: int, open_browser: bool, token: str) -> None:
     global AUTH, TOKEN
 
     _CLUSTER_RESTART.clear()
@@ -5902,13 +6087,5 @@ def serve(
         TOKEN = ""
         AUTH = None
     # Der Beitritt laeuft in einem Daemon-Thread. Dort kann der Prozess nach
-    # shutdown bereits enden, bevor execv erreicht wird. Neustart deshalb hier,
-    # solange der Hauptablauf noch lebt und der alte Port bereits frei ist.
-    if _CLUSTER_RESTART.is_set():
-        import sys
-
-        with contextlib.suppress(Exception):
-            sys.stdout.flush()
-            sys.stderr.flush()
-        os.execv(sys.executable, [sys.executable, "-c", "from aquaticy.cli import main; main()",
-                                 *sys.argv[1:]])
+    # shutdown bereits enden, bevor execv erreicht wird. Neustart deshalb in
+    # serve(), solange der Hauptablauf noch lebt und Port und Sperre frei sind.
