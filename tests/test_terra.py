@@ -272,4 +272,4 @@ def test_real_research_then_fresh_chat_uses_facts_for_new_answer(learners, setti
                          stream=False).answer == new_answer
     finally:
         fresh.close()
-    assert VERSION_LABEL == "10.0 Luna"
+    assert VERSION_LABEL == "10.0.1 Luna"

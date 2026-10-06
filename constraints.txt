@@ -1,4 +1,4 @@
-# Aquaticy 10.0 Luna -- feste Abhaengigkeiten fuer reproduzierbare Builds.
+# Aquaticy 10.0.1 Luna -- feste Abhaengigkeiten fuer reproduzierbare Builds.
 #
 # Reproduzierbar installieren:
 #   pip install -c constraints.txt -e ".[browser,dev]"

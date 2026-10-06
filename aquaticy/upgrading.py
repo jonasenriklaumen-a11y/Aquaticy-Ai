@@ -358,8 +358,16 @@ def launch_notice(data_dir: Path, account_id: str, now: float | None = None
     gesehen = set(state["seen"].get(_owner(account_id), []))
     beste: dict[str, Any] | None = None
     for base, track in state["tracks"].items():
+        try:
+            aktuell = _find(track, track["current"])["model"]
+        except (UpgradeError, KeyError):
+            continue
         for start in track.get("launches", []):
             if start["id"] in gesehen or now - float(start["at"]) > LAUNCH_NOTICE:
+                continue
+            # Zurueckgezogen (10.0.1): eine Version, die nicht mehr die neueste
+            # ist, wird nicht mehr angekuendigt -- "Ausprobieren" ginge ins Leere.
+            if start.get("to_model") != aktuell:
                 continue
             if beste is None or float(start["at"]) > float(beste["at"]):
                 beste = {**start, "base": base}
@@ -369,9 +377,9 @@ def launch_notice(data_dir: Path, account_id: str, now: float | None = None
         "id": beste["id"],
         "title": f"{beste['to_label']} ist da",
         "gain": gain_text(float(beste["gain"])),
-        "text": (f"Das Modell {beste['from_label']} hat dazugelernt: {beste['to_label']} "
-                 f"ist {gain_text(float(beste['gain']))} stärker. Beide Versionen stehen "
-                 f"zur Wahl — die vorherige noch vier Tage."),
+        "text": (f"{beste['to_label']} ist stärker als jemals zuvor: "
+                 f"{gain_text(float(beste['gain']))} gegenüber {beste['from_label']}. "
+                 f"Beide Versionen stehen zur Wahl — die vorherige noch vier Tage."),
         "model": f"ollama_chat/{beste['to_model']}",
         "label": beste["to_label"],
     }
@@ -390,20 +398,34 @@ def mark_seen(data_dir: Path, account_id: str, launch_id: str) -> None:
 # ---------------------------------------------------------------------------
 # Ultra: Schalter, Freigabe, Ueberspringen, Zuruecksetzen
 # ---------------------------------------------------------------------------
+def _add_tracks(state: dict[str, Any], local_models: list[str]) -> None:
+    for name in local_models:
+        if name.startswith(PREFIX) or name in state["tracks"]:
+            continue
+        state["tracks"][name] = {
+            "versions": [{"version": [1, 0], "model": name, "score": None,
+                          "gain": 0.0, "created": time.time(), "facts": 0}],
+            "current": "1", "candidate": None, "previous": None, "launches": [],
+            "trained_hash": "",
+        }
+
+
 def set_enabled(data_dir: Path, on: bool, local_models: list[str]) -> None:
     with _edit(data_dir) as state:
         state["enabled"] = bool(on)
         if on:
-            for name in local_models:
-                if name.startswith(PREFIX) or name in state["tracks"]:
-                    continue
-                state["tracks"][name] = {
-                    "versions": [{"version": [1, 0], "model": name, "score": None,
-                                  "gain": 0.0, "created": time.time(), "facts": 0}],
-                    "current": "1", "candidate": None, "previous": None, "launches": [],
-                    "trained_hash": "",
-                }
+            _add_tracks(state, local_models)
         state["message"] = ""
+
+
+def sync_tracks(data_dir: Path, local_models: list[str]) -> None:
+    """Ein spaeter installiertes lokales Modell bekommt ebenfalls seinen Strang (10.0.1)."""
+    state = load(data_dir)
+    if not state["enabled"] or all(n.startswith(PREFIX) or n in state["tracks"]
+                                   for n in local_models):
+        return
+    with _edit(data_dir) as state:
+        _add_tracks(state, local_models)
 
 
 def _track(state: dict[str, Any], base: str) -> dict[str, Any]:
@@ -720,10 +742,12 @@ class Trainer:
     """Der Hintergrund-Faden: trainiert, wenn der Schalter an ist und es Neues gibt."""
 
     def __init__(self, data_dir: Path, facts: Callable[[], list[dict[str, str]]],
-                 backend: Callable[[], Backend]) -> None:
+                 backend: Callable[[], Backend],
+                 models: Callable[[], list[str]] | None = None) -> None:
         self.data_dir = Path(data_dir)
         self.facts = facts
         self.backend = backend
+        self.models = models
         self.stop_event = threading.Event()
         self._thread: threading.Thread | None = None
 
@@ -742,6 +766,9 @@ class Trainer:
         threading.Thread(target=self._once, args=(True,), daemon=True).start()
 
     def _once(self, force: bool = False) -> None:
+        if self.models is not None:
+            with contextlib.suppress(Exception):
+                sync_tracks(self.data_dir, self.models())
         with contextlib.suppress(Exception):
             train_all(self.data_dir, self.facts(), self.backend(), force=force)
 

@@ -6177,11 +6177,13 @@ def _serve(host: str, port: int, open_browser: bool, token: str) -> None:
         # Auto-Upgrading (10.0 Luna): trainiert im Hintergrund, wenn ein Ultra-
         # Konto es eingeschaltet hat -- sonst schlaeft der Faden nur.
         from aquaticy import upgrading
+        from aquaticy.local_model import installed_models
 
         UPGRADE_DIR = data_dir
         UPGRADER = upgrading.Trainer(
             data_dir, lambda: Learning(data_dir).confirmed_facts(upgrading.MAX_FACTS),
-            lambda: upgrading.OllamaBackend(OLLAMA_URL()))
+            lambda: upgrading.OllamaBackend(OLLAMA_URL()),
+            lambda: installed_models(OLLAMA_URL()))
         UPGRADER.start()
         # Server-Verbund (9.6.1): laeuft nur, wenn er in den Dev settings an ist.
         try:

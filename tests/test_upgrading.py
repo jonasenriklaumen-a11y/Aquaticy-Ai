@@ -169,6 +169,30 @@ def test_everyone_goes_up_with_the_next_release_ultra_too(ordner: Path) -> None:
     assert up.resolve(ordner, kandidat, True, "ultra") == "ollama_chat/" + neu["model"]
 
 
+def test_the_launch_sentence_says_stronger_than_ever(ordner: Path) -> None:
+    up.train_all(ordner, FAKTEN, Ollama(base_kennt=18))
+    up.upgrade(ordner, BASE)
+    text = up.launch_notice(ordner, "konto-a")["text"]
+    assert text.startswith("gemma3:4b 1.1 ist stärker als jemals zuvor: +")
+    assert "gegenüber gemma3:4b." in text and "dazugelernt" not in text
+    assert "Beide Versionen stehen zur Wahl — die vorherige noch vier Tage." in text
+
+
+def test_a_withdrawn_version_is_not_announced(ordner: Path) -> None:
+    up.train_all(ordner, FAKTEN, Ollama(base_kennt=18))
+    up.upgrade(ordner, BASE)
+    up.rollback(ordner, BASE, "1")
+    assert up.launch_notice(ordner, "konto-a") is None
+
+
+def test_a_model_installed_later_gets_its_track(ordner: Path) -> None:
+    up.sync_tracks(ordner, [BASE, "qwen2.5:7b", "aquaticy-x:1.1"])
+    assert sorted(up.load(ordner)["tracks"]) == [BASE, "qwen2.5:7b"]
+    up.set_enabled(ordner, False, [])
+    up.sync_tracks(ordner, ["llama3.2:3b"])
+    assert "llama3.2:3b" not in up.load(ordner)["tracks"], "aus heisst aus"
+
+
 def test_rollback_and_skip(ordner: Path) -> None:
     ollama = Ollama(base_kennt=18)
     up.train_all(ordner, FAKTEN, ollama)
