@@ -1442,6 +1442,29 @@ button{touch-action:manipulation}
   .mode{padding:4px 6px}
   .hello h1{font-size:calc(20px * var(--fs))}
 }
+
+/* Auto-Upgrading (10.0 Luna) */
+.launch-top{display:flex;align-items:center;gap:10px}
+.launch-badge{margin-left:auto;font:600 calc(11px * var(--fs))/1 var(--mono);letter-spacing:.06em;
+  text-transform:uppercase;color:var(--accent-text);background:var(--accent-soft);
+  border-radius:999px;padding:5px 10px}
+.launch-gain{font:600 calc(28px * var(--fs))/1.1 var(--sans);color:var(--accent);margin:-6px 0 8px}
+.upgrade-box{margin-top:16px}
+.upgrade-list li{display:flex;flex-direction:column;gap:8px;padding:10px 0;
+  border-bottom:1px solid var(--line)}
+.upgrade-list .zeile{display:flex;align-items:center;gap:8px;flex-wrap:wrap}
+.upgrade-list .zeile .wer{flex:1 1 180px;min-width:0}
+.upgrade-list .zeile .wer small{display:block;color:var(--text-3);overflow-wrap:anywhere}
+.upgrade-list .versionen{display:flex;gap:6px;flex-wrap:wrap}
+.upgrade-list .versionen button{font-size:calc(12px * var(--fs));padding:4px 10px}
+/* Grau, solange es weniger als 5 % sind -- gruen, sobald Upgraden geht. */
+.btn.upgrade-go{background:var(--surface-2);color:var(--text-3);border-color:var(--line)}
+:root{--go:#2f8f4e;--go-hover:#27794a;--on-go:#fff}
+:root[data-theme="dark"]{--go:#3aa35f;--go-hover:#45b56b}
+.btn.upgrade-go.bereit{background:var(--go);border-color:var(--go);color:var(--on-go);font-weight:600}
+.btn.upgrade-go.bereit:hover{background:var(--go-hover)}
+.pick .neu{font:600 calc(10px * var(--fs))/1 var(--mono);color:var(--accent-text);
+  background:var(--accent-soft);border-radius:999px;padding:3px 7px;margin-left:6px}
 </style>
 </head>
 <body class="start">
@@ -1780,6 +1803,23 @@ button{touch-action:manipulation}
      Fehler -- der steht hoechstens kurz und ohne Inhalt im Protokoll des Servers. -->
 <div class="offline-hinweis" id="offline-hinweis" role="status" hidden>Keine Verbindung —
   Aquaticy macht von selbst weiter, sobald das Netz wieder da ist.</div>
+
+<!-- Auto-Upgrading (10.0 Luna): beim ersten Aufruf nach einer Freigabe. -->
+<div class="overlay ask" id="launchbox">
+  <div class="sheet ask-sheet launch-sheet" role="dialog" aria-modal="true"
+       aria-labelledby="launch-title" aria-describedby="launch-text">
+    <div class="launch-top">
+      <button type="button" class="sheet-back" id="launch-back" aria-label="Zurück">‹ Zurück</button>
+      <span class="launch-badge">Neues Modell</span>
+    </div>
+    <div class="ask-q" id="launch-title"></div>
+    <div class="launch-gain" id="launch-gain"></div>
+    <div class="note" id="launch-text"></div>
+    <div class="actions">
+      <button type="button" class="btn primary" id="launch-try">Ausprobieren</button>
+    </div>
+  </div>
+</div>
 
 <div class="overlay ask" id="errorbox">
   <div class="sheet ask-sheet" role="alertdialog" aria-modal="true"
@@ -2493,6 +2533,25 @@ button{touch-action:manipulation}
               allen Konten Tokens.</span></label>
         </div>
         <div class="note" id="council-note"></div>
+        <!-- Auto-Upgrading (10.0 Luna): nur Ultra steuert es, es gilt fuer alle Konten.
+             Die Felder haben keinen Namen -- sie gehoeren zu /api/upgrades. -->
+        <div class="upgrade-box" id="upgrade-box">
+          <div class="check">
+            <input type="checkbox" role="switch" class="schalter" id="upgrade-on">
+            <label for="upgrade-on" style="margin:0">Auto-Upgrading
+              <span class="why">Aquaticy baut lokale Modelle mit Wissen weiter, das mehrere
+                Konten unabhängig bestätigt haben (aus öffentlichen Quellen; wer es gesagt hat,
+                wird nicht gespeichert), und misst, wie viel besser sie antworten. Ab 5 %
+                wird „Upgraden“ grün (z. B. gemma3:4b → gemma3:4b 1.1), ab 30 % gibt es eine
+                ganze Version (→ gemma3:4b 2). Gilt für jedes Konto.</span></label>
+          </div>
+          <p class="note" id="upgrade-lock" hidden>🔒 Auto-Upgrading gehört zu Ultra.</p>
+          <div class="note" id="upgrade-status" role="status"></div>
+          <div id="upgrade-panel" hidden>
+            <ul class="device-list upgrade-list" id="upgrade-tracks"></ul>
+            <button type="button" class="btn" id="upgrade-train">Jetzt trainieren</button>
+          </div>
+        </div>
         <!-- Server-Verbund (9.6.1): nur Ultra. Die Felder haben keinen Namen --
              sie gehoeren nicht zum Einstellungsformular, sondern zu /api/cluster. -->
         <div class="cluster-box" id="cluster-box">
@@ -2565,7 +2624,7 @@ document.querySelectorAll(".note").forEach((note) => {
 const thread = $("#thread"), main = $("#main"), input = $("#input"), send = $("#send");
 let busy = false;
 let currentChat = "";
-const aquaticyVersion = window.__AQUATICY_VERSION__ || "9.6.9 Luna";
+const aquaticyVersion = window.__AQUATICY_VERSION__ || "10.0 Luna";
 $("#version").textContent = "v" + aquaticyVersion;
 // Interne oder Test-Fassung (9.6.0): unten mittig ein gelber Hinweis.
 const aquaticyIntern = window.__AQUATICY_INTERNAL__ === true
@@ -5601,6 +5660,11 @@ async function openPicker(){
     item.querySelector(".nm").textContent = model.label;
     item.querySelector(".kind").textContent = model.kind;
     item.querySelector(".note").textContent = model.note || "";
+    if (model.upgrade === "current" && /stärker/.test(model.note || "")){
+      const neu = document.createElement("span");
+      neu.className = "neu"; neu.textContent = "Neu";
+      item.querySelector(".top").appendChild(neu);
+    }
     if (model.source === "own"){
       const src = document.createElement("span");
       src.className = "src"; src.textContent = model.source_label || "Dein Schlüssel";
@@ -5797,6 +5861,7 @@ new IntersectionObserver((eintraege) => {
   devGeladen = true;
   // Nur abfragen, was dieses Konto sehen kann: der Verbund gehoert zu Ultra.
   if (kontoUltra) verbundLaden(); else verbundZeigen({});
+  upgradeLaden();
   kontenLaden(true);
 }, { root: form.closest(".sheet") }).observe($("#dev-settings"));
 function fill(values){
@@ -8119,12 +8184,150 @@ async function kopfNeuZeichnen(){
 // Wird von `bootAuth` gerufen, sobald jemand angemeldet ist -- vorher gibt
 // es nichts zu holen. Die Deklaration steht hier unten, gilt aber im ganzen
 // Skript, also auch dort oben.
+/* ---------- Auto-Upgrading (10.0 Luna) ---------- */
+const launchBox = $("#launchbox");
+let launchStart = null;
+async function pruefeUpgrade(){
+  try {
+    const res = await api("/api/upgrades");
+    if (!res.ok) return;
+    const daten = await res.json();
+    const n = daten.notice;
+    if (!n || overlay.classList.contains("open")) return;
+    launchStart = n;
+    $("#launch-title").textContent = n.title;
+    $("#launch-gain").textContent = n.gain + " stärker";
+    $("#launch-text").textContent = n.text;
+    openOverlay(launchBox);
+    requestAnimationFrame(() => $("#launch-try").focus());
+  } catch { /* still: eine Startmeldung ist kein Grund fuer ein Fehlerfenster */ }
+}
+async function launchSchliessen(){
+  closeOverlay(launchBox);
+  const start = launchStart;
+  launchStart = null;
+  if (!start) return;
+  try {
+    await api("/api/upgrades", { method: "POST", headers: {"Content-Type": "application/json"},
+                                 body: JSON.stringify({ action: "seen", id: start.id }) });
+  } catch {}
+  return start;
+}
+$("#launch-back").addEventListener("click", () => launchSchliessen());
+$("#launch-try").addEventListener("click", async () => {
+  const start = await launchSchliessen();
+  if (start) chooseModel({ id: start.model, label: start.label }, "AQUATICY_MODEL");
+});
+launchBox.addEventListener("click", (e) => { if (e.target === launchBox) launchSchliessen(); });
+launchBox.addEventListener("keydown", (e) => { if (e.key === "Escape") launchSchliessen(); });
+
+async function upgradeLaden(){
+  if (!kontoUltra){ upgradeZeigen({ locked: true }); return; }
+  try {
+    const daten = await (await api("/api/upgrades")).json();
+    upgradeZeigen(daten.ultra ? daten.ultra : { unavailable: !daten.available });
+  } catch (err){
+    $("#upgrade-status").textContent = nutzerFehler(err && err.message);
+  }
+}
+async function upgradeAktion(body, knopf){
+  if (knopf) knopf.disabled = true;
+  try {
+    const res = await api("/api/upgrades", { method: "POST",
+      headers: {"Content-Type": "application/json"}, body: JSON.stringify(body) });
+    const daten = await res.json();
+    if (!res.ok || daten.error){ hinweis(nutzerFehler(daten.error)); upgradeLaden(); return; }
+    upgradeZeigen(daten.ultra);
+    if (body.action === "upgrade" || body.action === "rollback") refreshHeader();
+  } catch (err){ hinweis(nutzerFehler(err && err.message)); }
+  finally { if (knopf) knopf.disabled = false; }
+}
+let upgradeTakt = null;
+function upgradeZeigen(d){
+  clearTimeout(upgradeTakt);
+  const gesperrt = !kontoUltra || d.locked;
+  $("#upgrade-lock").hidden = !gesperrt;
+  $("#upgrade-on").disabled = gesperrt || d.unavailable;
+  $("#upgrade-on").checked = !!d.enabled;
+  $("#upgrade-panel").hidden = gesperrt || !d.enabled;
+  const status = $("#upgrade-status");
+  status.className = "note";
+  if (d.unavailable){ status.textContent = "Auto-Upgrading läuft nur mit der Weboberfläche."; return; }
+  if (gesperrt){ status.textContent = ""; return; }
+  status.textContent = d.running ? "Trainiert gerade …"
+    : (d.message || (d.enabled ? "An — trainiert von selbst, sobald es neues bestätigtes Wissen gibt." : ""));
+  const liste = $("#upgrade-tracks");
+  liste.replaceChildren();
+  if (d.enabled && !(d.tracks || []).length){
+    const li = document.createElement("li");
+    li.textContent = "Kein lokales Modell gefunden — Auto-Upgrading braucht Ollama.";
+    liste.appendChild(li);
+  }
+  for (const t of d.tracks || []){
+    const li = document.createElement("li");
+    const zeile = document.createElement("div");
+    zeile.className = "zeile";
+    const wer = document.createElement("span");
+    wer.className = "wer";
+    wer.textContent = t.current_label;
+    const klein = document.createElement("small");
+    const k = t.candidate;
+    klein.textContent = k
+      ? `Neu: ${k.label} · ${k.gain_text}` + (k.can_upgrade ? "" : ` · Upgraden ab ${d.minor} %`)
+      : "Neueste Version — noch keine bessere";
+    wer.appendChild(klein);
+    const los = document.createElement("button");
+    los.type = "button";
+    los.className = "btn upgrade-go" + (k && k.can_upgrade ? " bereit" : "");
+    los.textContent = "Upgraden";
+    los.disabled = !(k && k.can_upgrade);
+    los.title = k && !k.can_upgrade ? `Erst ab ${d.minor} % besser` : "";
+    los.addEventListener("click", () => upgradeAktion({ action: "upgrade", base: t.base }, los));
+    zeile.append(wer, los);
+    if (k){
+      const weg = document.createElement("button");
+      weg.type = "button"; weg.className = "btn"; weg.textContent = "Überspringen";
+      weg.addEventListener("click", async () => {
+        if (await frage("Version überspringen?", `${k.label} wird verworfen.`, "Überspringen"))
+          upgradeAktion({ action: "skip", base: t.base }, weg);
+      });
+      zeile.appendChild(weg);
+    }
+    li.appendChild(zeile);
+    const alte = (t.versions || []).filter(v => !v.current);
+    if (alte.length){
+      const versionen = document.createElement("div");
+      versionen.className = "versionen";
+      for (const v of alte){
+        const b = document.createElement("button");
+        b.type = "button"; b.className = "btn";
+        b.textContent = `${v.label} als neueste`;
+        b.title = "Zurückziehen: diese Version wird wieder die neueste";
+        b.addEventListener("click", async () => {
+          if (await frage("Version zurückziehen?",
+                          `${v.label} wird wieder die neueste Version für alle.`, "Zurückziehen"))
+            upgradeAktion({ action: "rollback", base: t.base, version: v.version }, b);
+        });
+        versionen.appendChild(b);
+      }
+      li.appendChild(versionen);
+    }
+    liste.appendChild(li);
+  }
+  if (d.running && overlay.classList.contains("open")) upgradeTakt = setTimeout(upgradeLaden, 4000);
+}
+$("#upgrade-on").addEventListener("change", (e) =>
+  upgradeAktion({ action: "enable", on: e.target.checked }, e.target));
+$("#upgrade-train").addEventListener("click", (e) =>
+  upgradeAktion({ action: "train" }, e.target).then(() => setTimeout(upgradeLaden, 1500)));
+
 async function starteOberflaeche(){
   angemeldet = true;
   greet();
   refreshHeader();
   loadRecents();
   pruefeLimits();
+  pruefeUpgrade();  // Auto-Upgrading (10.0 Luna): neues Modell? Einmal Bescheid sagen.
   pruefeSperre();   // Ai-guard (9.5.24): rotes „Info“, wenn das Konto gesperrt ist
   await wiederAufnehmen();
   input.focus();

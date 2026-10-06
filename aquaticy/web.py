@@ -553,6 +553,10 @@ AIGUARD: Any = None
 CLUSTER: Any = None
 #: Der laufende HTTP-Server (fuer den Neustart nach dem Beitritt zu einem Verbund).
 SERVER: Any = None
+#: Auto-Upgrading (10.0 Luna): Datenordner des Servers und Hintergrund-Faden.
+#: None ausserhalb von `aquaticy web` (Tests, Kommandozeile) -- dann ist es aus.
+UPGRADE_DIR: Path | None = None
+UPGRADER: Any = None
 _CLUSTER_RESTART = threading.Event()
 #: Diese Pfade bedient jeder Server selbst, auch im Verbund: Anmeldung,
 #: Zustimmung, Logo, Rechtstexte und die Verbund-Einstellungen dieses Servers.
@@ -653,7 +657,7 @@ NORMAL_CONTEXT_CAP = 32_768
 
 def header_for(settings: Settings) -> dict[str, Any]:
     """Die Kopfzeile fuer den Zustand, den der Server fuehrt (aquaticy/webview.py)."""
-    return webview.header_view(
+    kopf = webview.header_view(
         settings,
         ui_state().read(),
         strong_model=(strong_models(1) or [{}])[0].get("id", ""),
@@ -661,6 +665,16 @@ def header_for(settings: Settings) -> dict[str, Any]:
         ha_connected=bool(settings.ha_url and settings.ha_token),
         problems=settings.missing_requirements(),
     )
+    if UPGRADE_DIR is not None:
+        # Auto-Upgrading: "gemma3:4b 1.1" statt "aquaticy-gemma3-4b:1.1".
+        from aquaticy import upgrading
+
+        with contextlib.suppress(Exception):
+            schoen = upgrading.display_label(UPGRADE_DIR, kopf.get("model", ""))
+            if schoen:
+                kopf["model_label"] = kopf["model_label"].replace(
+                    kopf["model"].split("/")[-1], schoen)
+    return kopf
 
 
 def storage_view(usage: dict[str, Any]) -> dict[str, Any]:
@@ -1280,6 +1294,19 @@ class ChatSession:
                 if self.profile is not None
                 else get_settings()
             )
+            self._upgrade_gen = -1
+        if UPGRADE_DIR is not None:
+            # Auto-Upgrading (10.0 Luna): nach einer Freigabe "geht das Modell
+            # hoch" -- einmal je Freigabe nachgesehen, nicht bei jedem Aufruf.
+            from aquaticy import upgrading
+
+            with contextlib.suppress(Exception):
+                stand = upgrading.generation(UPGRADE_DIR)
+                if getattr(self, "_upgrade_gen", -1) != stand:
+                    self._settings.model = upgrading.resolve(
+                        UPGRADE_DIR, self._settings.model, self.ultra,
+                        getattr(self.account, "id", "") or "")
+                    self._upgrade_gen = stand
         return self._settings
 
     @property
@@ -2534,6 +2561,16 @@ def save_values(payload: dict[str, Any]) -> Path:
     ):
         if values.get(key):
             values[key] = fix_model_id(values[key])
+    if UPGRADE_DIR is not None and values.get("AQUATICY_MODEL"):
+        # Auto-Upgrading (10.0 Luna): aeltere Fassungen und Kandidaten nur fuer
+        # die, die sie sehen duerfen -- und eine bewusste Wahl bleibt stehen.
+        from aquaticy import upgrading
+
+        gewaehlt = values["AQUATICY_MODEL"]
+        if not upgrading.allowed(UPGRADE_DIR, gewaehlt, session.ultra):
+            raise ValueError("Diese Modellversion steht dir nicht mehr zur Wahl.")
+        upgrading.choose(UPGRADE_DIR, gewaehlt, session.ultra,
+                         getattr(session.account, "id", "") or "")
     ha_token = str(payload.get(HA_TOKEN_FIELD, "")).strip()
     #: Geheimnisse, die bei einem Konto in den Schluesselbund gehoeren (9.5.34).
     geheim: dict[str, str] = {}
@@ -4178,6 +4215,8 @@ class Handler(BaseHTTPRequestHandler):
             self._json(antwort, status)
         elif route == "/api/linked":
             self._json(linked_view(SESSION.current()))
+        elif route == "/api/upgrades":
+            self._json(upgrades_view(SESSION.current()))
         elif route == "/api/auth/status":
             account = self._account()
             self._json(
@@ -4419,6 +4458,14 @@ class Handler(BaseHTTPRequestHandler):
                 verknuepft = picker_models(SESSION.settings())
             gesehen = {m.get("id") for m in alle}
             alle = alle + [m for m in verknuepft if m["id"] not in gesehen]
+            if UPGRADE_DIR is not None:
+                # Auto-Upgrading: statt der rohen Ollama-Namen die Fassungen,
+                # die dieses Konto sehen darf (10.0 Luna).
+                from aquaticy import upgrading
+
+                with contextlib.suppress(Exception):
+                    alle = upgrading.picker_entries(UPGRADE_DIR, alle,
+                                                    bool(SESSION.current().ultra))
             antwort: dict[str, Any] = {
                 "models": alle,
                 # Fuer den Code- und den Pro-Modus: nur die staerksten.
@@ -4664,6 +4711,10 @@ class Handler(BaseHTTPRequestHandler):
             self._json(antwort, status)
         elif route == "/api/linked":
             antwort, status = linked_action(self._read_json(limit=AUTH_BODY_BYTES))
+            self._json(antwort, status)
+        elif route == "/api/upgrades":
+            antwort, status = upgrades_action(SESSION.current(),
+                                              self._read_json(limit=AUTH_BODY_BYTES))
             self._json(antwort, status)
         elif route == "/api/learning":
             from aquaticy.learning import Learning
@@ -5808,6 +5859,70 @@ def cluster_view(session: Any) -> tuple[dict[str, Any], int]:
     return CLUSTER.view(), 200
 
 
+def upgrades_view(session: Any) -> dict[str, Any]:
+    """Auto-Upgrading (10.0 Luna): die Startmeldung fuer jedes Konto, der Stand fuer Ultra."""
+    if UPGRADE_DIR is None:
+        return {"available": False, "notice": None}
+    from aquaticy import upgrading
+
+    konto = getattr(getattr(session, "account", None), "id", "") or ""
+    antwort: dict[str, Any] = {"available": True,
+                               "notice": upgrading.launch_notice(UPGRADE_DIR, konto)}
+    if getattr(session, "ultra", False):
+        antwort["ultra"] = upgrading.view(UPGRADE_DIR)
+    return antwort
+
+
+def upgrades_action(session: Any, payload: dict[str, Any]) -> tuple[dict[str, Any], int]:
+    """Gesehen (jedes Konto); Schalter, Training, Upgraden, Ueberspringen und
+    Zuruecksetzen (nur Ultra -- geprueft hier, nicht im Browser)."""
+    if UPGRADE_DIR is None:
+        return {"error": "Auto-Upgrading läuft nur mit der Weboberfläche."}, 400
+    from aquaticy import upgrading
+
+    aktion = str(payload.get("action", ""))
+    konto = getattr(getattr(session, "account", None), "id", "") or ""
+    try:
+        if aktion == "seen":
+            upgrading.mark_seen(UPGRADE_DIR, konto, str(payload.get("id", "")))
+            return {"ok": True}, 200
+        if not getattr(session, "ultra", False):
+            return {"error": "Auto-Upgrading steuert nur ein Ultra-Konto.", "locked": True}, 403
+        base = str(payload.get("base", ""))
+        if aktion == "enable":
+            from aquaticy.local_model import installed_models
+
+            an = payload.get("on") is True
+            lokal = installed_models(OLLAMA_URL()) if an else []
+            upgrading.set_enabled(UPGRADE_DIR, an, lokal)
+            if an and UPGRADER is not None:
+                UPGRADER.run_now()
+        elif aktion == "train":
+            if not upgrading.load(UPGRADE_DIR)["enabled"]:
+                return {"error": "Schalte Auto-Upgrading zuerst ein."}, 400
+            if UPGRADER is not None:
+                UPGRADER.run_now()
+        elif aktion == "upgrade":
+            upgrading.upgrade(UPGRADE_DIR, base)
+        elif aktion == "skip":
+            upgrading.skip(UPGRADE_DIR, base, upgrading.OllamaBackend(OLLAMA_URL()))
+        elif aktion == "rollback":
+            upgrading.rollback(UPGRADE_DIR, base, str(payload.get("version", "")))
+        else:
+            return {"error": "Unbekannte Aktion."}, 400
+    except upgrading.UpgradeError as exc:
+        return {"error": str(exc)}, 400
+    return {"ok": True, "ultra": upgrading.view(UPGRADE_DIR)}, 200
+
+
+def OLLAMA_URL() -> str:
+    """Die Ollama-Adresse des Betreibers (fuer Auto-Upgrading)."""
+    from aquaticy.local_model import DEFAULT_OLLAMA_URL
+
+    base = (get_settings().api_base or "").strip().rstrip("/")
+    return re.sub(r"/v1$", "", base) if "11434" in base else DEFAULT_OLLAMA_URL
+
+
 def cluster_action(session: Any, payload: dict[str, Any]) -> tuple[dict[str, Any], int]:
     """Schalten, einladen, Code bestaetigen, entfernen, verlassen -- nur Ultra."""
     if not getattr(session, "ultra", False):
@@ -6038,7 +6153,7 @@ def _serve(host: str, port: int, open_browser: bool, token: str) -> None:
         print(f"  Port {port} ist belegt oder gesperrt -- Aquaticy laeuft auf Port "
               f"{server.server_address[1]}.")
     port = server.server_address[1]
-    global SERVER, CLUSTER
+    global SERVER, CLUSTER, UPGRADE_DIR, UPGRADER
     research_stop: threading.Event | None = None
     research_worker: threading.Thread | None = None
     # Alles nach dem Binden steht im try: scheitert der Start (etwa eine gesperrte
@@ -6051,6 +6166,15 @@ def _serve(host: str, port: int, open_browser: bool, token: str) -> None:
 
         research_stop, research_worker = start_cleanup(Learning(data_dir).research)
         SERVER = server
+        # Auto-Upgrading (10.0 Luna): trainiert im Hintergrund, wenn ein Ultra-
+        # Konto es eingeschaltet hat -- sonst schlaeft der Faden nur.
+        from aquaticy import upgrading
+
+        UPGRADE_DIR = data_dir
+        UPGRADER = upgrading.Trainer(
+            data_dir, lambda: Learning(data_dir).confirmed_facts(upgrading.MAX_FACTS),
+            lambda: upgrading.OllamaBackend(OLLAMA_URL()))
+        UPGRADER.start()
         # Server-Verbund (9.6.1): laeuft nur, wenn er in den Dev settings an ist.
         try:
             frage = cluster.TerminalPrompt()
@@ -6083,6 +6207,10 @@ def _serve(host: str, port: int, open_browser: bool, token: str) -> None:
             research_worker.join(timeout=6)
         if CLUSTER is not None:
             CLUSTER.stop()
+        if UPGRADER is not None:
+            UPGRADER.stop()
+        UPGRADER = None
+        UPGRADE_DIR = None
         _stop_schedulers()
         TOKEN = ""
         AUTH = None

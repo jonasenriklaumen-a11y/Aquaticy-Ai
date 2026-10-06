@@ -1,10 +1,22 @@
-# Aquaticy AI 9.6.9 Luna
+# Aquaticy AI 10.0 Luna
 
 **Aquaticy** recherchiert für dich. Du stellst eine Frage, Aquaticy sucht im Web, liest die
 passenden Seiten und fasst das Ergebnis zusammen — mit Quelle an jeder Angabe. Es läuft im
 Terminal, im Browser und auf dem Handy.
 
-Neu in **9.6.9 Luna**: Aquaticy sieht auf jedem Gerät gut aus — auf dem Handy eine eigene
+Neu in **10.0 Luna**: **Auto-Upgrading.** Ein Ultra-Konto schaltet es in den Dev settings ein —
+dann gilt es für jedes Konto. Aquaticy baut jedes lokal laufende Ollama-Modell mit Wissen weiter,
+das mehrere Konten unabhängig bestätigt haben (öffentliche Quellen; wer etwas beigetragen hat,
+wird nicht gespeichert), und misst mit einem Wissenstest, wie viel besser die neue Fassung
+antwortet. Ultra sieht jeden Fortschritt bis auf die letzte Stelle (z. B. +0,00000002 %) und kann
+den Kandidaten sofort nutzen. Ab 5 % wird „Upgraden“ grün: aus `gemma3:4b` wird `gemma3:4b 1.1`;
+ab 30 % gibt es eine ganze Version (`gemma3:4b 2`, danach `2.1` …). Ultra kann außerdem eine
+Version überspringen oder eine ältere wieder zur neuesten machen. Nach einer Freigabe sieht jedes
+Konto einmal eine Meldung mit „Ausprobieren“ und „Zurück“; beide Fassungen bleiben vier Tage
+wählbar, danach die alte nur noch für Ultra. Ehrlich gesagt: Die Gewichte bleiben unverändert —
+ein Upgrade ist ein lokales Modell mit eingebautem, geprüftem Wissen.
+
+Seit **9.6.9 Luna**: Aquaticy sieht auf jedem Gerät gut aus — auf dem Handy eine eigene
 Kopfzeile mit Logo und „Neuer Chat“, Einstellungen über den ganzen Bildschirm mit wischbarer
 Abschnittsleiste, Anmeldung ohne Rand, daumengroße Knöpfe und Abstand zu Notch und Wischleiste.
 Dazu Sicherheits- und Fehlerkorrekturen: Der Home-Assistant-Token des Betreibers geht nie an
@@ -214,7 +226,7 @@ $ aquaticy
 git clone --branch Aquaticy-ai --single-branch https://github.com/jonasenriklaumen-a11y/Aquaticy-Ai.git
 cd Aquaticy-Ai
 uv tool install --force --reinstall .
-aquaticy --version            # 9.6.9 Luna
+aquaticy --version            # 10.0 Luna
 
 # 2. Einrichten — fragt nach Modell und Schlüssel und testet beide
 aquaticy setup

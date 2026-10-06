@@ -436,3 +436,36 @@ class Learning:
             ):
                 result.append({"text": text, "source": url})
         return result
+
+    def confirmed_facts(self, limit: int = 60) -> list[dict[str, str]]:
+        """Auszuege, die mehrere Konten unabhaengig bestaetigt haben (10.0 Luna).
+
+        Fuer Auto-Upgrading: nur Text und oeffentliche Quelle -- welches Konto
+        etwas beigetragen hat, steht nirgends im Ergebnis (die Beitraege sind
+        ohnehin nur als verblindete Kennung gespeichert). Jeder Auszug wird nach
+        dem Entschluesseln noch einmal geprueft wie bei recall().
+        """
+        with self.connect() as conn:
+            self._expire(conn)
+            rows = conn.execute(
+                "SELECT f.id,f.text,f.source FROM learning_facts f WHERE f.expires>? AND "
+                "(SELECT COUNT(*) FROM learning_contributions c WHERE c.fact=f.id)>=? "
+                "ORDER BY f.created,f.id LIMIT ?",
+                (time.time(), MIN_CONFIRMATIONS, max(0, int(limit))),
+            ).fetchall()
+        result = []
+        for key, sealed, source in rows:
+            try:
+                text = self.secrets.open(sealed, "learning-text:" + key)
+                url = self.secrets.open(source, "learning-source:" + key)
+            except Exception:
+                continue
+            if (
+                safe_excerpt(text)
+                and public_source(url)
+                and secrets.compare_digest(
+                    key, self.secrets.blind("learning-fact", url + "\n" + text)
+                )
+            ):
+                result.append({"text": text, "source": url})
+        return result
