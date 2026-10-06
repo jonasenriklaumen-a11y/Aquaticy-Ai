@@ -312,7 +312,11 @@ def test_connect_in_browser_preserves_code_during_polling(tmp_path, scenario):
             assert field.evaluate("element => element === document.activeElement")
             if scenario == "temporary_failure":
                 assert page.locator("#cluster-on").is_checked()
-                assert "Vorübergehend" in page.locator("#cluster-status").inner_text()
+                playwright.expect(page.locator("#cluster-status")).to_contain_text(
+                    "Vorübergehend", timeout=10000)
+                assert field.input_value() == code
+                assert field.evaluate("element => element === document.activeElement")
+                assert not page.locator("#errorbox").is_visible()
                 page.unroute("**/api/cluster")
                 playwright.expect(page.locator("#cluster-status")).not_to_contain_text(
                     "Vorübergehend", timeout=10000)

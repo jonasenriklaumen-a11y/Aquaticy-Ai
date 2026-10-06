@@ -821,12 +821,14 @@ def web_command(
         raise typer.Exit(code=2)
 
     settings = get_settings()
-    found = addresses_for(bind, port, access)
-    width = max(len(url) for url, _ in found)
+    found = addresses_for(bind, port, access) if port else []
+    width = max((len(url) for url, _ in found), default=0)
     lines = [f"[bold]Aquaticy AI[/bold] [dim]{VERSION_LABEL}[/dim]"]
     if public:
         lines.append("[dim]Diese Adresse im Browser oeffnen:[/dim]")
     lines += [f"  [green]{url:<{width}}[/green]  [dim]{note}[/dim]" for url, note in found]
+    if not port:
+        lines.append("[dim]Automatischer Port: die Adresse erscheint nach dem Start.[/dim]")
     lines.append(f"[dim]Modell {settings.model} · Suche {settings.search_backend}[/dim]")
     if public and access:
         lines.append("[dim]Das Zugangswort steht in der Adresse -- ohne kommt niemand rein.[/dim]")
@@ -2320,4 +2322,3 @@ def main() -> None:
 
 if __name__ == "__main__":
     main()
-

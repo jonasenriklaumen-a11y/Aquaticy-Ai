@@ -2890,13 +2890,14 @@ if (location.search) history.replaceState(null, "", location.pathname);
 
 const pause = (ms) => new Promise((fertig) => setTimeout(fertig, ms));
 function api(path, options = {}, versuch = 0){
+  const { quietErrors = false, ...requestOptions } = options;
   const headers = Object.assign({}, options.headers);
   if (currentChat) headers["X-Aquaticy-Chat"] = currentChat;
   // Lesen darf es von selbst noch einmal versuchen (9.6.8 Sol) -- Schreiben
   // nie: ein zweites "Senden" oder "Loeschen" waere eine zweite Aktion.
   const lesen = !options.method || options.method.toUpperCase() === "GET";
   const nochmal = () => lesen && versuch < 2 && !options.signal?.aborted;
-  return fetch(path, Object.assign({credentials:"same-origin"}, options, { headers }))
+  return fetch(path, Object.assign({credentials:"same-origin"}, requestOptions, { headers }))
     .then((res) => {
       if ([502, 503, 504].includes(res.status) && nochmal()){
         res.body?.cancel?.();
@@ -2904,7 +2905,7 @@ function api(path, options = {}, versuch = 0){
       }
       // Ein Fehler des Servers (5xx) bekommt das Fehlerfenster; was die Seite
       // selbst erklaert (Limit, Anmeldung, Eingabe), nicht.
-      if (res.status >= 500) zeigeFehler();
+      if (res.status >= 500 && !quietErrors) zeigeFehler();
       // Der Server antwortet wieder: ein Hinweis von vorhin verschwindet.
       if (navigator.onLine) $("#offline-hinweis").hidden = true;
       return res;
@@ -6982,7 +6983,9 @@ async function verbundLaden(){
   const anfrage = ++verbundAnfrage;
   let erneut = true;
   try {
-    const res = await api("/api/cluster");
+    // Status polling reports failures here; a modal would steal focus from
+    // the invitation code while the user is typing.
+    const res = await api("/api/cluster", { quietErrors: true });
     if (res.status === 401 || res.status === 403) erneut = false;
     const daten = await res.json();
     if (anfrage !== verbundAnfrage) return;

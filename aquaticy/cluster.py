@@ -1286,6 +1286,7 @@ class Cluster:
             neu.pop("previous", None)
             self.state["cluster"] = neu
             abgegeben: list[str] = []
+            angenommen: list[str] = []
             if isinstance(homes, dict):
                 neue = {str(u): str(n) for u, n in homes.items() if _USER_RE.match(str(u))}
                 # Konten, die der Master inzwischen woanders hinlegt (etwa nach
@@ -1293,10 +1294,28 @@ class Cluster:
                 # angehalten -- sonst liefen Auftraege und Sitzungen weiter (9.6.8 Sol).
                 abgegeben = [u for u, n in self.homes.items()
                              if n == self.node_id and neue.get(u, n) != self.node_id]
+                angenommen = [u for u, n in neue.items()
+                              if n == self.node_id and self.homes.get(u) != self.node_id]
                 self.state["homes"] = neue
             self._save()
         for user in abgegeben:
             threading.Thread(target=self._release_quietly, args=(user,), daemon=True).start()
+        for user in angenommen:
+            threading.Thread(target=self._adopt_quietly, args=(user,), daemon=True).start()
+
+    def _runtime_lock(self, user: str) -> threading.Lock:
+        with self._lock:
+            return self._assign_locks.setdefault(user, threading.Lock())
+
+    def _adopt_quietly(self, user: str) -> None:
+        # A returning assignment must restart jobs after any pending release,
+        # without holding the cluster-wide lock across slow runtime hooks.
+        with self._runtime_lock(user):
+            with self._lock:
+                if self._stop.is_set() or self.homes.get(user) != self.node_id:
+                    return
+            with contextlib.suppress(Exception):
+                self.hooks.adopt(user)
 
     def _release_quietly(self, user: str) -> None:
         """Gibt ein Konto ab, das der Master woanders hinlegt -- notfalls spaeter.
@@ -1307,11 +1326,15 @@ class Cluster:
         """
         pause = RELEASE_RETRY_FIRST
         while not self._stop.is_set():
-            try:
-                if self.hooks.release(user):
-                    return
-            except Exception:
-                pass
+            with self._runtime_lock(user):
+                with self._lock:
+                    if self._stop.is_set() or self.homes.get(user) == self.node_id:
+                        return
+                try:
+                    if self.hooks.release(user):
+                        return
+                except Exception:
+                    pass
             with self._lock:
                 if self.homes.get(user) == self.node_id:
                     return

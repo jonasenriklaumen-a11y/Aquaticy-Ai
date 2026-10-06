@@ -1028,6 +1028,10 @@ def _profile_settings(profile: Path, plan: str, account: Account | None = None) 
     for key, attr in _STRING_SETTINGS.items():
         if key in raw:
             setattr(settings, attr, raw[key].strip())
+    # The shared OAuth application remains usable, but an account's own
+    # client ID must never be paired with the operator's application secret.
+    if settings.google_client_id != base.google_client_id:
+        settings.google_client_secret = ""
     for key, attr in _BOOL_SETTINGS.items():
         if key in raw:
             setattr(settings, attr, raw[key].strip().lower() in {"1", "true", "yes", "on", "ja"})
@@ -2672,7 +2676,8 @@ def scrub_payload(wert: Any, geheim: list[str]) -> Any:
 #: hinterlegt ist ("Authorization: Bearer ...", "?api_key=...", 9.6.0).
 _SCHLUESSEL_MUSTER = re.compile(
     r"(?i)((?:bearer|token|authorization:?)\s+)[A-Za-z0-9._~+/=-]{12,}|"
-    r"((?:api[_-]?key|access[_-]?token|secret|password|passwort)[\"']?\s*[=:]\s*[\"']?)"
+    r"((?:api[_-]?key|(?:access|refresh|id)[_-]?token|token|code|secret|password|passwort)"
+    r"[\"']?\s*[=:]\s*[\"']?)"
     r"[^\s&\"',;]{6,}|\b(?:sk|pk|rk|nvapi|hf|gsk|xai)[-_][A-Za-z0-9_-]{16,}")
 
 
@@ -4905,6 +4910,8 @@ class Handler(BaseHTTPRequestHandler):
 
     def _google_page(self, ok: bool, message: str) -> None:
         """Eine schlichte Seite als Rueckmeldung -- ohne Skript, ohne Ballast."""
+        if not ok:
+            message = public_error(scrub_error(message))
         colour = "#2f6f4e" if ok else "#a4342b"
         title = "Geschafft" if ok else "Das hat nicht geklappt"
         body = f"""<!doctype html><html lang="de"><head><meta charset="utf-8">
@@ -6149,9 +6156,10 @@ def _serve(host: str, port: int, open_browser: bool, token: str) -> None:
         # Kein Port frei: auch dann darf kein Planer weiterlaufen.
         _stop_schedulers()
         raise
-    if server.server_address[1] != port and port:
-        print(f"  Port {port} ist belegt oder gesperrt -- Aquaticy laeuft auf Port "
-              f"{server.server_address[1]}.")
+    if server.server_address[1] != port:
+        print(f"  Aquaticy laeuft auf Port {server.server_address[1]}.")
+        for address, note in addresses_for(host, server.server_address[1], token):
+            print(f"  {address} ({note})")
     port = server.server_address[1]
     global SERVER, CLUSTER, UPGRADE_DIR, UPGRADER
     research_stop: threading.Event | None = None

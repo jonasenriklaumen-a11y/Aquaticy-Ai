@@ -16,6 +16,18 @@ Konto einmal eine Meldung mit „Ausprobieren“ und „Zurück“; beide Fassun
 wählbar, danach die alte nur noch für Ultra. Ehrlich gesagt: Die Gewichte bleiben unverändert —
 ein Upgrade ist ein lokales Modell mit eingebautem, geprüftem Wissen.
 
+Seit **9.6.10 Luna**: Ein Konto mit eigener Google-Client-ID übernimmt kein
+Geheimnis einer anderen OAuth-Anwendung. Die gemeinsame Anwendung des Betreibers
+und eigene verschlüsselte Geheimnisse bleiben nutzbar. Google-Rückmeldungen filtern
+technische Fehler und Zugangsdaten; auch Refresh-Tokens und eingefügte Codes werden
+in Fehlertexten maskiert. Verzögerte Kontoabgaben im Server-Verbund prüfen die aktuelle
+Zuteilung vor jedem Versuch. Zurückkehrende Konten starten ihre Aufgaben erst nach
+einer noch laufenden Abgabe wieder. Beim automatischen Port und beim Ersatz-Port
+zeigt das Terminal die tatsächlich gebundene Adresse. Funktionen und Schutzprüfungen
+bleiben erhalten. Fehler der Verbund-Hintergrundabfrage erscheinen beim Status,
+ohne den Eingabefokus aus dem Einladungscode zu ziehen; das allgemeine Fehlerfenster
+bleibt für andere Fehler erhalten. Details: [Prüfbericht](TESTREPORT-9.6.10-Luna.md).
+
 Seit **9.6.9 Luna**: Aquaticy sieht auf jedem Gerät gut aus — auf dem Handy eine eigene
 Kopfzeile mit Logo und „Neuer Chat“, Einstellungen über den ganzen Bildschirm mit wischbarer
 Abschnittsleiste, Anmeldung ohne Rand, daumengroße Knöpfe und Abstand zu Notch und Wischleiste.
@@ -45,7 +57,7 @@ andere Konten erst, wenn mindestens zwei Konten denselben Auszug unabhängig gef
 Im Server-Verbund kann der Master die Konten eines ausgefallenen Servers per Knopf
 übernehmen.
 
-Neu in **9.6.8 Terra**: Anmeldungen und Passwortänderungen sind gegen parallele
+Seit **9.6.8 Terra**: Anmeldungen und Passwortänderungen sind gegen parallele
 Änderungen abgesichert. Neue Sitzungen müssen zum tatsächlich geprüften Passwortstand
 passen; Passwortwechsel und Widerruf anderer Sitzungen erfolgen gemeinsam. Die Umstellung
 alter Passwort-Hashes überschreibt keine zwischenzeitlichen Änderungen. Der geschützte
@@ -129,6 +141,7 @@ $ aquaticy
 
 - [Was Aquaticy kann](#was-aquaticy-kann)
 - [Quickstart](#quickstart)
+- [Prüfbericht zu 9.6.10 Luna](TESTREPORT-9.6.10-Luna.md)
 - [Prüfbericht zu 9.6.8 Terra](TESTREPORT-9.6.8-Terra.md)
 - [Prüfbericht zu 9.6.8 Luna](TESTREPORT-9.6.8.md)
 - [Prüfbericht zu 9.6.7 Terra v2](TESTREPORT-9.6.7-Terra-v2.md)
