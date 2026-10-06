@@ -1,10 +1,22 @@
-# Aquaticy AI 9.6.9 Luna
+# Aquaticy AI 9.6.10 Luna
 
 **Aquaticy** recherchiert für dich. Du stellst eine Frage, Aquaticy sucht im Web, liest die
 passenden Seiten und fasst das Ergebnis zusammen — mit Quelle an jeder Angabe. Es läuft im
 Terminal, im Browser und auf dem Handy.
 
-Neu in **9.6.9 Luna**: Aquaticy sieht auf jedem Gerät gut aus — auf dem Handy eine eigene
+Neu in **9.6.10 Luna**: Ein Konto mit eigener Google-Client-ID übernimmt kein
+Geheimnis einer anderen OAuth-Anwendung. Die gemeinsame Anwendung des Betreibers
+und eigene verschlüsselte Geheimnisse bleiben nutzbar. Google-Rückmeldungen filtern
+technische Fehler und Zugangsdaten; auch Refresh-Tokens und eingefügte Codes werden
+in Fehlertexten maskiert. Verzögerte Kontoabgaben im Server-Verbund prüfen die aktuelle
+Zuteilung vor jedem Versuch. Zurückkehrende Konten starten ihre Aufgaben erst nach
+einer noch laufenden Abgabe wieder. Beim automatischen Port und beim Ersatz-Port
+zeigt das Terminal die tatsächlich gebundene Adresse. Funktionen und Schutzprüfungen
+bleiben erhalten. Fehler der Verbund-Hintergrundabfrage erscheinen beim Status,
+ohne den Eingabefokus aus dem Einladungscode zu ziehen; das allgemeine Fehlerfenster
+bleibt für andere Fehler erhalten. Details: [Prüfbericht](TESTREPORT-9.6.10-Luna.md).
+
+Seit **9.6.9 Luna**: Aquaticy sieht auf jedem Gerät gut aus — auf dem Handy eine eigene
 Kopfzeile mit Logo und „Neuer Chat“, Einstellungen über den ganzen Bildschirm mit wischbarer
 Abschnittsleiste, Anmeldung ohne Rand, daumengroße Knöpfe und Abstand zu Notch und Wischleiste.
 Dazu Sicherheits- und Fehlerkorrekturen: Der Home-Assistant-Token des Betreibers geht nie an
@@ -33,7 +45,7 @@ andere Konten erst, wenn mindestens zwei Konten denselben Auszug unabhängig gef
 Im Server-Verbund kann der Master die Konten eines ausgefallenen Servers per Knopf
 übernehmen.
 
-Neu in **9.6.8 Terra**: Anmeldungen und Passwortänderungen sind gegen parallele
+Seit **9.6.8 Terra**: Anmeldungen und Passwortänderungen sind gegen parallele
 Änderungen abgesichert. Neue Sitzungen müssen zum tatsächlich geprüften Passwortstand
 passen; Passwortwechsel und Widerruf anderer Sitzungen erfolgen gemeinsam. Die Umstellung
 alter Passwort-Hashes überschreibt keine zwischenzeitlichen Änderungen. Der geschützte
@@ -117,6 +129,7 @@ $ aquaticy
 
 - [Was Aquaticy kann](#was-aquaticy-kann)
 - [Quickstart](#quickstart)
+- [Prüfbericht zu 9.6.10 Luna](TESTREPORT-9.6.10-Luna.md)
 - [Prüfbericht zu 9.6.8 Terra](TESTREPORT-9.6.8-Terra.md)
 - [Prüfbericht zu 9.6.8 Luna](TESTREPORT-9.6.8.md)
 - [Prüfbericht zu 9.6.7 Terra v2](TESTREPORT-9.6.7-Terra-v2.md)
@@ -214,7 +227,7 @@ $ aquaticy
 git clone --branch Aquaticy-ai --single-branch https://github.com/jonasenriklaumen-a11y/Aquaticy-Ai.git
 cd Aquaticy-Ai
 uv tool install --force --reinstall .
-aquaticy --version            # 9.6.9 Luna
+aquaticy --version            # 9.6.10 Luna
 
 # 2. Einrichten — fragt nach Modell und Schlüssel und testet beide
 aquaticy setup
