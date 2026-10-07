@@ -5,7 +5,7 @@ Die Seiten beschreiben nur Verhalten, das im Code nachpruefbar ist.
 
 from __future__ import annotations
 
-LEGAL_VERSION = "2026-10-04.3"
+LEGAL_VERSION = "2026-10-07.1"
 LEGAL_ROUTES = ("/privacy", "/cookies", "/terms", "/accessibility")
 
 
@@ -84,6 +84,20 @@ diese Verwaltungsdaten sind pseudonym, nicht vollständig anonym. Aquaticy nutzt
 als ausdrücklich unvertrauenswürdiges Recherchematerial, trainiert damit keine Modellgewichte
 und sendet sie beim Beantworten passender Fragen an den dafür ausgewählten Modellanbieter.
 Öffentliche Quellen können Fehler enthalten; wichtige Angaben müssen erneut geprüft werden.</p>
+<p>Wenn ein Ultra-Konto das serverweite Auto-Upgrading einschaltet, können von mindestens
+zwei aktuell zustimmenden Konten unabhängig bestätigte Auszüge außerdem in den Systemtext
+abgeleiteter lokaler Ollama-Modelle übernommen werden. Auch hierbei werden keine Modellgewichte
+trainiert und keine privaten Chats übernommen. Ollama speichert diese öffentlichen Auszüge
+im Modell-Systemtext unverschlüsselt; Zugriff auf den Ollama-Dienst muss der Betreiber schützen.
+Aquaticy prüft vor der Nutzung solcher Fassungen, ob alle eingebauten Auszüge noch gültig und
+ausreichend bestätigt sind. Bei Ablauf, Widerruf, Kontolöschung oder erforderlicher erneuter
+Zustimmung zieht Aquaticy betroffene Fassungen zurück und nutzt das Ausgangsmodell.
+Die Löschung im Ollama-Dienst wird beim nächsten Hintergrundabgleich versucht
+(außerhalb aktiver Trainingsläufe etwa alle zehn Minuten) und bei Ausfällen wiederholt.
+Alte Fassungen ohne
+nachprüfbare Quellenzuordnung werden ebenfalls zurückgezogen; neue Fassungen entstehen erst
+aus aktuell freigegebenem Wissen. Bereits entstandene externe Sicherungen des Ollama-Dienstes
+liegen in der Verantwortung des Betreibers.</p>
 <p>Du kannst die Zustimmung jederzeit dort widerrufen. Das stoppt neue Übernahmen und
 entfernt deine Beitragszuordnung. Ein Auszug wird gelöscht, wenn kein anderes zustimmendes
 Konto denselben öffentlichen Auszug unabhängig beigetragen hat. „Alle Daten löschen“ und

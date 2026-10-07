@@ -2420,6 +2420,8 @@ class Agent:
         buchung = self._reserve(messages, self.tools)
         try:
             with paced(self.active_model, pace_key_of(self.settings, self.active_model)):
+                if self.settings.model_access is not None:
+                    self.settings.model_access(self.active_model)
                 response = litellm.completion(
                     model=self.active_model,
                     messages=messages,
@@ -3192,6 +3194,8 @@ class Agent:
         try:
             buchung = self._reserve(self.messages)
             with paced(self.active_model, pace_key_of(self.settings, self.active_model)):
+                if self.settings.model_access is not None:
+                    self.settings.model_access(self.active_model)
                 response = litellm.completion(
                     model=self.active_model,
                     messages=self.messages,

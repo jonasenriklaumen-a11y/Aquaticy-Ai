@@ -437,7 +437,23 @@ class Learning:
                 result.append({"text": text, "source": url})
         return result
 
-    def confirmed_facts(self, limit: int = 60) -> list[dict[str, str]]:
+    def upgrade_manifest(self) -> dict[str, float]:
+        """Only live facts confirmed by accounts with the current consent.
+
+        Identifiers are keyed hashes, never account identifiers or source text.
+        This also covers withdrawal, account deletion and replicated changes.
+        """
+        with self.connect() as conn:
+            self._expire(conn)
+            return dict(conn.execute(
+                "SELECT f.id,f.expires FROM learning_facts f WHERE f.expires>? AND "
+                "(SELECT COUNT(*) FROM learning_contributions c "
+                "JOIN learning_consent s ON s.owner=c.owner "
+                "WHERE c.fact=f.id AND s.enabled=1 AND s.version=?)>=?",
+                (time.time(), LEGAL_VERSION, MIN_CONFIRMATIONS),
+            ).fetchall())
+
+    def confirmed_facts(self, limit: int = 60, *, metadata: bool = False) -> list[dict]:
         """Auszuege, die mehrere Konten unabhaengig bestaetigt haben (10.0 Luna).
 
         Fuer Auto-Upgrading: nur Text und oeffentliche Quelle -- welches Konto
@@ -448,13 +464,15 @@ class Learning:
         with self.connect() as conn:
             self._expire(conn)
             rows = conn.execute(
-                "SELECT f.id,f.text,f.source FROM learning_facts f WHERE f.expires>? AND "
-                "(SELECT COUNT(*) FROM learning_contributions c WHERE c.fact=f.id)>=? "
+                "SELECT f.id,f.text,f.source,f.expires FROM learning_facts f WHERE f.expires>? AND "
+                "(SELECT COUNT(*) FROM learning_contributions c "
+                "JOIN learning_consent s ON s.owner=c.owner "
+                "WHERE c.fact=f.id AND s.enabled=1 AND s.version=?)>=? "
                 "ORDER BY f.created,f.id LIMIT ?",
-                (time.time(), MIN_CONFIRMATIONS, max(0, int(limit))),
+                (time.time(), LEGAL_VERSION, MIN_CONFIRMATIONS, min(60, max(0, int(limit)))),
             ).fetchall()
         result = []
-        for key, sealed, source in rows:
+        for key, sealed, source, expires in rows:
             try:
                 text = self.secrets.open(sealed, "learning-text:" + key)
                 url = self.secrets.open(source, "learning-source:" + key)
@@ -467,5 +485,6 @@ class Learning:
                     key, self.secrets.blind("learning-fact", url + "\n" + text)
                 )
             ):
-                result.append({"text": text, "source": url})
+                result.append({"text": text, "source": url,
+                               **({"id": key, "expires": expires} if metadata else {})})
         return result

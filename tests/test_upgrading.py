@@ -64,7 +64,7 @@ def test_names_follow_the_scheme_without_v() -> None:
     assert up.label(BASE, [2, 0]) == "gemma3:4b 2"
     assert up.label(BASE, [2, 1]) == "gemma3:4b 2.1"
     assert up.model_name(BASE, [1, 0]) == BASE
-    assert up.model_name(BASE, [2, 1]) == "aquaticy-gemma3-4b:2.1"
+    assert up.model_name(BASE, [2, 1]) == "aquaticy-gemma3-4b-6dac22b9d540:2.1"
 
 
 def test_even_tiny_gains_are_shown_exactly() -> None:
@@ -84,8 +84,8 @@ def test_a_gain_from_5_percent_makes_a_minor_version(ordner: Path) -> None:
     stand = up.view(ordner)["tracks"][0]
     assert stand["candidate"]["label"] == "gemma3:4b 1.1"
     assert stand["candidate"]["can_upgrade"] and not stand["candidate"]["major"]
-    assert "aquaticy-gemma3-4b:1.1" in ollama.modelle
-    assert not any(n.endswith(":training") for n in ollama.modelle), "Zwischenstand weg"
+    assert "aquaticy-gemma3-4b-6dac22b9d540:1.1" in ollama.modelle
+    assert not any(":training-" in n for n in ollama.modelle), "Zwischenstand weg"
 
 
 def test_a_gain_from_30_percent_jumps_a_whole_version(ordner: Path) -> None:
@@ -125,7 +125,7 @@ def test_upgrade_launch_notice_and_the_four_day_rule(ordner: Path) -> None:
     up.train_all(ordner, FAKTEN, Ollama(base_kennt=18))
     jetzt = 1_000_000.0
     start = up.upgrade(ordner, BASE, now=jetzt)
-    neu = "ollama_chat/aquaticy-gemma3-4b:1.1"
+    neu = "ollama_chat/aquaticy-gemma3-4b-6dac22b9d540:1.1"
     # Das Modell geht hoch -- fuer jedes Konto, das auf dem Strang steht.
     assert up.resolve(ordner, f"ollama_chat/{BASE}", False, "konto-a", now=jetzt) == neu
     # Startmeldung: einmal je Konto.
@@ -136,7 +136,7 @@ def test_upgrade_launch_notice_and_the_four_day_rule(ordner: Path) -> None:
     assert up.launch_notice(ordner, "konto-b", now=jetzt + 20)
     # Beide Fassungen sind vier Tage fuer alle waehlbar ...
     normal = {w.model for w in up.choices(ordner, False, now=jetzt + 3 * 86400)[BASE]}
-    assert normal == {BASE, "aquaticy-gemma3-4b:1.1"}
+    assert normal == {BASE, "aquaticy-gemma3-4b-6dac22b9d540:1.1"}
     # ... und wer die alte bewusst waehlt, bleibt dabei.
     up.choose(ordner, f"ollama_chat/{BASE}", False, "konto-b")
     assert up.resolve(ordner, f"ollama_chat/{BASE}", False, "konto-b",
@@ -144,7 +144,7 @@ def test_upgrade_launch_notice_and_the_four_day_rule(ordner: Path) -> None:
     # Nach vier Tagen sieht nur noch Ultra die alte.
     spaeter = jetzt + 5 * 86400
     assert {w.model for w in up.choices(ordner, False, now=spaeter)[BASE]} == {
-        "aquaticy-gemma3-4b:1.1"}
+        "aquaticy-gemma3-4b-6dac22b9d540:1.1"}
     assert BASE in {w.model for w in up.choices(ordner, True, now=spaeter)[BASE]}
     assert up.resolve(ordner, f"ollama_chat/{BASE}", False, "konto-b", now=spaeter) == neu
     assert not up.allowed(ordner, f"ollama_chat/{BASE}", False, now=spaeter)
@@ -161,7 +161,7 @@ def test_everyone_goes_up_with_the_next_release_ultra_too(ordner: Path) -> None:
     up.upgrade(ordner, BASE)
     assert up.resolve(ordner, kandidat, True, "ultra") == kandidat   # jetzt die neueste
     # Naechste Freigabe: auch Ultra geht mit hoch.
-    ollama.modelle["aquaticy-gemma3-4b:1.1"] = ""
+    ollama.modelle["aquaticy-gemma3-4b-6dac22b9d540:1.1"] = ""
     ollama.base_kennt = 0
     up.train_all(ordner, FAKTEN[:10], ollama, force=True)
     neu = up.load(ordner)["tracks"][BASE]["candidate"]
@@ -201,7 +201,8 @@ def test_rollback_and_skip(ordner: Path) -> None:
     up.rollback(ordner, BASE, "1")
     assert up.load(ordner)["tracks"][BASE]["current"] == "1"
     assert up.generation(ordner) == stand + 1
-    assert up.resolve(ordner, "ollama_chat/aquaticy-gemma3-4b:1.1", False) == f"ollama_chat/{BASE}"
+    assert up.resolve(ordner, "ollama_chat/" + up.model_name(BASE, [1, 1]), False) == (
+        f"ollama_chat/{BASE}")
     # Neuer Kandidat -- die naechste freie Nummer, keine doppelte 1.1.
     up.train_all(ordner, FAKTEN, ollama, force=True)
     kandidat = up.load(ordner)["tracks"][BASE]["candidate"]
@@ -231,12 +232,12 @@ def test_the_picker_shows_versions_instead_of_raw_names(ordner: Path) -> None:
     up.train_all(ordner, FAKTEN, Ollama(base_kennt=18))
     up.upgrade(ordner, BASE)
     roh = [{"id": f"ollama_chat/{BASE}", "label": BASE},
-           {"id": "ollama_chat/aquaticy-gemma3-4b:1.1", "label": "x"},
+           {"id": "ollama_chat/aquaticy-gemma3-4b-6dac22b9d540:1.1", "label": "x"},
            {"id": "mistral/mistral-large-latest", "label": "mistral"}]
     liste = up.picker_entries(ordner, roh, False)
     assert [m["label"] for m in liste] == ["gemma3:4b 1.1", "gemma3:4b", "mistral"]
     assert liste[0]["upgrade"] == "current" and "stärker" in liste[0]["note"]
-    assert up.display_label(ordner, "ollama_chat/aquaticy-gemma3-4b:1.1") == "gemma3:4b 1.1"
+    assert up.display_label(ordner, "ollama_chat/" + up.model_name(BASE, [1, 1])) == "gemma3:4b 1.1"
 
 
 def test_confirmed_facts_need_two_accounts_and_carry_no_account(learners) -> None:  # noqa: F811

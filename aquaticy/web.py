@@ -245,7 +245,17 @@ def strong_models(limit: int = 3, purpose: str = "work") -> list[dict[str, str]]
         except Exception:
             eintrag["models"] = []
         eintrag["when"] = time.time()
-    return list(eintrag["models"])[:limit]
+    models = list(eintrag["models"])
+    if settings.model_access is not None:
+        permitted = []
+        for model in models:
+            try:
+                settings.model_access(model["id"])
+            except ValueError:
+                continue
+            permitted.append(model)
+        models = permitted
+    return models[:limit]
 
 
 def forget_strong_models(data_dir: Path | None = None) -> None:
@@ -1300,17 +1310,26 @@ class ChatSession:
             )
             self._upgrade_gen = -1
         if UPGRADE_DIR is not None:
-            # Auto-Upgrading (10.0 Luna): nach einer Freigabe "geht das Modell
-            # hoch" -- einmal je Freigabe nachgesehen, nicht bei jedem Aufruf.
+            # Also recheck time-based grace and consent changes without a release.
             from aquaticy import upgrading
 
-            with contextlib.suppress(Exception):
-                stand = upgrading.generation(UPGRADE_DIR)
-                if getattr(self, "_upgrade_gen", -1) != stand:
-                    self._settings.model = upgrading.resolve(
-                        UPGRADE_DIR, self._settings.model, self.ultra,
-                        getattr(self.account, "id", "") or "")
-                    self._upgrade_gen = stand
+            directory = UPGRADE_DIR
+
+            def access(model: str) -> None:
+                if not upgrading.allowed(directory, model, self.ultra):
+                    raise ValueError("Diese Modellversion steht dir nicht mehr zur Wahl.")
+
+            self._settings.model_access = access
+            for field in ("model", "vision_model", "subagent_model", "code_model"):
+                value = getattr(self._settings, field)
+                if value and (field == "model" or not upgrading.allowed(
+                        directory, value, self.ultra)):
+                    # A missing model must not prevent opening settings to repair
+                    # its selection. The call-time check still denies its use.
+                    with contextlib.suppress(upgrading.UpgradeError):
+                        setattr(self._settings, field, upgrading.resolve(
+                            directory, value, self.ultra,
+                            getattr(self.account, "id", "") or ""))
         return self._settings
 
     @property
@@ -2565,16 +2584,15 @@ def save_values(payload: dict[str, Any]) -> Path:
     ):
         if values.get(key):
             values[key] = fix_model_id(values[key])
-    if UPGRADE_DIR is not None and values.get("AQUATICY_MODEL"):
+    if UPGRADE_DIR is not None:
         # Auto-Upgrading (10.0 Luna): aeltere Fassungen und Kandidaten nur fuer
         # die, die sie sehen duerfen -- und eine bewusste Wahl bleibt stehen.
         from aquaticy import upgrading
 
-        gewaehlt = values["AQUATICY_MODEL"]
-        if not upgrading.allowed(UPGRADE_DIR, gewaehlt, session.ultra):
-            raise ValueError("Diese Modellversion steht dir nicht mehr zur Wahl.")
-        upgrading.choose(UPGRADE_DIR, gewaehlt, session.ultra,
-                         getattr(session.account, "id", "") or "")
+        for key in ("AQUATICY_MODEL", "AQUATICY_VISION_MODEL",
+                    "AQUATICY_SUBAGENT_MODEL", "AQUATICY_CODE_MODEL"):
+            if values.get(key) and not upgrading.allowed(UPGRADE_DIR, values[key], session.ultra):
+                raise ValueError("Diese Modellversion steht dir nicht mehr zur Wahl.")
     ha_token = str(payload.get(HA_TOKEN_FIELD, "")).strip()
     #: Geheimnisse, die bei einem Konto in den Schluesselbund gehoeren (9.5.34).
     geheim: dict[str, str] = {}
@@ -2655,6 +2673,9 @@ def save_values(payload: dict[str, Any]) -> Path:
         from aquaticy.memory import secure_file
 
         secure_file(written)
+    if UPGRADE_DIR is not None and values.get("AQUATICY_MODEL"):
+        upgrading.choose(UPGRADE_DIR, values["AQUATICY_MODEL"], session.ultra,
+                         getattr(session.account, "id", "") or "")
     session.reload()
     return written
 
@@ -4468,9 +4489,8 @@ class Handler(BaseHTTPRequestHandler):
                 # die dieses Konto sehen darf (10.0 Luna).
                 from aquaticy import upgrading
 
-                with contextlib.suppress(Exception):
-                    alle = upgrading.picker_entries(UPGRADE_DIR, alle,
-                                                    bool(SESSION.current().ultra))
+                current = SESSION.current() if isinstance(SESSION, SessionProxy) else SESSION
+                alle = upgrading.picker_entries(UPGRADE_DIR, alle, bool(current.ultra))
             antwort: dict[str, Any] = {
                 "models": alle,
                 # Fuer den Code- und den Pro-Modus: nur die staerksten.
@@ -6181,9 +6201,11 @@ def _serve(host: str, port: int, open_browser: bool, token: str) -> None:
 
         UPGRADE_DIR = data_dir
         UPGRADER = upgrading.Trainer(
-            data_dir, lambda: Learning(data_dir).confirmed_facts(upgrading.MAX_FACTS),
+            data_dir,
+            lambda: Learning(data_dir).confirmed_facts(upgrading.MAX_FACTS, metadata=True),
             lambda: upgrading.OllamaBackend(OLLAMA_URL()),
-            lambda: installed_models(OLLAMA_URL()))
+            lambda: installed_models(OLLAMA_URL()),
+            manifest=lambda: Learning(data_dir).upgrade_manifest())
         UPGRADER.start()
         # Server-Verbund (9.6.1): laeuft nur, wenn er in den Dev settings an ist.
         try:

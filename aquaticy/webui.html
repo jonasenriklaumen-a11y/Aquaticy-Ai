@@ -1485,6 +1485,10 @@ button{touch-action:manipulation}
     <p class="note">Nur kurze Auszüge aus ausgewählten Sachartikeln, keine privaten Chats.
       Das hilft späteren Chats aller Konten dieser Installation. Jederzeit unter
       Einstellungen → Gemeinsames Lernen widerrufbar. Aquaticy funktioniert auch ohne diesen Haken.</p>
+    <p class="note">Wenn Auto-Upgrading aktiv ist, können mehrfach bestätigte Auszüge auch in
+      lokale Ollama-Modelltexte eingehen. Dort liegen öffentliche Auszüge unverschlüsselt.
+      Bei Ablauf oder fehlender Bestätigung werden betroffene Fassungen zurückgezogen und gelöscht.
+      Einzelheiten stehen im Datenschutz.</p>
     <p class="note">Zusätzlich merkt sich dein Konto kurze öffentliche Informationen als Stichpunkte,
       auch zu Personen, für höchstens 48 Stunden. Andere Konten erhalten diese Auszüge nicht.
       Spätere Antworten werden neu formuliert. Ausschalten löscht deinen Recherchecache.</p>
@@ -2058,6 +2062,11 @@ button{touch-action:manipulation}
         </div>
       </fieldset>
       <fieldset><legend>Gemeinsames Lernen</legend>
+        <p class="note">Bei aktivem Auto-Upgrading können mehrfach bestätigte Auszüge auch in
+          lokale Ollama-Modelltexte eingehen (dort unverschlüsselt). Abgelaufenes oder nicht mehr
+          bestätigtes Wissen zieht betroffene Fassungen zurück; die Löschung wird wiederholt,
+          bis der Ollama-Dienst erreichbar ist. Einzelheiten: <a href="/privacy" target="_blank"
+          rel="noopener">Datenschutz</a>.</p>
         <label class="check"><input type="checkbox" role="switch" class="schalter"
             id="learning-enabled" disabled>
           Ich stimme dem gemeinsamen Lernen und meinem Recherchecache aus öffentlichen Quellen zu.</label>
@@ -2540,8 +2549,8 @@ button{touch-action:manipulation}
             <input type="checkbox" role="switch" class="schalter" id="upgrade-on">
             <label for="upgrade-on" style="margin:0">Auto-Upgrading
               <span class="why">Aquaticy baut lokale Modelle mit Wissen weiter, das mehrere
-                Konten unabhängig bestätigt haben (aus öffentlichen Quellen; wer es gesagt hat,
-                wird nicht gespeichert), und misst, wie viel besser sie antworten. Ab 5 %
+                Konten unabhängig bestätigt haben (aus öffentlichen Quellen; Kontokennungen
+                stehen nicht im Modelltext), und misst den Gewinn im Lückentext-Wissenstest. Ab 5 %
                 wird „Upgraden“ grün (z. B. gemma3:4b → gemma3:4b 1.1), ab 30 % gibt es eine
                 ganze Version (→ gemma3:4b 2). Gilt für jedes Konto.</span></label>
           </div>
@@ -2624,7 +2633,7 @@ document.querySelectorAll(".note").forEach((note) => {
 const thread = $("#thread"), main = $("#main"), input = $("#input"), send = $("#send");
 let busy = false;
 let currentChat = "";
-const aquaticyVersion = window.__AQUATICY_VERSION__ || "10.0.1 Luna";
+const aquaticyVersion = window.__AQUATICY_VERSION__ || "10.0.2 Luna";
 $("#version").textContent = "v" + aquaticyVersion;
 // Interne oder Test-Fassung (9.6.0): unten mittig ein gelber Hinweis.
 const aquaticyIntern = window.__AQUATICY_INTERNAL__ === true

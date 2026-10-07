@@ -9,6 +9,7 @@ from __future__ import annotations
 import contextlib
 import os
 import re
+from collections.abc import Callable
 from dataclasses import dataclass, field
 from functools import lru_cache
 from pathlib import Path
@@ -455,6 +456,8 @@ class Settings:
     download_images: bool = False
     data_dir: Path = field(default_factory=lambda: Path.home() / ".aquaticy")
     env_path: Path | None = None
+    #: Server-side access check for all model calls, including automatic helpers.
+    model_access: Callable[[str], None] | None = field(default=None, repr=False, compare=False)
 
     # -- Ableitungen ------------------------------------------------------
     @property
@@ -706,6 +709,8 @@ class Settings:
         winziger Default und der Verlauf wird bei Ueberlauf still vorn
         abgeschnitten -- das Modell "vergisst" dann die letzte Frage.
         """
+        if self.model_access is not None:
+            self.model_access(model)
         kwargs: dict[str, object] = {}
         gleich = provider_of(model) == provider_of(self.api_base_for or self.model)
         # Die eingetragene Adresse -- und ob das KONTO sie eingetragen hat

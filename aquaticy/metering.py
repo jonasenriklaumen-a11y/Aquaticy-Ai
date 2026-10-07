@@ -383,6 +383,9 @@ def completion(settings: Any, *, enforce: bool = True, **kwargs: Any) -> Any:
     import litellm
 
     modell = str(kwargs.get("model") or "")
+    access = getattr(settings, "model_access", None)
+    if access is not None:
+        access(modell)
     if kwargs.get("stream"):
         # Gestreamte Aufrufe reservieren und verrechnen selbst (Agent._reserve,
         # _note_usage). Bis 9.5.16 stand hier ein Zweig dafuer, der das

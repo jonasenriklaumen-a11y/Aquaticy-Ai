@@ -295,6 +295,12 @@ def strongest_models(
         model_id = (model_id or "").strip()
         if not model_id or any(eintrag["id"] == model_id for eintrag in ranked):
             return
+        access = getattr(settings, "model_access", None)
+        if access is not None:
+            try:
+                access(model_id)
+            except ValueError:
+                return
         ranked.append(_mit_herkunft(
             {
                 "id": model_id,
