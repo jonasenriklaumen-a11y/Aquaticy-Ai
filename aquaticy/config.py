@@ -458,6 +458,8 @@ class Settings:
     env_path: Path | None = None
     #: Server-side access check for all model calls, including automatic helpers.
     model_access: Callable[[str], None] | None = field(default=None, repr=False, compare=False)
+    #: Live knowledge for a derived local model; never persisted in chat history.
+    model_context: Callable[[str], str] | None = field(default=None, repr=False, compare=False)
 
     # -- Ableitungen ------------------------------------------------------
     @property

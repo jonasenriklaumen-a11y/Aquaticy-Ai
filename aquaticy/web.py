@@ -1320,6 +1320,8 @@ class ChatSession:
                     raise ValueError("Diese Modellversion steht dir nicht mehr zur Wahl.")
 
             self._settings.model_access = access
+            self._settings.model_context = lambda model: upgrading.model_context(
+                directory, model, self.ultra)
             for field in ("model", "vision_model", "subagent_model", "code_model"):
                 value = getattr(self._settings, field)
                 if value and (field == "model" or not upgrading.allowed(

@@ -453,7 +453,8 @@ class Learning:
                 (time.time(), LEGAL_VERSION, MIN_CONFIRMATIONS),
             ).fetchall())
 
-    def confirmed_facts(self, limit: int = 60, *, metadata: bool = False) -> list[dict]:
+    def confirmed_facts(self, limit: int = 60, *, metadata: bool = False,
+                        fact_ids: tuple[str, ...] | None = None) -> list[dict]:
         """Auszuege, die mehrere Konten unabhaengig bestaetigt haben (10.0 Luna).
 
         Fuer Auto-Upgrading: nur Text und oeffentliche Quelle -- welches Konto
@@ -461,15 +462,21 @@ class Learning:
         ohnehin nur als verblindete Kennung gespeichert). Jeder Auszug wird nach
         dem Entschluesseln noch einmal geprueft wie bei recall().
         """
+        selected = tuple(dict.fromkeys(fact_ids)) if fact_ids is not None else None
+        if selected is not None and (not selected or len(selected) > 60):
+            return []
+        selection = (" AND f.id IN (" + ",".join("?" for _ in selected) + ")"
+                     if selected is not None else "")
         with self.connect() as conn:
             self._expire(conn)
             rows = conn.execute(
                 "SELECT f.id,f.text,f.source,f.expires FROM learning_facts f WHERE f.expires>? AND "
                 "(SELECT COUNT(*) FROM learning_contributions c "
                 "JOIN learning_consent s ON s.owner=c.owner "
-                "WHERE c.fact=f.id AND s.enabled=1 AND s.version=?)>=? "
+                "WHERE c.fact=f.id AND s.enabled=1 AND s.version=?)>=? " + selection + " "
                 "ORDER BY f.created,f.id LIMIT ?",
-                (time.time(), LEGAL_VERSION, MIN_CONFIRMATIONS, min(60, max(0, int(limit)))),
+                (time.time(), LEGAL_VERSION, MIN_CONFIRMATIONS, *(selected or ()),
+                 min(60, max(0, int(limit)))),
             ).fetchall()
         result = []
         for key, sealed, source, expires in rows:

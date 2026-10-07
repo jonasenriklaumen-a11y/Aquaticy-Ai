@@ -2417,6 +2417,7 @@ class Agent:
         litellm.suppress_debug_info = True
         # Durch den Taktgeber: der Anbieter hat ein Mass, und das haelt Aquaticy
         # ein, statt es auszureizen und die Fehler zu wiederholen.
+        messages = metering.prepare_messages(self.settings, self.active_model, messages)
         buchung = self._reserve(messages, self.tools)
         try:
             with paced(self.active_model, pace_key_of(self.settings, self.active_model)):
@@ -3192,13 +3193,14 @@ class Agent:
         sanitize_history(self.messages)
         buchung = None
         try:
-            buchung = self._reserve(self.messages)
+            messages = metering.prepare_messages(self.settings, self.active_model, self.messages)
+            buchung = self._reserve(messages)
             with paced(self.active_model, pace_key_of(self.settings, self.active_model)):
                 if self.settings.model_access is not None:
                     self.settings.model_access(self.active_model)
                 response = litellm.completion(
                     model=self.active_model,
-                    messages=self.messages,
+                    messages=messages,
                     stream=stream,
                     **self._stream_usage(stream),
                     **getattr(buchung, "kwargs", None) or self._llm_kwargs(),
@@ -3235,7 +3237,7 @@ class Agent:
                 # Chat im Terminal -- jetzt zaehlt, was bis dahin ankam.
                 self._emit("error", message=f"{type(exc).__name__}: {exc}")
             text = "".join(parts)
-        self._note_usage(self.messages, {"role": "assistant", "content": text}, buchung, zahlen)
+        self._note_usage(messages, {"role": "assistant", "content": text}, buchung, zahlen)
         self.messages.append({"role": "assistant", "content": text})
         return text
 

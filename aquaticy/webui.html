@@ -2633,7 +2633,7 @@ document.querySelectorAll(".note").forEach((note) => {
 const thread = $("#thread"), main = $("#main"), input = $("#input"), send = $("#send");
 let busy = false;
 let currentChat = "";
-const aquaticyVersion = window.__AQUATICY_VERSION__ || "10.0.2 Luna";
+const aquaticyVersion = window.__AQUATICY_VERSION__ || "10.0.3 Luna";
 $("#version").textContent = "v" + aquaticyVersion;
 // Interne oder Test-Fassung (9.6.0): unten mittig ein gelber Hinweis.
 const aquaticyIntern = window.__AQUATICY_INTERNAL__ === true
@@ -5865,9 +5865,14 @@ buildSectionNav();
 // sonst kostete jedes Oeffnen der Einstellungen zwei Anfragen mehr -- auf einem
 // schwachen Server und am Anfragelimit spuerbar.
 let devGeladen = false;
+let devSichtbar = false;
 new IntersectionObserver((eintraege) => {
-  if (devGeladen || !eintraege.some(e => e.isIntersecting)
-      || !overlay.classList.contains("open")) return;
+  devSichtbar = eintraege.some(e => e.isIntersecting);
+  if (!devSichtbar || !overlay.classList.contains("open")){
+    clearTimeout(upgradeTakt);
+    return;
+  }
+  if (devGeladen){ upgradeLaden(); return; }
   devGeladen = true;
   // Nur abfragen, was dieses Konto sehen kann: der Verbund gehoert zu Ultra.
   if (kontoUltra) verbundLaden(); else verbundZeigen({});
@@ -6934,6 +6939,8 @@ function closeSettings(){
   stopLoad();   // sonst fragt die Auslastung im Hintergrund weiter
   clearTimeout(verbundTakt);
   verbundAnfrage++;
+  clearTimeout(upgradeTakt);
+  upgradeAnfrage++;
 }
 
 /* ---------- Server-Verbund (9.6.1) ---------- */
@@ -8234,29 +8241,65 @@ launchBox.addEventListener("click", (e) => { if (e.target === launchBox) launchS
 launchBox.addEventListener("keydown", (e) => { if (e.key === "Escape") launchSchliessen(); });
 
 async function upgradeLaden(){
+  if (upgradeBusy || !overlay.classList.contains("open") || document.hidden) return;
+  const anfrage = ++upgradeAnfrage;
   if (!kontoUltra){ upgradeZeigen({ locked: true }); return; }
   try {
-    const daten = await (await api("/api/upgrades")).json();
+    const res = await api("/api/upgrades", { quietErrors: true });
+    if (!res.ok) throw new Error();
+    const daten = await res.json();
+    if (anfrage !== upgradeAnfrage) return;
     upgradeZeigen(daten.ultra ? daten.ultra : { unavailable: !daten.available });
   } catch (err){
+    if (anfrage !== upgradeAnfrage) return;
     $("#upgrade-status").textContent = nutzerFehler(err && err.message);
+    upgradeStand = "";
+    upgradePlanen();
   }
 }
 async function upgradeAktion(body, knopf){
+  if (upgradeBusy) return;
+  upgradeBusy = true;
+  upgradeAnfrage++;
+  clearTimeout(upgradeTakt);
+  let nachladen = false;
   if (knopf) knopf.disabled = true;
   try {
     const res = await api("/api/upgrades", { method: "POST",
       headers: {"Content-Type": "application/json"}, body: JSON.stringify(body) });
     const daten = await res.json();
-    if (!res.ok || daten.error){ hinweis(nutzerFehler(daten.error)); upgradeLaden(); return; }
+    if (!res.ok || daten.error){ hinweis(nutzerFehler(daten.error)); nachladen = true; return; }
     upgradeZeigen(daten.ultra);
     if (body.action === "upgrade" || body.action === "rollback") refreshHeader();
-  } catch (err){ hinweis(nutzerFehler(err && err.message)); }
-  finally { if (knopf) knopf.disabled = false; }
+  } catch (err){ hinweis(nutzerFehler(err && err.message)); nachladen = true; }
+  finally {
+    upgradeBusy = false;
+    if (knopf) knopf.disabled = knopf.id === "upgrade-on"
+      && (!kontoUltra || upgradeDaten.locked || upgradeDaten.unavailable);
+    if (nachladen) upgradeLaden(); else upgradePlanen();
+  }
 }
 let upgradeTakt = null;
-function upgradeZeigen(d){
+let upgradeAnfrage = 0, upgradeBusy = false, upgradeStand = "", upgradeDaten = {};
+function upgradePlanen(){
   clearTimeout(upgradeTakt);
+  // Auch vor dem asynchronen Trainingsstart weiter abgleichen. Nur der sichtbare
+  // Dev-Abschnitt braucht Anfragen; unveraenderte Listen behalten ihren Fokus.
+  if (devSichtbar && upgradeDaten.enabled && !upgradeBusy && !document.hidden
+      && overlay.classList.contains("open") && !overlay.classList.contains("closing"))
+    upgradeTakt = setTimeout(upgradeLaden, upgradeDaten.running ? 4000 : 10000);
+}
+document.addEventListener("visibilitychange", () => {
+  if (document.hidden) clearTimeout(upgradeTakt);
+  else if (devSichtbar && overlay.classList.contains("open")) upgradeLaden();
+});
+function upgradeZeigen(d){
+  d = d || { unavailable: true };
+  upgradeDaten = d;
+  upgradePlanen();
+  const stand = JSON.stringify({ ultra: kontoUltra, ...d });
+  if (stand === upgradeStand) return;
+  upgradeStand = stand;
   const gesperrt = !kontoUltra || d.locked;
   $("#upgrade-lock").hidden = !gesperrt;
   $("#upgrade-on").disabled = gesperrt || d.unavailable;
@@ -8326,12 +8369,11 @@ function upgradeZeigen(d){
     }
     liste.appendChild(li);
   }
-  if (d.running && overlay.classList.contains("open")) upgradeTakt = setTimeout(upgradeLaden, 4000);
 }
 $("#upgrade-on").addEventListener("change", (e) =>
   upgradeAktion({ action: "enable", on: e.target.checked }, e.target));
 $("#upgrade-train").addEventListener("click", (e) =>
-  upgradeAktion({ action: "train" }, e.target).then(() => setTimeout(upgradeLaden, 1500)));
+  upgradeAktion({ action: "train" }, e.target));
 
 async function starteOberflaeche(){
   angemeldet = true;

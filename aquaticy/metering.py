@@ -373,6 +373,25 @@ def _counted(messages: Any, response: Any) -> tuple[int, int]:
     return rein, tokens(text)
 
 
+def prepare_messages(settings: Any, model: str, messages: Any) -> Any:
+    """Add live model knowledge without mutating or persisting caller messages."""
+    context_for = getattr(settings, "model_context", None)
+    if context_for is None or not isinstance(messages, list):
+        return messages
+    context = context_for(model)
+    if not context:
+        return messages
+    if not messages or messages[0].get("role") != "system":
+        return [{"role": "system", "content": context}, *messages]
+    first = dict(messages[0])
+    content = first.get("content")
+    if isinstance(content, list):
+        first["content"] = [*content, {"type": "text", "text": context}]
+    else:
+        first["content"] = (content or "") + "\n\n" + context
+    return [first, *messages[1:]]
+
+
 def completion(settings: Any, *, enforce: bool = True, **kwargs: Any) -> Any:
     """``litellm.completion`` -- gezaehlt und, wo verlangt, gegen das Kontingent geprueft.
 
@@ -386,6 +405,7 @@ def completion(settings: Any, *, enforce: bool = True, **kwargs: Any) -> Any:
     access = getattr(settings, "model_access", None)
     if access is not None:
         access(modell)
+    kwargs["messages"] = prepare_messages(settings, modell, kwargs.get("messages"))
     if kwargs.get("stream"):
         # Gestreamte Aufrufe reservieren und verrechnen selbst (Agent._reserve,
         # _note_usage). Bis 9.5.16 stand hier ein Zweig dafuer, der das

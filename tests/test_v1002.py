@@ -425,7 +425,8 @@ def test_ollama_total_deadline_and_idempotent_deletion(monkeypatch):
 
     @contextmanager
     def stream(*args, **kwargs):
-        yield httpx.Response(200, json={"message": {"content": "ok"}})
+        yield httpx.Response(200, json={"message": {"content": "ok"}},
+                             request=httpx.Request("POST", "http://localhost:11434/api/chat"))
 
     monkeypatch.setattr(httpx, "stream", stream)
     monkeypatch.setattr(up.time, "monotonic", lambda: next(clock))
