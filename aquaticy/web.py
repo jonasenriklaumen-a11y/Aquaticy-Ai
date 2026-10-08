@@ -1035,6 +1035,10 @@ def _profile_settings(profile: Path, plan: str, account: Account | None = None) 
     # schickte der Verbindungstest dessen Token an eine Adresse des Kontos.
     settings.ha_url = ""
     settings.ha_token = ""
+    # Die Leitplanken gelten fuer jedes Konto, bis es sie SELBST abschaltet
+    # (10.1.4): ein "aus" in der .env des Betreibers galt sonst fuer jedes
+    # Ultra-Konto mit, das nie etwas eingestellt hatte.
+    settings.legal_guard = True
     for key, attr in _STRING_SETTINGS.items():
         if key in raw:
             setattr(settings, attr, raw[key].strip())

@@ -1,10 +1,16 @@
-# Aquaticy AI 10.0.3 Luna
+# Aquaticy AI 10.1.4 Luna
 
 **Aquaticy** recherchiert für dich. Du stellst eine Frage, Aquaticy sucht im Web, liest die
 passenden Seiten und fasst das Ergebnis zusammen — mit Quelle an jeder Angabe. Es läuft im
 Terminal, im Browser und auf dem Handy.
 
-Neu in **10.0.3 Luna**: Der Upgrade-Status folgt auch einem verzögerten Trainingsstart;
+Neu in **10.1.4 Luna**: Schaltet ein Ultra-Konto die Rechts-Leitplanken ab, gilt das nur für
+dieses Konto — ein „aus“ in der Einstellung des Betreibers nimmt anderen Konten die Leitplanken
+nicht mehr weg. Ein Grundschutz bleibt immer: Schadsoftware und Angriffswerkzeuge in der
+virtual machine (auch über den User mode) werden gestoppt, und Bilder, die echte Menschen
+in Würde, Persönlichkeitsrecht oder Ruf verletzen, malt Aquaticy nicht.
+
+Seit **10.0.3 Luna**: Der Upgrade-Status folgt auch einem verzögerten Trainingsstart;
 veraltete Abfragen überschreiben keine neueren Aktionen und unveränderte Listen behalten
 ihren Tastaturfokus. Abgeschlossene Wissenstests ohne Gewinn werden automatisch nur bei
 neuem Wissen wiederholt; manuelles Training bleibt möglich. Komprimierte Ollama-Antworten
@@ -258,7 +264,7 @@ $ aquaticy
 git clone --branch Aquaticy-ai --single-branch https://github.com/jonasenriklaumen-a11y/Aquaticy-Ai.git
 cd Aquaticy-Ai
 uv tool install --force --reinstall .
-aquaticy --version            # 10.0.3 Luna
+aquaticy --version            # 10.1.4 Luna
 
 # 2. Einrichten — fragt nach Modell und Schlüssel und testet beide
 aquaticy setup

@@ -2596,7 +2596,9 @@ button{touch-action:manipulation}
           Grenzen gelten immer: Aquaticy umgeht keine Bezahlschranken, Logins oder
           Captchas, lässt Seiten in Ruhe, die nicht gelesen werden wollen (robots.txt),
           schaut nur in dein eigenes Netz, schaltet im Haus nur nach Rückfrage und
-          verschickt oder löscht bei Google nie etwas.</div>
+          verschickt oder löscht bei Google nie etwas. Auch ohne Leitplanken stoppt es
+          Schadsoftware in der virtual machine und malt keine Bilder, die echte Menschen
+          bloßstellen. Der Schalter gilt nur für dein Konto.</div>
       </fieldset>
 
       <!-- Seit 9.6.0 ohne Speichern-Knopf: alles speichert sich selbst, oben
@@ -2633,7 +2635,7 @@ document.querySelectorAll(".note").forEach((note) => {
 const thread = $("#thread"), main = $("#main"), input = $("#input"), send = $("#send");
 let busy = false;
 let currentChat = "";
-const aquaticyVersion = window.__AQUATICY_VERSION__ || "10.0.3 Luna";
+const aquaticyVersion = window.__AQUATICY_VERSION__ || "10.1.4 Luna";
 $("#version").textContent = "v" + aquaticyVersion;
 // Interne oder Test-Fassung (9.6.0): unten mittig ein gelber Hinweis.
 const aquaticyIntern = window.__AQUATICY_INTERNAL__ === true
@@ -5076,7 +5078,7 @@ const EN = {
 "Modell automatisch wählen": "Choose model automatically",
 "Du schreibst einfach — Aquaticy sucht für jede Nachricht selbst das passende Hauptmodell aus: fürs Programmieren das Code-Modell, für „erstelle mir ein Bild“ eines, das Bilder malen kann, für ein „Hallo“ das schnelle. Die Helfer bleiben dieselben. Die Wahl geht blitzschnell und kostet nichts extra; im Verlauf siehst du, welches Modell dran war.": "You just write — Aquaticy picks the right main model for each message itself: the code model for programming, one that can paint for “create an image for me”, the fast one for a “Hello”. The helpers stay the same. The choice is instant and costs nothing extra; in the history you see which model was used.",
 "Welche Regeln gelten?": "Which rules apply?",
-"Dieser Schalter betrifft nur die Rechts-Leitplanken. Manche Grenzen gelten immer: Aquaticy umgeht keine Bezahlschranken, Logins oder Captchas, lässt Seiten in Ruhe, die nicht gelesen werden wollen (robots.txt), schaut nur in dein eigenes Netz, schaltet im Haus nur nach Rückfrage und verschickt oder löscht bei Google nie etwas.": "This switch only affects the legal guardrails. Some limits always apply: Aquaticy doesn't bypass paywalls, logins or captchas, leaves pages alone that don't want to be read (robots.txt), only looks into your own network, only switches things at home after asking and never sends or deletes anything at Google.",
+"Dieser Schalter betrifft nur die Rechts-Leitplanken. Manche Grenzen gelten immer: Aquaticy umgeht keine Bezahlschranken, Logins oder Captchas, lässt Seiten in Ruhe, die nicht gelesen werden wollen (robots.txt), schaut nur in dein eigenes Netz, schaltet im Haus nur nach Rückfrage und verschickt oder löscht bei Google nie etwas. Auch ohne Leitplanken stoppt es Schadsoftware in der virtual machine und malt keine Bilder, die echte Menschen bloßstellen. Der Schalter gilt nur für dein Konto.": "This switch only affects the legal guardrails. Some limits always apply: Aquaticy doesn't bypass paywalls, logins or captchas, leaves pages alone that don't want to be read (robots.txt), only looks into your own network, only switches things at home after asking and never sends or deletes anything at Google. Even without guardrails it stops malware in the virtual machine and won't paint images that expose real people. The switch only applies to your account.",
 "Speichern": "Save",
 "Zum Schutz vor Missbrauch liest Ai-guard mit; die Daten werden nur dafür genutzt. Mehr in den": "To protect against misuse, Ai-guard reads along; the data is used only for that. More in the",
 "Frag etwas Größeres …": "Ask something bigger …",

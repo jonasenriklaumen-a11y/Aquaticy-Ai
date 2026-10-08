@@ -1623,9 +1623,10 @@ class Toolbox:
         #: im Agenten: durch diesen Werkzeugkasten laufen auch die Subagenten,
         #: die Pruefer und die Notloesung fuer Bilder -- keiner davon kommt so
         #: an ihm vorbei.
-        self.guard: Guard | None = (
-            Guard(settings) if getattr(settings, "legal_guard", True) else None
-        )
+        # Ohne Leitplanken bleibt der Grundschutz (10.1.4): Schadsoftware in der
+        # virtual machine und Bilder, die echte Menschen verletzen.
+        self.guard: Guard | None = Guard(
+            settings, baseline=not getattr(settings, "legal_guard", True))
         #: Ersetzt im User mode das Vision-Modell (Tests). None = das echte.
         self.screen_reader: Callable[[bytes, str], str] | None = None
         #: Welches Bildmodell create_image nimmt -- setzt die automatische

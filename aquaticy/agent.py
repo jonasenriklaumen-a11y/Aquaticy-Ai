@@ -2856,6 +2856,9 @@ class Agent:
         # Auch ohne Pruefung: die Werkzeugaufrufe dieses Turns gehoeren zu
         # dieser Frage, nicht mehr zur vorigen.
         self.guard.topic = question
+        if getattr(self.guard, "baseline", False):
+            # Leitplanken aus: nur der Grundschutz an den Werkzeugen (10.1.4).
+            return None
         if SMALL_TALK_RE.match(question):
             return None
         # Der Pruefer spricht als Erster mit dem Modell. Muss es erst geladen

@@ -631,11 +631,11 @@ def _run_one(
         rolle, _, rest = auftrag.partition("\n\n")
         regeln = subagent_note().strip()
         auftrag = f"{rolle}\n\n{regeln}\n\n{rest}" if rest else f"{regeln}\n\n{auftrag}"
-        guard = getattr(box, "guard", None)
-        if guard is not None and not guard.topic:
-            # Ein frischer Werkzeugkasten kennt die Frage des Nutzers nicht --
-            # fuer ihn ist der Auftrag der Anlass.
-            guard.topic = task
+    guard = getattr(box, "guard", None)
+    if guard is not None and not guard.topic:
+        # Ein frischer Werkzeugkasten kennt die Frage des Nutzers nicht --
+        # fuer ihn ist der Auftrag der Anlass (auch im Grundschutz).
+        guard.topic = task
     messages: list[dict[str, Any]] = [{"role": "user", "content": auftrag}]
     budget = max(1, int(budget) or settings.subagent_budget)
     used = 0

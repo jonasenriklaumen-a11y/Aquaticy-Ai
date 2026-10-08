@@ -322,7 +322,9 @@ def test_switched_off_means_no_check_and_no_rules(
     gestellt = pruefer(NEIN_NAME)
     monkeypatch.setattr("litellm.completion", lambda **kwargs: _reply("Eine Antwort."))
     agent = Agent(settings, cache=None)
-    assert agent.guard is None and agent.toolbox.guard is None
+    # Seit 10.1.4 bleibt der Grundschutz an den Werkzeugen -- die Anfrage
+    # selbst wird aber nicht mehr geprueft.
+    assert agent.guard is agent.toolbox.guard and agent.guard.baseline
     assert "Rechtsrahmen" not in agent.messages[0]["content"]
     assert agent.ask("Eine Anfrage", stream=False).answer == "Eine Antwort."
     assert gestellt.gefragt == []

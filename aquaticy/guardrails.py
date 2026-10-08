@@ -746,16 +746,33 @@ def event_payload(verdict: Verdict, stage: str, tool: str = "") -> dict[str, Any
     }
 
 
+#: Grundschutz (10.1.4): Diese Werkzeuge prueft Aquaticy auch dann, wenn ein
+#: Ultra-Konto die Rechts-Leitplanken abgeschaltet hat. In der virtual machine
+#: wird nur gestoppt, was nach STOP_TOOL_ABUSE aussieht; bei Bildern nur, was
+#: echte Menschen in ihrer Wuerde, ihrem Persoenlichkeitsrecht oder ihrem Ruf
+#: verletzt. Alles andere laeuft ohne Leitplanken wie gewaehlt.
+BASELINE_VM_TOOLS = frozenset({"vm_run", "vm_write", "blender_run", "desktop_type"})
+BASELINE_IMAGE_RULES = frozenset({"menschenwuerde", "persoenlichkeit", "ruf"})
+BASELINE_TOOLS = BASELINE_VM_TOOLS | {"create_image"}
+
+
 class Guard:
-    """Der Rechtspruefer eines Agenten oder Werkzeugkastens."""
+    """Der Rechtspruefer eines Agenten oder Werkzeugkastens.
+
+    *baseline*: nur der Grundschutz (Leitplanken aus) -- keine Pruefung der
+    Anfrage, nur die Werkzeuge aus BASELINE_TOOLS.
+    """
 
     def __init__(
         self,
         settings: Settings,
         ask: Callable[[str, str, Settings], str] | None = None,
+        *,
+        baseline: bool = False,
     ) -> None:
         self.settings = settings
         self._ask = ask
+        self.baseline = baseline
         #: Die Anfrage, um die es gerade geht. Der Pruefer liest einen
         #: Werkzeugaufruf zusammen mit ihr -- "suche Profile zu Anna Schmidt"
         #: ist bei einer Firmenrecherche etwas anderes als nach der Bitte,
@@ -763,11 +780,36 @@ class Guard:
         self.topic = ""
 
     def check_request(self, question: str, context: str = "") -> Verdict:
+        if self.baseline:
+            return ALLOWED
         return judge(question, self.settings, context=context, ask=self._ask)
 
     def check_call(self, tool: str, arguments: dict[str, Any]) -> Verdict:
         if tool not in SENSITIVE_TOOLS:
             return ALLOWED
+        if self.baseline and tool not in BASELINE_TOOLS:
+            return ALLOWED
+        verdict = self._judge_call(tool, arguments)
+        return self._baseline(tool, verdict) if self.baseline else verdict
+
+    @staticmethod
+    def _baseline(tool: str, verdict: Verdict) -> Verdict:
+        """Was vom Urteil im Grundschutz zaehlt."""
+        if verdict.source in ("ausfall", "unklar"):
+            # Im Zweifel abgelehnt -- wie bei den Leitplanken.
+            return verdict
+        if tool in BASELINE_VM_TOOLS:
+            from aquaticy.aiguard import normalize_category
+
+            if verdict.abuse and normalize_category(verdict.abuse_kind) in STOP_TOOL_ABUSE:
+                return replace(verdict, allowed=True)   # stoppt der Werkzeugkasten
+            return ALLOWED
+        rule = verdict.rule.id if verdict.rule else ""
+        if not verdict.allowed and rule in BASELINE_IMAGE_RULES:
+            return replace(verdict, abuse=False, abuse_kind="", abuse_severity=0)
+        return ALLOWED
+
+    def _judge_call(self, tool: str, arguments: dict[str, Any]) -> Verdict:
         if tool == "desktop_open" and not str(arguments.get("target") or "").strip():
             # Ein leeres Programm zu oeffnen beruehrt niemanden -- erst die
             # Adresse oder Datei darin kann das.
